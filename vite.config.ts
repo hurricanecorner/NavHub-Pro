@@ -7,9 +7,5 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   return {
     plugins: [react()],
-    define: {
-      // Vital: This replaces process.env.API_KEY in your code with the actual value from Cloudflare
-      'process.env.API_KEY': JSON.stringify(env.API_KEY || process.env.API_KEY),
-    },
   };
 });
