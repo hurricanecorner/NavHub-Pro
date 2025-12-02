@@ -556,6 +556,9 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
   const handleEditCategory = (cat: Category) => {
     setCatForm({ id: cat.id, name: cat.name, icon: cat.icon || '' });
+    // Scroll to form
+    const form = document.getElementById('main-cat-form');
+    if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
   const handleDeleteCategory = (id: string) => {
@@ -595,6 +598,9 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
   const handleEditSubCategory = (parentId: string, subCat: SubCategory) => {
     setSubCatForm({ parentId, id: subCat.id, name: subCat.name });
+    // Scroll to form
+    const form = document.getElementById('sub-cat-form');
+    if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
   const handleDeleteSubCategory = (parentId: string, subId: string) => {
@@ -1232,7 +1238,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                 </div>
 
                 {/* 2. New Main Category */}
-                <div className="bg-slate-50 rounded-xl p-6 border border-slate-100 dark:bg-slate-800/50 dark:border-slate-700">
+                <div id="main-cat-form" className="bg-slate-50 rounded-xl p-6 border border-slate-100 dark:bg-slate-800/50 dark:border-slate-700">
                    <div className="flex items-center gap-2 mb-4 text-slate-800 dark:text-slate-200 font-semibold">
                       <Folder className="w-5 h-5 text-indigo-500" />
                       <h3>{catForm.id ? t.admin.category.edit : t.admin.category.new}</h3>
@@ -1288,7 +1294,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                 </div>
 
                 {/* 3. New Sub-Category */}
-                <div className="bg-slate-50 rounded-xl p-6 border border-slate-100 dark:bg-slate-800/50 dark:border-slate-700">
+                <div id="sub-cat-form" className="bg-slate-50 rounded-xl p-6 border border-slate-100 dark:bg-slate-800/50 dark:border-slate-700">
                    <div className="flex items-center gap-2 mb-4 text-slate-800 dark:text-slate-200 font-semibold">
                       <CornerDownRight className="w-5 h-5 text-indigo-500" />
                       <h3>{subCatForm.id ? t.admin.category.editSub : t.admin.category.addSub}</h3>
