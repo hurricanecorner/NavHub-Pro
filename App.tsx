@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, ReactNode, Component } from 'react';
+import React, { useState, useEffect, useRef, ReactNode } from 'react';
 import { Menu, Search, Plus, Settings, Edit, Lock, LogOut, GripVertical, RefreshCw, CheckCircle2, AlertCircle, Languages, AlertTriangle, Loader2, Moon, Sun, Monitor, Laptop, ArrowUp, Globe } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { AppData, LinkItem, NotionConfig, Language, Theme } from './types';
@@ -18,7 +18,7 @@ interface ErrorBoundaryState {
 }
 
 // Error Boundary Component
-class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   public state: ErrorBoundaryState = {
     hasError: false
   };

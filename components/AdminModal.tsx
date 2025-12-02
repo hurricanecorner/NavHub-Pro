@@ -359,7 +359,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
   const handleEditCategory = (cat: Category) => {
     setCatForm({ id: cat.id, name: cat.name, icon: cat.icon || '' });
-    window.scrollTo({ top: 0, behavior: 'smooth' }); // Scroll to form
+    // window.scrollTo({ top: 0, behavior: 'smooth' }); // No longer needed as form is below list
   };
 
   const handleDeleteCategory = (id: string) => {
@@ -897,7 +897,76 @@ const AdminModal: React.FC<AdminModalProps> = ({
           {/* CATEGORY TAB */}
           {activeTab === 'category' && (
             <div className="space-y-8">
-              {/* Category Form (Add/Edit) */}
+              
+              {/* 1. Existing Categories List */}
+              <div className="space-y-2">
+                 <h3 className="font-semibold text-slate-700 text-sm dark:text-slate-300">{t.admin.category.existing}</h3>
+                 <div className="border border-slate-200 rounded-lg overflow-hidden divide-y divide-slate-100 max-h-64 overflow-y-auto dark:border-slate-700 dark:divide-slate-700">
+                    {data.categories.length === 0 && <p className="p-4 text-slate-400 text-sm text-center">{t.admin.category.noCategories}</p>}
+                    {data.categories.map(cat => (
+                      <div key={cat.id} className="bg-white group dark:bg-slate-800">
+                         {/* Main Category Row */}
+                         <div className="p-3 flex items-center justify-between hover:bg-slate-50 transition-colors dark:hover:bg-slate-700/50">
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center overflow-hidden shrink-0 dark:bg-indigo-900/30 dark:border-indigo-800">
+                                  {cat.icon ? <img src={cat.icon} className="w-full h-full object-cover" /> : <Folder className="w-4 h-4 text-indigo-400 dark:text-indigo-300" />}
+                                </div>
+                                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{cat.name}</span>
+                                <span className="text-xs text-slate-400">({cat.subCategories.length})</span>
+                            </div>
+                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button 
+                                  onClick={() => handleEditCategory(cat)}
+                                  className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded dark:hover:bg-slate-600"
+                                  title={t.admin.category.edit}
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button 
+                                  onClick={() => handleDeleteCategory(cat.id)}
+                                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded dark:hover:bg-slate-600"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                            </div>
+                         </div>
+                         
+                         {/* Sub-Categories List (Nested) */}
+                         {cat.subCategories.length > 0 && (
+                           <div className="bg-slate-50/50 border-t border-slate-100 pl-14 pr-3 py-2 space-y-1 dark:bg-slate-900/30 dark:border-slate-700">
+                              {cat.subCategories.map(sc => (
+                                <div key={sc.id} className="flex items-center justify-between group/sub">
+                                   <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                      <CornerDownRight className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                                      <span>{sc.name}</span>
+                                   </div>
+                                   <div className="flex gap-1 opacity-0 group-hover/sub:opacity-100 transition-opacity">
+                                      <button 
+                                        onClick={() => handleEditSubCategory(cat.id, sc)}
+                                        className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded dark:hover:bg-slate-700"
+                                        title="Edit Sub-Category"
+                                      >
+                                        <Edit2 className="w-3 h-3" />
+                                      </button>
+                                      <button 
+                                        onClick={() => handleDeleteSubCategory(cat.id, sc.id)}
+                                        className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded dark:hover:bg-slate-700"
+                                        title="Delete Sub-Category"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                   </div>
+                                </div>
+                              ))}
+                           </div>
+                         )}
+                      </div>
+                    ))}
+                 </div>
+              </div>
+
+              {/* 2. Category Form (Add/Edit) */}
               <div className="bg-slate-50 p-4 rounded-xl space-y-4 border border-slate-100 dark:bg-slate-700/50 dark:border-slate-600">
                 <h3 className="font-semibold text-slate-800 text-sm uppercase tracking-wide dark:text-slate-200">
                   {catForm.id ? t.admin.category.edit : t.admin.category.new}
@@ -967,75 +1036,52 @@ const AdminModal: React.FC<AdminModalProps> = ({
                 </div>
               </div>
               
-              {/* Existing Categories List */}
-              <div className="space-y-2">
-                 <h3 className="font-semibold text-slate-700 text-sm dark:text-slate-300">{t.admin.category.existing}</h3>
-                 <div className="border border-slate-200 rounded-lg overflow-hidden divide-y divide-slate-100 max-h-64 overflow-y-auto dark:border-slate-700 dark:divide-slate-700">
-                    {data.categories.length === 0 && <p className="p-4 text-slate-400 text-sm text-center">{t.admin.category.noCategories}</p>}
-                    {data.categories.map(cat => (
-                      <div key={cat.id} className="bg-white group dark:bg-slate-800">
-                         {/* Main Category Row */}
-                         <div className="p-3 flex items-center justify-between hover:bg-slate-50 transition-colors dark:hover:bg-slate-700/50">
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center overflow-hidden shrink-0 dark:bg-indigo-900/30 dark:border-indigo-800">
-                                  {cat.icon ? <img src={cat.icon} className="w-full h-full object-cover" /> : <Folder className="w-4 h-4 text-indigo-400 dark:text-indigo-300" />}
-                                </div>
-                                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{cat.name}</span>
-                                <span className="text-xs text-slate-400">({cat.subCategories.length})</span>
-                            </div>
-                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button 
-                                  onClick={() => handleEditCategory(cat)}
-                                  className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded dark:hover:bg-slate-600"
-                                  title={t.admin.category.edit}
-                                >
-                                  <Edit2 className="w-4 h-4" />
-                                </button>
-                                <button 
-                                  onClick={() => handleDeleteCategory(cat.id)}
-                                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded dark:hover:bg-slate-600"
-                                  title="Delete"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                            </div>
-                         </div>
-                         
-                         {/* Sub-Categories List (Nested) */}
-                         {cat.subCategories.length > 0 && (
-                           <div className="bg-slate-50/50 border-t border-slate-100 pl-14 pr-3 py-2 space-y-1 dark:bg-slate-900/30 dark:border-slate-700">
-                              {cat.subCategories.map(sc => (
-                                <div key={sc.id} className="flex items-center justify-between group/sub">
-                                   <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                                      <CornerDownRight className="w-3 h-3 text-slate-300 dark:text-slate-600" />
-                                      <span>{sc.name}</span>
-                                   </div>
-                                   <div className="flex gap-1 opacity-0 group-hover/sub:opacity-100 transition-opacity">
-                                      <button 
-                                        onClick={() => handleEditSubCategory(cat.id, sc)}
-                                        className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded dark:hover:bg-slate-700"
-                                        title="Edit Sub-Category"
-                                      >
-                                        <Edit2 className="w-3 h-3" />
-                                      </button>
-                                      <button 
-                                        onClick={() => handleDeleteSubCategory(cat.id, sc.id)}
-                                        className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded dark:hover:bg-slate-700"
-                                        title="Delete Sub-Category"
-                                      >
-                                        <Trash2 className="w-3 h-3" />
-                                      </button>
-                                   </div>
-                                </div>
-                              ))}
-                           </div>
-                         )}
-                      </div>
-                    ))}
-                 </div>
+              {/* 3. Sub Categories Add/Edit Form - Now Wrapped like Main Category Form */}
+              <div className="bg-slate-50 p-4 rounded-xl space-y-4 border border-slate-100 dark:bg-slate-700/50 dark:border-slate-600">
+                <h3 className="font-semibold text-slate-800 text-sm uppercase tracking-wide dark:text-slate-200">
+                  {subCatForm.id ? t.admin.category.editSub : t.admin.category.addSub}
+                </h3>
+                <div className="grid grid-cols-1 gap-3">
+                  <select 
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none bg-white text-sm dark:bg-slate-700 dark:text-white dark:border-slate-600"
+                    value={subCatForm.parentId}
+                    onChange={(e) => setSubCatForm({ ...subCatForm, parentId: e.target.value })}
+                  >
+                    <option value="">{t.admin.category.selectParent}</option>
+                    {data.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      className="flex-1 px-3 py-2 border border-slate-200 rounded-lg outline-none focus:border-indigo-500 text-sm dark:bg-slate-700 dark:text-white dark:border-slate-600"
+                      placeholder={t.admin.category.subName}
+                      value={subCatForm.name}
+                      onChange={(e) => setSubCatForm({ ...subCatForm, name: e.target.value })}
+                    />
+                    <div className="flex gap-1">
+                      {subCatForm.id && (
+                        <button 
+                          onClick={() => setSubCatForm({ parentId: '', id: null, name: '' })}
+                          className="bg-slate-200 hover:bg-slate-300 text-slate-600 px-3 py-2 rounded-lg text-sm dark:bg-slate-600 dark:text-slate-300 dark:hover:bg-slate-500"
+                        >
+                          {t.admin.category.cancel}
+                        </button>
+                      )}
+                      <button 
+                        onClick={handleSaveSubCategory}
+                        disabled={!subCatForm.name || !subCatForm.parentId}
+                        className="bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white px-4 py-2 rounded-lg flex items-center justify-center min-w-[3rem] dark:bg-indigo-600 dark:hover:bg-indigo-700"
+                      >
+                         {subCatForm.id ? <Save className="w-4 h-4" /> : <Plus className="w-5 h-5" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              {/* Bulk Icon Upload Section */}
+              <div className="border-t border-slate-100 my-4 dark:border-slate-700" />
+
+              {/* 4. Bulk Icon Upload Section */}
               <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-100 dark:bg-slate-700/50 dark:border-slate-600">
                 <div className="flex items-center justify-between">
                   <h3 className="font-semibold text-slate-800 text-sm uppercase tracking-wide dark:text-slate-200">
@@ -1166,51 +1212,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                      </div>
                   </div>
                 )}
-              </div>
-
-              <div className="border-t border-slate-100 my-4 dark:border-slate-700" />
-
-              {/* Sub Categories Add/Edit Form */}
-              <div className="space-y-3">
-                <h3 className="font-semibold text-slate-700 text-sm dark:text-slate-300">
-                  {subCatForm.id ? t.admin.category.editSub : t.admin.category.addSub}
-                </h3>
-                <div className="grid grid-cols-1 gap-3">
-                  <select 
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none bg-white text-sm dark:bg-slate-700 dark:text-white dark:border-slate-600"
-                    value={subCatForm.parentId}
-                    onChange={(e) => setSubCatForm({ ...subCatForm, parentId: e.target.value })}
-                  >
-                    <option value="">{t.admin.category.selectParent}</option>
-                    {data.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                  <div className="flex gap-2">
-                    <input 
-                      type="text" 
-                      className="flex-1 px-3 py-2 border border-slate-200 rounded-lg outline-none focus:border-indigo-500 text-sm dark:bg-slate-700 dark:text-white dark:border-slate-600"
-                      placeholder={t.admin.category.subName}
-                      value={subCatForm.name}
-                      onChange={(e) => setSubCatForm({ ...subCatForm, name: e.target.value })}
-                    />
-                    <div className="flex gap-1">
-                      {subCatForm.id && (
-                        <button 
-                          onClick={() => setSubCatForm({ parentId: '', id: null, name: '' })}
-                          className="bg-slate-200 hover:bg-slate-300 text-slate-600 px-3 py-2 rounded-lg text-sm dark:bg-slate-600 dark:text-slate-300 dark:hover:bg-slate-500"
-                        >
-                          {t.admin.category.cancel}
-                        </button>
-                      )}
-                      <button 
-                        onClick={handleSaveSubCategory}
-                        disabled={!subCatForm.name || !subCatForm.parentId}
-                        className="bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white px-4 py-2 rounded-lg flex items-center justify-center min-w-[3rem] dark:bg-indigo-600 dark:hover:bg-indigo-700"
-                      >
-                         {subCatForm.id ? <Save className="w-4 h-4" /> : <Plus className="w-5 h-5" />}
-                      </button>
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
           )}
