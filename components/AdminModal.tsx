@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Plus, Save, Upload, AlertCircle, Edit2, Trash2, CornerDownRight, Folder, ListPlus, FileText, Images, ArrowRight, Check, Undo2, Tag, Download, FileJson } from 'lucide-react';
+import { X, Plus, Save, Upload, AlertCircle, Edit2, Trash2, CornerDownRight, Folder, ListPlus, FileText, Images, ArrowRight, Check, Undo2, Tag, Download, Book } from 'lucide-react';
 import { AppData, Category, LinkItem, NotionConfig, SubCategory } from '../types';
 
 interface AdminModalProps {
@@ -462,15 +462,48 @@ const AdminModal: React.FC<AdminModalProps> = ({
     alert(t.admin.notion.saved);
   };
 
-  // --- Data Import/Export Logic ---
+  // --- Data Import/Export Logic (HTML Bookmarks) ---
 
   const handleExportData = () => {
-    const jsonString = JSON.stringify(data, null, 2);
-    const blob = new Blob([jsonString], { type: 'application/json' });
+    let html = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<!-- This is an automatically generated file.
+     It will be read and overwritten.
+     DO NOT EDIT! -->
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
+<TITLE>NavHub Bookmarks</TITLE>
+<H1>NavHub Bookmarks</H1>
+<DL><p>
+`;
+
+    data.categories.forEach(cat => {
+      html += `    <DT><H3 ADD_DATE="${Date.now()}" LAST_MODIFIED="${Date.now()}">${cat.name}</H3>\n`;
+      html += `    <DL><p>\n`;
+      
+      cat.subCategories.forEach(sub => {
+         html += `        <DT><H3 ADD_DATE="${Date.now()}" LAST_MODIFIED="${Date.now()}">${sub.name}</H3>\n`;
+         html += `        <DL><p>\n`;
+         
+         const links = data.links.filter(l => l.categoryId === cat.id && l.subCategoryId === sub.id);
+         links.forEach(link => {
+            html += `            <DT><A HREF="${link.url}" ADD_DATE="${Date.now()}" ICON="${link.iconUrl || ''}" TAGS="${(link.tags || []).join(',')}">${link.title}</A>\n`;
+            if (link.description) {
+              html += `            <DD>${link.description}\n`;
+            }
+         });
+
+         html += `        </DL><p>\n`;
+      });
+
+      html += `    </DL><p>\n`;
+    });
+
+    html += `</DL><p>`;
+
+    const blob = new Blob([html], { type: 'text/html' });
     const href = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = href;
-    link.download = `navhub_backup_${new Date().toISOString().split('T')[0]}.json`;
+    link.download = `navhub_bookmarks_${new Date().toISOString().split('T')[0]}.html`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -483,23 +516,139 @@ const AdminModal: React.FC<AdminModalProps> = ({
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const parsed = JSON.parse(event.target?.result as string);
-        // Basic validation
-        if (parsed && Array.isArray(parsed.categories) && Array.isArray(parsed.links)) {
-          if (window.confirm(t.admin.data.confirm)) {
-            onUpdateData(parsed);
+        const htmlContent = event.target?.result as string;
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlContent, 'text/html');
+        
+        const newCategories: Category[] = [];
+        const newLinks: LinkItem[] = [];
+
+        const rootDl = doc.querySelector('dl'); // First DL is usually root (after H1)
+        if (!rootDl) {
+             alert(t.admin.data.error);
+             return;
+        }
+
+        const topLevelDts = Array.from(rootDl.children).filter(node => node.tagName === 'DT');
+        
+        topLevelDts.forEach(dt => {
+            const h3 = dt.querySelector('h3');
+            if (!h3) return; // Not a folder?
+
+            const catName = h3.textContent || 'Untitled';
+            const catId = `c-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+            
+            // Find the DL for this folder
+            const subDl = dt.querySelector('dl') || (dt.nextElementSibling?.tagName === 'DL' ? dt.nextElementSibling : null);
+            
+            const subCategories: SubCategory[] = [];
+            
+            if (subDl) {
+                const subDts = Array.from(subDl.children).filter(node => node.tagName === 'DT');
+                
+                subDts.forEach(subDt => {
+                    const subH3 = subDt.querySelector('h3');
+                    if (subH3) {
+                        // It's a SubCategory
+                        const subName = subH3.textContent || 'Untitled';
+                        const subId = `sc-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+                        
+                        subCategories.push({ id: subId, name: subName });
+                        
+                        // Links in SubCategory
+                        const linkDl = subDt.querySelector('dl') || (subDt.nextElementSibling?.tagName === 'DL' ? subDt.nextElementSibling : null);
+                        if (linkDl) {
+                             const linkDts = Array.from(linkDl.children).filter(node => node.tagName === 'DT');
+                             linkDts.forEach(linkDt => {
+                                 const a = linkDt.querySelector('a');
+                                 if (a) {
+                                     const title = a.textContent || 'Untitled';
+                                     const url = a.getAttribute('href') || '#';
+                                     const iconUrl = a.getAttribute('icon') || '';
+                                     const tagsAttr = a.getAttribute('tags');
+                                     const tags = tagsAttr ? tagsAttr.split(',').filter(Boolean) : [];
+                                     
+                                     let description = '';
+                                     const dd = linkDt.nextElementSibling;
+                                     if (dd && dd.tagName === 'DD') {
+                                         description = dd.textContent?.trim() || '';
+                                     }
+
+                                     newLinks.push({
+                                         id: `l-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                                         title,
+                                         url,
+                                         description,
+                                         iconUrl,
+                                         categoryId: catId,
+                                         subCategoryId: subId,
+                                         tags
+                                     });
+                                 }
+                             });
+                        }
+                    } else {
+                        // Link at Category Level (No subcategory)
+                        // Create a "General" subcategory for these orphans
+                        let generalSub = subCategories.find(s => s.name === 'General');
+                        if (!generalSub) {
+                            generalSub = { id: `sc-gen-${catId}`, name: 'General' };
+                            subCategories.push(generalSub);
+                        }
+                        
+                        const a = subDt.querySelector('a');
+                        if (a) {
+                            const title = a.textContent || 'Untitled';
+                            const url = a.getAttribute('href') || '#';
+                            const iconUrl = a.getAttribute('icon') || '';
+                            const tagsAttr = a.getAttribute('tags');
+                            const tags = tagsAttr ? tagsAttr.split(',').filter(Boolean) : [];
+
+                             let description = '';
+                             const dd = subDt.nextElementSibling;
+                             if (dd && dd.tagName === 'DD') {
+                                 description = dd.textContent?.trim() || '';
+                             }
+
+                            newLinks.push({
+                                 id: `l-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                                 title,
+                                 url,
+                                 description,
+                                 iconUrl,
+                                 categoryId: catId,
+                                 subCategoryId: generalSub.id,
+                                 tags
+                             });
+                        }
+                    }
+                });
+            }
+
+            newCategories.push({
+                id: catId,
+                name: catName,
+                icon: '', 
+                subCategories
+            });
+        });
+
+        if (newCategories.length > 0) {
+           if (window.confirm(t.admin.data.confirm)) {
+            onUpdateData({ categories: newCategories, links: newLinks });
             alert(t.admin.data.success);
             onClose();
-          }
+           }
         } else {
-          alert(t.admin.data.error);
+            alert(t.admin.data.error);
         }
+
       } catch (err) {
+        console.error(err);
         alert(t.admin.data.error);
       }
     };
     reader.readAsText(file);
-    // Reset input value so same file can be selected again if needed
     e.target.value = '';
   };
 
@@ -1299,7 +1448,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                         onClick={handleExportData}
                         className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
                       >
-                         <FileJson className="w-4 h-4" />
+                         <FileText className="w-4 h-4" />
                          {t.admin.data.exportBtn}
                       </button>
                     </div>
@@ -1316,9 +1465,9 @@ const AdminModal: React.FC<AdminModalProps> = ({
                       <p className="text-sm text-slate-500 mb-4 dark:text-slate-400">{t.admin.data.importDesc}</p>
                       
                       <label className="inline-flex cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium items-center gap-2 transition-colors">
-                         <FileJson className="w-4 h-4" />
+                         <Book className="w-4 h-4" />
                          {t.admin.data.importBtn}
-                         <input type="file" accept=".json" className="hidden" onChange={handleImportData} />
+                         <input type="file" accept=".html" className="hidden" onChange={handleImportData} />
                       </label>
                     </div>
                   </div>

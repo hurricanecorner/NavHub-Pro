@@ -38,14 +38,14 @@ export const TRANSLATIONS = {
         data: "Data Backup"
       },
       data: {
-        exportTitle: "Export Data",
-        exportDesc: "Download a backup of your categories and links as a JSON file.",
-        exportBtn: "Export to JSON",
-        importTitle: "Import Data",
-        importDesc: "Restore data from a backup JSON file. Warning: This will overwrite all current data.",
-        importBtn: "Import from JSON",
-        success: "Data imported successfully!",
-        error: "Invalid file format. Please ensure it is a valid NavHub backup.",
+        exportTitle: "Export Bookmarks",
+        exportDesc: "Download a standard Bookmarks HTML file. Categories become folders.",
+        exportBtn: "Export to HTML",
+        importTitle: "Import Bookmarks",
+        importDesc: "Restore data from a Bookmarks HTML file. Warning: This will overwrite current data.",
+        importBtn: "Import from HTML",
+        success: "Bookmarks imported successfully!",
+        error: "Invalid HTML file format.",
         confirm: "This will overwrite all your current categories and links. Are you sure you want to proceed?"
       },
       link: {
@@ -160,14 +160,14 @@ export const TRANSLATIONS = {
         data: "数据备份"
       },
       data: {
-        exportTitle: "导出数据",
-        exportDesc: "将当前的分类和链接导出为 JSON 文件进行备份。",
-        exportBtn: "导出为 JSON",
-        importTitle: "导入数据",
-        importDesc: "从备份的 JSON 文件恢复数据。注意：这将覆盖当前的所有数据。",
-        importBtn: "从 JSON 导入",
-        success: "数据导入成功！",
-        error: "文件格式无效，请确保是有效的备份文件。",
+        exportTitle: "导出书签",
+        exportDesc: "将数据导出为标准书签 HTML 文件，主分类和子分类将变为文件夹。",
+        exportBtn: "导出为 HTML",
+        importTitle: "导入书签",
+        importDesc: "从书签 HTML 文件恢复数据。警告：这将覆盖当前所有数据。",
+        importBtn: "从 HTML 导入",
+        success: "书签导入成功！",
+        error: "无效的 HTML 文件格式。",
         confirm: "这将覆盖当前所有的分类和链接数据，确定要继续吗？"
       },
       link: {
