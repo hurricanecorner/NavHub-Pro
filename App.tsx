@@ -1,5 +1,5 @@
-import React, { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
-import { Menu, Search, Plus, Settings, Edit, Lock, LogOut, GripVertical, RefreshCw, CheckCircle2, AlertCircle, Languages, AlertTriangle, Loader2, Moon, Sun, Monitor, Laptop } from 'lucide-react';
+import React, { useState, useEffect, useRef, Component, ErrorInfo, ReactNode } from 'react';
+import { Menu, Search, Plus, Settings, Edit, Lock, LogOut, GripVertical, RefreshCw, CheckCircle2, AlertCircle, Languages, AlertTriangle, Loader2, Moon, Sun, Monitor, Laptop, ArrowUp } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { AppData, LinkItem, NotionConfig, Language, Theme } from './types';
 import { loadData, saveData, loadNotionConfig, saveNotionConfig, syncToNotion, loadLanguage, saveLanguage, loadTheme, saveTheme } from './services/storageUtils';
@@ -18,21 +18,20 @@ interface ErrorBoundaryState {
 }
 
 // Error Boundary Component
-class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-    this.state = { hasError: false };
-  }
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  public state: ErrorBoundaryState = {
+    hasError: false
+  };
 
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+  public static getDerivedStateFromError(_: Error): ErrorBoundaryState {
     return { hasError: true };
   }
 
-  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("Uncaught error:", error, errorInfo);
   }
 
-  render() {
+  public render() {
     if (this.state.hasError) {
       return (
         <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-800 p-4 dark:bg-slate-900 dark:text-slate-100">
@@ -83,6 +82,10 @@ const Dashboard: React.FC = () => {
   // Sync State
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+
+  // Scroll to Top State
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const mainContentRef = useRef<HTMLDivElement>(null);
 
   // Translation Helper
   const t = TRANSLATIONS[lang];
@@ -144,6 +147,21 @@ const Dashboard: React.FC = () => {
       setIsSearching(false);
     };
   }, [searchInputValue]);
+
+  // Handle scroll to show/hide "Go to Top" button
+  const handleScroll = () => {
+    if (mainContentRef.current) {
+      const { scrollTop, scrollHeight } = mainContentRef.current;
+      // Show button if scrolled more than halfway through the content area
+      setShowScrollTop(scrollTop > scrollHeight / 2);
+    }
+  };
+
+  const scrollToTop = () => {
+    if (mainContentRef.current) {
+      mainContentRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
   // Update localStorage when data changes
   const handleUpdateData = (newData: AppData) => {
@@ -349,7 +367,7 @@ const Dashboard: React.FC = () => {
         />
 
         {/* Main Content */}
-        <main className="flex-1 flex flex-col h-screen overflow-hidden">
+        <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
           
           {/* Header */}
           <header className="h-16 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-4 lg:px-8 z-30 sticky top-0 dark:bg-slate-800/80 dark:border-slate-700 transition-colors">
@@ -459,7 +477,11 @@ const Dashboard: React.FC = () => {
           </header>
 
           {/* Content Scroll Area */}
-          <div className="flex-1 overflow-y-auto p-4 lg:p-8 space-y-12 pb-24 scroll-smooth">
+          <div 
+            ref={mainContentRef}
+            onScroll={handleScroll}
+            className="flex-1 overflow-y-auto p-4 lg:p-8 space-y-12 pb-24 scroll-smooth"
+          >
             
             {searchInputValue ? (
               // Search Results View
@@ -601,6 +623,17 @@ const Dashboard: React.FC = () => {
             
             <div className="h-12" /> {/* Bottom spacer */}
           </div>
+
+          {/* Scroll To Top Button */}
+          <button
+            onClick={scrollToTop}
+            className={`fixed bottom-8 right-8 p-3 bg-indigo-600 text-white rounded-full shadow-lg hover:bg-indigo-700 hover:shadow-xl transition-all duration-300 z-30 ${
+              showScrollTop ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10 pointer-events-none'
+            }`}
+            aria-label="Scroll to top"
+          >
+            <ArrowUp className="w-6 h-6" />
+          </button>
         </main>
 
         <AdminModal 
