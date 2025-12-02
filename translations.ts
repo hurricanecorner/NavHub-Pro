@@ -63,6 +63,7 @@ export const TRANSLATIONS = {
         selectCategory: "-- Select --",
         create: "Create Link",
         update: "Update Link",
+        delete: "Delete Link",
         validation: {
           titleRequired: "Title is required",
           urlRequired: "URL is required",
@@ -215,6 +216,7 @@ export const TRANSLATIONS = {
         selectCategory: "-- 请选择 --",
         create: "创建链接",
         update: "更新链接",
+        delete: "删除链接",
         validation: {
           titleRequired: "标题不能为空",
           urlRequired: "链接地址不能为空",
@@ -283,7 +285,7 @@ export const TRANSLATIONS = {
           gistLabel: "Gist ID",
           gistPlaceholder: "留空新建，或粘贴 ID 同步",
           help: "如何获取 Token？",
-          helpText: "GitHub Settings -> Developer settings -> Personal access tokens (Classic)。勾选 'gist' 权限。",
+          helpText: "GitHub Settings -> Developer settings -> Personal access tokens (Classic). 勾选 'gist' 权限。",
         },
         notion: {
           tokenLabel: "Notion Integration Token",

@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, Plus, Save, Upload, AlertCircle, Edit2, Trash2, CornerDownRight, Folder, ListPlus, FileText, Images, ArrowRight, Check, Undo2, Tag, Download, Book, Cloud, ExternalLink, RefreshCw, Settings, Grid, ChevronDown, ChevronUp } from 'lucide-react';
 import { AppData, Category, LinkItem, CloudConfig, SubCategory } from '../types';
@@ -179,10 +181,16 @@ const AdminModal: React.FC<AdminModalProps> = ({
                   linkDts.forEach(linkDt => {
                     const a = linkDt.querySelector('a');
                     if (a) {
+                      let url = a.href;
+                      // Auto-fix URL protocol if missing
+                      if (url && !/^(https?:\/\/)/i.test(url) && !url.startsWith('file:')) {
+                        // Bookmarks usually have protocol, but just in case
+                      }
+
                       newLinks.push({
                         id: `l-${catId}-${subId}-${linkIdCounter++}`,
                         title: a.textContent || "Link",
-                        url: a.href,
+                        url: url,
                         description: "", 
                         categoryId: catId,
                         subCategoryId: subId,
@@ -223,7 +231,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
   };
 
   // Get all unique tags from existing links for suggestions
-  const existingTags = useMemo(() => {
+  const allExistingTags = useMemo(() => {
     const tags = new Set<string>();
     data.links.forEach(link => {
       if (link.tags) {
@@ -232,6 +240,20 @@ const AdminModal: React.FC<AdminModalProps> = ({
     });
     return Array.from(tags).sort();
   }, [data.links]);
+
+  // Filter suggestions based on input and already selected tags
+  const suggestedTags = useMemo(() => {
+    const currentTags = new Set(linkForm.tags || []);
+    const availableTags = allExistingTags.filter(t => !currentTags.has(t));
+
+    if (!tagInput.trim()) {
+      return availableTags.slice(0, 8); // Show top 8 if empty
+    }
+    
+    return availableTags
+      .filter(t => t.toLowerCase().includes(tagInput.toLowerCase()))
+      .slice(0, 8);
+  }, [allExistingTags, tagInput, linkForm.tags]);
 
   useEffect(() => {
     if (isOpen) {
@@ -489,6 +511,15 @@ const AdminModal: React.FC<AdminModalProps> = ({
     onClose();
   };
 
+  const handleDeleteLink = () => {
+    if (!editingItem) return;
+    if (window.confirm(t.app.deleteLinkConfirm)) {
+      const updatedLinks = data.links.filter(l => l.id !== editingItem.id);
+      onUpdateData({ ...data, links: updatedLinks });
+      onClose();
+    }
+  };
+
   const handleBulkImport = () => {
     if (!linkForm.categoryId) {
       setLinkErrors({ ...linkErrors, categoryId: t.admin.link.validation.categoryRequired });
@@ -563,14 +594,18 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
   // --- Category Logic ---
 
-  const handleEditCategory = (cat: Category) => {
+  const handleEditCategory = (e: React.MouseEvent, cat: Category) => {
+    e.stopPropagation();
+    e.preventDefault();
     setCatForm({ id: cat.id, name: cat.name, icon: cat.icon || '' });
     // Scroll to form
     const form = document.getElementById('main-cat-form');
     if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
-  const handleDeleteCategory = (id: string) => {
+  const handleDeleteCategory = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    e.preventDefault();
     if (window.confirm(t.admin.category.deleteConfirm)) {
       const updatedCategories = data.categories.filter(c => c.id !== id);
       const updatedLinks = data.links.filter(l => l.categoryId !== id);
@@ -605,14 +640,18 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
   // --- SubCategory Logic ---
 
-  const handleEditSubCategory = (parentId: string, subCat: SubCategory) => {
+  const handleEditSubCategory = (e: React.MouseEvent, parentId: string, subCat: SubCategory) => {
+    e.stopPropagation();
+    e.preventDefault();
     setSubCatForm({ parentId, id: subCat.id, name: subCat.name });
     // Scroll to form
     const form = document.getElementById('sub-cat-form');
     if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
-  const handleDeleteSubCategory = (parentId: string, subId: string) => {
+  const handleDeleteSubCategory = (e: React.MouseEvent, parentId: string, subId: string) => {
+    e.stopPropagation();
+    e.preventDefault();
     if (window.confirm(t.admin.category.deleteSubConfirm)) {
       const updatedCategories = data.categories.map(c => {
         if (c.id === parentId) {
@@ -905,11 +944,11 @@ const AdminModal: React.FC<AdminModalProps> = ({
                              <Plus className="w-4 h-4" />
                            </button>
                         </div>
-                        {existingTags.length > 0 && (
+                        {suggestedTags.length > 0 && (
                           <div className="mt-2">
                             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">{t.admin.link.suggestedTags}</p>
                             <div className="flex flex-wrap gap-1">
-                              {existingTags.slice(0, 10).map(tag => (
+                              {suggestedTags.map(tag => (
                                 <button 
                                   key={tag}
                                   onClick={() => handleAddTag(tag)}
@@ -949,10 +988,21 @@ const AdminModal: React.FC<AdminModalProps> = ({
                         </div>
                      </div>
 
-                     <div className="pt-4 flex justify-end">
+                     <div className="pt-4 flex items-center gap-3">
+                       {editingItem && (
+                         <button 
+                           type="button"
+                           onClick={handleDeleteLink}
+                           className="bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
+                         >
+                           <Trash2 className="w-4 h-4" />
+                           <span>{t.admin.link.delete}</span>
+                         </button>
+                       )}
                        <button 
+                         type="button"
                          onClick={handleSaveLink}
-                         className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-lg text-sm font-medium shadow-md shadow-indigo-200 dark:shadow-none transition-all active:scale-95 flex items-center gap-2"
+                         className={`ml-auto bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-lg text-sm font-medium shadow-md shadow-indigo-200 dark:shadow-none transition-all active:scale-95 flex items-center gap-2`}
                        >
                          <Save className="w-4 h-4" />
                          <span>{editingItem ? t.admin.link.update : t.admin.link.create}</span>
@@ -1214,8 +1264,20 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                      <span className="font-semibold text-slate-800 dark:text-slate-200">{cat.name}</span>
                                   </div>
                                   <div className="flex items-center gap-1">
-                                     <button onClick={() => handleEditCategory(cat)} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded dark:hover:bg-indigo-900/30 dark:hover:text-indigo-400"><Edit2 className="w-4 h-4" /></button>
-                                     <button onClick={() => handleDeleteCategory(cat.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded dark:hover:bg-red-900/30 dark:hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                                     <button 
+                                       type="button"
+                                       onClick={(e) => handleEditCategory(e, cat)} 
+                                       className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded dark:hover:bg-indigo-900/30 dark:hover:text-indigo-400"
+                                     >
+                                       <Edit2 className="w-4 h-4 pointer-events-none" />
+                                     </button>
+                                     <button 
+                                       type="button"
+                                       onClick={(e) => handleDeleteCategory(e, cat.id)} 
+                                       className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded dark:hover:bg-red-900/30 dark:hover:text-red-400"
+                                     >
+                                       <Trash2 className="w-4 h-4 pointer-events-none" />
+                                     </button>
                                   </div>
                                </div>
                                
@@ -1229,8 +1291,20 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                          <span>{sub.name}</span>
                                        </div>
                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                         <button onClick={() => handleEditSubCategory(cat.id, sub)} className="p-1 text-slate-400 hover:text-indigo-600"><Edit2 className="w-3 h-3" /></button>
-                                         <button onClick={() => handleDeleteSubCategory(cat.id, sub.id)} className="p-1 text-slate-400 hover:text-red-600"><Trash2 className="w-3 h-3" /></button>
+                                         <button 
+                                           type="button"
+                                           onClick={(e) => handleEditSubCategory(e, cat.id, sub)} 
+                                           className="p-1 text-slate-400 hover:text-indigo-600"
+                                         >
+                                           <Edit2 className="w-3 h-3 pointer-events-none" />
+                                         </button>
+                                         <button 
+                                           type="button"
+                                           onClick={(e) => handleDeleteSubCategory(e, cat.id, sub.id)} 
+                                           className="p-1 text-slate-400 hover:text-red-600"
+                                         >
+                                           <Trash2 className="w-3 h-3 pointer-events-none" />
+                                         </button>
                                        </div>
                                      </div>
                                    ))
@@ -1304,7 +1378,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                 {/* 3. New Sub-Category */}
                 <div id="sub-cat-form" className="bg-slate-50 rounded-xl p-6 border border-slate-100 dark:bg-slate-800/50 dark:border-slate-700">
                    <div className="flex items-center gap-2 mb-4 text-slate-800 dark:text-slate-200 font-semibold">
-                      <CornerDownRight className="w-5 h-5 text-indigo-500" />
+                      <Save className="w-5 h-5 text-indigo-500" />
                       <h3>{subCatForm.id ? t.admin.category.editSub : t.admin.category.addSub}</h3>
                    </div>
                    

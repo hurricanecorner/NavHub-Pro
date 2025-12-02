@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { LinkItem } from '../types';
 import { ExternalLink, Edit2, Trash2, Globe } from 'lucide-react';
@@ -21,10 +22,10 @@ const LinkCard: React.FC<LinkCardProps> = ({ item, isEditMode, onEdit, onDelete,
   );
 
   return (
-    <div className="group relative bg-white rounded-xl border border-slate-100 shadow-sm hover:shadow-md hover:border-indigo-100 transition-all duration-200 p-4 flex gap-4 items-start dark:bg-slate-800 dark:border-slate-700 dark:hover:border-indigo-500/30">
+    <div className={`group relative bg-white rounded-xl border border-slate-100 shadow-sm transition-all duration-200 p-4 flex gap-4 items-start dark:bg-slate-800 dark:border-slate-700 ${isEditMode ? 'cursor-default' : 'hover:shadow-md hover:border-indigo-100 dark:hover:border-indigo-500/30'}`}>
       
-      {/* Tooltip for full description on hover */}
-      {item.description && (
+      {/* Tooltip for full description on hover (only in view mode or if not interfering) */}
+      {item.description && !isEditMode && (
         <div className="absolute left-0 bottom-[calc(100%+10px)] w-full bg-slate-800 text-white text-xs p-3 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none dark:bg-slate-700 dark:text-slate-100">
           <p className="leading-relaxed break-words">{item.description}</p>
           {/* Tooltip Arrow */}
@@ -64,18 +65,33 @@ const LinkCard: React.FC<LinkCardProps> = ({ item, isEditMode, onEdit, onDelete,
 
       {/* Action / Link */}
       {isEditMode ? (
-        <div className="absolute top-2 right-2 flex gap-1">
+        <div 
+          className="absolute top-2 right-2 flex gap-1 z-20"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
           <button 
-            onClick={(e) => { e.preventDefault(); onEdit(item); }}
-            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors dark:hover:bg-indigo-900/30 dark:hover:text-indigo-400"
+            type="button"
+            onClick={(e) => { 
+              e.stopPropagation();
+              e.preventDefault();
+              onEdit(item); 
+            }}
+            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors dark:hover:bg-indigo-900/30 dark:hover:text-indigo-400 cursor-pointer"
+            title={t.admin.editLink}
           >
-            <Edit2 className="w-4 h-4" />
+            <Edit2 className="w-4 h-4 pointer-events-none" />
           </button>
           <button 
-            onClick={(e) => { e.preventDefault(); onDelete(item.id); }}
-            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors dark:hover:bg-red-900/30 dark:hover:text-red-400"
+            type="button"
+            onClick={(e) => { 
+              e.stopPropagation(); 
+              e.preventDefault();
+              onDelete(item.id); 
+            }}
+            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors dark:hover:bg-red-900/30 dark:hover:text-red-400 cursor-pointer"
+            title="Delete"
           >
-            <Trash2 className="w-4 h-4" />
+            <Trash2 className="w-4 h-4 pointer-events-none" />
           </button>
         </div>
       ) : (
