@@ -285,6 +285,29 @@ const Dashboard: React.FC = () => {
     if (!destination) return;
     if (source.droppableId === destination.droppableId && source.index === destination.index) return;
 
+    if (type === 'SIDEBAR_CATEGORY') {
+      const newCategories = [...data.categories];
+      const [movedCategory] = newCategories.splice(source.index, 1);
+      newCategories.splice(destination.index, 0, movedCategory);
+      handleUpdateData({ ...data, categories: newCategories });
+      return;
+    }
+
+    if (type === 'SIDEBAR_SUBCAT') {
+      const catId = source.droppableId.replace('sidebar-sub-', '');
+      const catIndex = data.categories.findIndex(c => c.id === catId);
+      if (catIndex === -1) return;
+
+      const newCategories = [...data.categories];
+      const newSubCategories = [...newCategories[catIndex].subCategories];
+      const [movedSubCat] = newSubCategories.splice(source.index, 1);
+      newSubCategories.splice(destination.index, 0, movedSubCat);
+
+      newCategories[catIndex] = { ...newCategories[catIndex], subCategories: newSubCategories };
+      handleUpdateData({ ...data, categories: newCategories });
+      return;
+    }
+
     if (type === 'SUBCAT') {
       const sourceCatId = source.droppableId.replace('cat-', '');
       const destCatId = destination.droppableId.replace('cat-', '');
@@ -388,6 +411,7 @@ const Dashboard: React.FC = () => {
           isOpen={isSidebarOpen}
           setIsOpen={setIsSidebarOpen}
           t={t}
+          isEditMode={isEditMode}
         />
 
         <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
