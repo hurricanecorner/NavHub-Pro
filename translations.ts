@@ -34,7 +34,19 @@ export const TRANSLATIONS = {
       tabs: {
         addLink: "Add Link",
         categories: "Categories",
-        notion: "Notion Sync"
+        notion: "Notion Sync",
+        data: "Data Backup"
+      },
+      data: {
+        exportTitle: "Export Data",
+        exportDesc: "Download a backup of your categories and links as a JSON file.",
+        exportBtn: "Export to JSON",
+        importTitle: "Import Data",
+        importDesc: "Restore data from a backup JSON file. Warning: This will overwrite all current data.",
+        importBtn: "Import from JSON",
+        success: "Data imported successfully!",
+        error: "Invalid file format. Please ensure it is a valid NavHub backup.",
+        confirm: "This will overwrite all your current categories and links. Are you sure you want to proceed?"
       },
       link: {
         title: "Title",
@@ -144,7 +156,19 @@ export const TRANSLATIONS = {
       tabs: {
         addLink: "添加链接",
         categories: "分类管理",
-        notion: "Notion 同步"
+        notion: "Notion 同步",
+        data: "数据备份"
+      },
+      data: {
+        exportTitle: "导出数据",
+        exportDesc: "将当前的分类和链接导出为 JSON 文件进行备份。",
+        exportBtn: "导出为 JSON",
+        importTitle: "导入数据",
+        importDesc: "从备份的 JSON 文件恢复数据。注意：这将覆盖当前的所有数据。",
+        importBtn: "从 JSON 导入",
+        success: "数据导入成功！",
+        error: "文件格式无效，请确保是有效的备份文件。",
+        confirm: "这将覆盖当前所有的分类和链接数据，确定要继续吗？"
       },
       link: {
         title: "标题",

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Plus, Save, Upload, AlertCircle, Edit2, Trash2, CornerDownRight, Folder, ListPlus, FileText, Images, ArrowRight, Check, Undo2, Tag } from 'lucide-react';
+import { X, Plus, Save, Upload, AlertCircle, Edit2, Trash2, CornerDownRight, Folder, ListPlus, FileText, Images, ArrowRight, Check, Undo2, Tag, Download, FileJson } from 'lucide-react';
 import { AppData, Category, LinkItem, NotionConfig, SubCategory } from '../types';
 
 interface AdminModalProps {
@@ -15,7 +15,7 @@ interface AdminModalProps {
   t: any;
 }
 
-type Tab = 'link' | 'category' | 'notion';
+type Tab = 'link' | 'category' | 'notion' | 'data';
 type LinkMode = 'single' | 'bulk';
 
 interface BulkIconUpload {
@@ -462,6 +462,47 @@ const AdminModal: React.FC<AdminModalProps> = ({
     alert(t.admin.notion.saved);
   };
 
+  // --- Data Import/Export Logic ---
+
+  const handleExportData = () => {
+    const jsonString = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = href;
+    link.download = `navhub_backup_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string);
+        // Basic validation
+        if (parsed && Array.isArray(parsed.categories) && Array.isArray(parsed.links)) {
+          if (window.confirm(t.admin.data.confirm)) {
+            onUpdateData(parsed);
+            alert(t.admin.data.success);
+            onClose();
+          }
+        } else {
+          alert(t.admin.data.error);
+        }
+      } catch (err) {
+        alert(t.admin.data.error);
+      }
+    };
+    reader.readAsText(file);
+    // Reset input value so same file can be selected again if needed
+    e.target.value = '';
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -494,24 +535,30 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
         {/* Tabs */}
         {!editingItem && (
-          <div className="flex border-b border-slate-100 dark:border-slate-700">
+          <div className="flex border-b border-slate-100 dark:border-slate-700 overflow-x-auto">
             <button 
               onClick={() => setActiveTab('link')} 
-              className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'link' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
+              className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors min-w-[80px] ${activeTab === 'link' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
             >
               {t.admin.tabs.addLink}
             </button>
             <button 
               onClick={() => setActiveTab('category')} 
-              className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'category' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
+              className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors min-w-[80px] ${activeTab === 'category' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
             >
               {t.admin.tabs.categories}
             </button>
             <button 
               onClick={() => setActiveTab('notion')} 
-              className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'notion' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
+              className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors min-w-[80px] ${activeTab === 'notion' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
             >
               {t.admin.tabs.notion}
+            </button>
+            <button 
+              onClick={() => setActiveTab('data')} 
+              className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors min-w-[80px] ${activeTab === 'data' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
+            >
+              {t.admin.tabs.data}
             </button>
           </div>
         )}
@@ -1234,6 +1281,48 @@ const AdminModal: React.FC<AdminModalProps> = ({
                 </button>
               </div>
             </div>
+          )}
+
+          {/* DATA TAB */}
+          {activeTab === 'data' && (
+             <div className="space-y-6">
+               <div className="bg-white border border-slate-200 rounded-xl p-6 dark:bg-slate-800 dark:border-slate-700">
+                  <div className="flex items-start gap-4">
+                    <div className="w-12 h-12 bg-green-50 rounded-full flex items-center justify-center shrink-0 dark:bg-green-900/20">
+                       <Download className="w-6 h-6 text-green-600 dark:text-green-400" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-slate-800 mb-1 dark:text-slate-100">{t.admin.data.exportTitle}</h3>
+                      <p className="text-sm text-slate-500 mb-4 dark:text-slate-400">{t.admin.data.exportDesc}</p>
+                      <button 
+                        onClick={handleExportData}
+                        className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
+                      >
+                         <FileJson className="w-4 h-4" />
+                         {t.admin.data.exportBtn}
+                      </button>
+                    </div>
+                  </div>
+               </div>
+
+               <div className="bg-white border border-slate-200 rounded-xl p-6 dark:bg-slate-800 dark:border-slate-700">
+                  <div className="flex items-start gap-4">
+                    <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center shrink-0 dark:bg-blue-900/20">
+                       <Upload className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-slate-800 mb-1 dark:text-slate-100">{t.admin.data.importTitle}</h3>
+                      <p className="text-sm text-slate-500 mb-4 dark:text-slate-400">{t.admin.data.importDesc}</p>
+                      
+                      <label className="inline-flex cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium items-center gap-2 transition-colors">
+                         <FileJson className="w-4 h-4" />
+                         {t.admin.data.importBtn}
+                         <input type="file" accept=".json" className="hidden" onChange={handleImportData} />
+                      </label>
+                    </div>
+                  </div>
+               </div>
+             </div>
           )}
 
         </div>
