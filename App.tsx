@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef, Component, ErrorInfo, ReactNode } from 'react';
-import { Menu, Search, Plus, Settings, Edit, Lock, LogOut, GripVertical, RefreshCw, CheckCircle2, AlertCircle, Languages, AlertTriangle, Loader2, Moon, Sun, Monitor, Laptop, ArrowUp } from 'lucide-react';
+import React, { useState, useEffect, useRef, ReactNode } from 'react';
+import { Menu, Search, Plus, Settings, Edit, Lock, LogOut, GripVertical, RefreshCw, CheckCircle2, AlertCircle, Languages, AlertTriangle, Loader2, Moon, Sun, Monitor, Laptop, ArrowUp, Globe } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
+import { GoogleGenAI } from "@google/genai";
 import { AppData, LinkItem, NotionConfig, Language, Theme } from './types';
 import { loadData, saveData, loadNotionConfig, saveNotionConfig, syncToNotion, loadLanguage, saveLanguage, loadTheme, saveTheme } from './services/storageUtils';
 import { TRANSLATIONS } from './translations';
@@ -18,20 +19,23 @@ interface ErrorBoundaryState {
 }
 
 // Error Boundary Component
-class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  public state: ErrorBoundaryState = {
-    hasError: false
-  };
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = {
+      hasError: false
+    };
+  }
 
-  public static getDerivedStateFromError(_: Error): ErrorBoundaryState {
+  static getDerivedStateFromError(_: Error): ErrorBoundaryState {
     return { hasError: true };
   }
 
-  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error("Uncaught error:", error, errorInfo);
   }
 
-  public render() {
+  render() {
     if (this.state.hasError) {
       return (
         <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-800 p-4 dark:bg-slate-900 dark:text-slate-100">
@@ -73,6 +77,11 @@ const Dashboard: React.FC = () => {
   const [searchInputValue, setSearchInputValue] = useState(''); // Raw input
   const [activeSearchQuery, setActiveSearchQuery] = useState(''); // Debounced query for filtering
   const [isSearching, setIsSearching] = useState(false); // Loading indicator state
+  
+  // AI Search State
+  const [aiSummary, setAiSummary] = useState('');
+  const [groundingLinks, setGroundingLinks] = useState<{title: string, url: string}[]>([]);
+  const [isAiSearching, setIsAiSearching] = useState(false);
   
   // Admin State
   const [isEditMode, setIsEditMode] = useState(false);
@@ -147,6 +156,67 @@ const Dashboard: React.FC = () => {
       setIsSearching(false);
     };
   }, [searchInputValue]);
+
+  // AI Search Effect
+  useEffect(() => {
+    if (!activeSearchQuery) {
+      setAiSummary('');
+      setGroundingLinks([]);
+      return;
+    }
+
+    const searchAI = async () => {
+      // Don't search AI if query is very short
+      if (activeSearchQuery.length < 2) return;
+
+      setIsAiSearching(true);
+      setAiSummary('');
+      setGroundingLinks([]);
+
+      try {
+        const apiKey = process.env.API_KEY;
+        if (!apiKey) {
+           console.warn("API_KEY is missing. Skipping AI search."); 
+           setIsAiSearching(false);
+           return;
+        }
+
+        const ai = new GoogleGenAI({ apiKey });
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: `Provide a helpful, concise summary and a list of relevant resources for the query: "${activeSearchQuery}".`,
+          config: {
+            tools: [{ googleSearch: {} }],
+          },
+        });
+
+        const text = response.text;
+        if (text) setAiSummary(text);
+
+        const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+        if (chunks) {
+           const links = chunks
+             .map((c: any) => c.web)
+             .filter((w: any) => w && w.uri && w.title)
+             .map((w: any) => ({ title: w.title, url: w.uri }));
+            
+           // Deduplicate based on URL
+           const unique = Array.from(new Map(links.map((item: any) => [item.url, item])).values());
+           setGroundingLinks(unique as any);
+        }
+
+      } catch (error) {
+        console.error("AI Search Failed", error);
+      } finally {
+        setIsAiSearching(false);
+      }
+    };
+    
+    // Add a delay to avoid hitting API while typing fast
+    const timer = setTimeout(searchAI, 800);
+    return () => clearTimeout(timer);
+
+  }, [activeSearchQuery]);
 
   // Handle scroll to show/hide "Go to Top" button
   const handleScroll = () => {
@@ -491,7 +561,7 @@ const Dashboard: React.FC = () => {
                     {isSearching && <Loader2 className="w-5 h-5 text-indigo-500 animate-spin" />}
                  </div>
                  
-                 {filteredLinks.length === 0 ? (
+                 {filteredLinks.length === 0 && !isAiSearching ? (
                    <p className="text-slate-500 dark:text-slate-400">
                      {isSearching ? t.app.sync.syncing : t.app.noResults}
                    </p>
@@ -508,6 +578,62 @@ const Dashboard: React.FC = () => {
                        />
                      ))}
                    </div>
+                 )}
+
+                 {/* AI Results Section */}
+                 {(isAiSearching || aiSummary || groundingLinks.length > 0) && (
+                  <div className="mt-8 border-t border-slate-200 pt-8 dark:border-slate-700">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="p-2 bg-blue-50 rounded-lg text-blue-600 dark:bg-blue-900/20 dark:text-blue-400">
+                        <Monitor className="w-5 h-5" />
+                      </div>
+                      <h2 className="text-xl font-bold text-slate-800 dark:text-white">
+                        AI Smart Search
+                      </h2>
+                      {isAiSearching && <Loader2 className="w-4 h-4 animate-spin text-blue-500" />}
+                    </div>
+
+                    {isAiSearching && !aiSummary ? (
+                       <div className="animate-pulse space-y-3">
+                         <div className="h-4 bg-slate-200 rounded w-3/4 dark:bg-slate-700"></div>
+                         <div className="h-4 bg-slate-200 rounded w-1/2 dark:bg-slate-700"></div>
+                       </div>
+                    ) : (
+                      <div className="space-y-6">
+                        {/* Summary */}
+                        {aiSummary && (
+                          <div className="prose prose-slate max-w-none text-slate-600 dark:text-slate-300 text-sm whitespace-pre-wrap">
+                             {aiSummary}
+                          </div>
+                        )}
+
+                        {/* Links */}
+                        {groundingLinks.length > 0 && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {groundingLinks.map((link, idx) => (
+                              <a 
+                                key={idx} 
+                                href={link.url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="block p-4 bg-white border border-slate-200 rounded-xl hover:border-blue-300 hover:shadow-sm transition-all dark:bg-slate-800 dark:border-slate-700 dark:hover:border-blue-500/50"
+                              >
+                                <div className="flex items-start gap-3">
+                                   <div className="bg-blue-50 text-blue-500 p-2 rounded-full shrink-0 dark:bg-blue-900/20 dark:text-blue-300">
+                                      <Globe className="w-4 h-4" />
+                                   </div>
+                                   <div className="min-w-0">
+                                     <h4 className="font-medium text-slate-800 text-sm truncate dark:text-slate-200">{link.title}</h4>
+                                     <p className="text-xs text-slate-500 truncate mt-0.5 dark:text-slate-400">{link.url}</p>
+                                   </div>
+                                </div>
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                  )}
               </div>
             ) : (
