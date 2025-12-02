@@ -1,21 +1,23 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Plus, Save, Upload, AlertCircle, Edit2, Trash2, CornerDownRight, Folder, ListPlus, FileText, Images, ArrowRight, Check, Undo2, Tag, Download, Book } from 'lucide-react';
-import { AppData, Category, LinkItem, NotionConfig, SubCategory } from '../types';
+import { X, Plus, Save, Upload, AlertCircle, Edit2, Trash2, CornerDownRight, Folder, ListPlus, FileText, Images, ArrowRight, Check, Undo2, Tag, Download, Book, Cloud, ExternalLink, RefreshCw } from 'lucide-react';
+import { AppData, Category, LinkItem, CloudConfig, SubCategory } from '../types';
 
 interface AdminModalProps {
   isOpen: boolean;
   onClose: () => void;
   data: AppData;
   onUpdateData: (newData: AppData) => void;
-  notionConfig: NotionConfig;
-  onUpdateNotionConfig: (config: NotionConfig) => void;
-  onSyncNotion: () => void;
+  cloudConfig: CloudConfig;
+  onUpdateCloudConfig: (config: CloudConfig) => void;
+  onSyncUpload: () => void;
+  onSyncDownload: () => void;
   isSyncing: boolean;
   editingItem: LinkItem | null; 
   t: any;
 }
 
-type Tab = 'link' | 'category' | 'notion' | 'data';
+type Tab = 'link' | 'category' | 'cloud' | 'data';
 type LinkMode = 'single' | 'bulk';
 
 interface BulkIconUpload {
@@ -25,7 +27,7 @@ interface BulkIconUpload {
 }
 
 const AdminModal: React.FC<AdminModalProps> = ({ 
-  isOpen, onClose, data, onUpdateData, notionConfig, onUpdateNotionConfig, onSyncNotion, isSyncing, editingItem, t
+  isOpen, onClose, data, onUpdateData, cloudConfig, onUpdateCloudConfig, onSyncUpload, onSyncDownload, isSyncing, editingItem, t
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('link');
   const [linkMode, setLinkMode] = useState<LinkMode>('single');
@@ -62,8 +64,8 @@ const AdminModal: React.FC<AdminModalProps> = ({
   // Undo State
   const [lastBulkActionData, setLastBulkActionData] = useState<AppData | null>(null);
 
-  // Notion Form State
-  const [localNotionConfig, setLocalNotionConfig] = useState<NotionConfig>(notionConfig);
+  // Cloud Config State
+  const [localCloudConfig, setLocalCloudConfig] = useState<CloudConfig>(cloudConfig);
 
   // Get all unique tags from existing links for suggestions
   const existingTags = useMemo(() => {
@@ -86,7 +88,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
         // Reset link form
         setLinkForm({ title: '', url: '', description: '', categoryId: data.categories[0]?.id || '', subCategoryId: '', iconUrl: '', tags: [] });
       }
-      setLocalNotionConfig(notionConfig);
+      setLocalCloudConfig(cloudConfig);
       // Reset forms
       setCatForm({ id: null, name: '', icon: '' });
       setSubCatForm({ parentId: '', id: null, name: '' });
@@ -100,7 +102,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
       setBulkTags([]);
       setBulkTagInput('');
     }
-  }, [isOpen, editingItem, data, notionConfig]);
+  }, [isOpen, editingItem, data, cloudConfig]);
 
   // Handle Image Upload (Generic)
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, onSuccess: (result: string) => void) => {
@@ -457,9 +459,10 @@ const AdminModal: React.FC<AdminModalProps> = ({
   };
 
 
-  const handleSaveNotion = () => {
-    onUpdateNotionConfig(localNotionConfig);
-    alert(t.admin.notion.saved);
+  const handleSaveCloudConfig = () => {
+    onUpdateCloudConfig(localCloudConfig);
+    // Simple feedback
+    alert(t.admin.cloud.saveConfig + " - OK"); 
   };
 
   // --- Data Import/Export Logic (HTML Bookmarks) ---
@@ -698,10 +701,10 @@ const AdminModal: React.FC<AdminModalProps> = ({
               {t.admin.tabs.categories}
             </button>
             <button 
-              onClick={() => setActiveTab('notion')} 
-              className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors min-w-[80px] ${activeTab === 'notion' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
+              onClick={() => setActiveTab('cloud')} 
+              className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors min-w-[80px] ${activeTab === 'cloud' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
             >
-              {t.admin.tabs.notion}
+              {t.admin.tabs.cloud}
             </button>
             <button 
               onClick={() => setActiveTab('data')} 
@@ -1042,12 +1045,11 @@ const AdminModal: React.FC<AdminModalProps> = ({
               )}
             </div>
           )}
-
+          
           {/* CATEGORY TAB */}
           {activeTab === 'category' && (
-            <div className="space-y-8">
-              
-              {/* 1. Existing Categories List */}
+             <div className="space-y-8">
+               {/* 1. Existing Categories List */}
               <div className="space-y-2">
                  <h3 className="font-semibold text-slate-700 text-sm dark:text-slate-300">{t.admin.category.existing}</h3>
                  <div className="border border-slate-200 rounded-lg overflow-hidden divide-y divide-slate-100 max-h-64 overflow-y-auto dark:border-slate-700 dark:divide-slate-700">
@@ -1115,7 +1117,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                  </div>
               </div>
 
-              {/* 2. Category Form (Add/Edit) */}
+               {/* 2. Category Form (Add/Edit) */}
               <div className="bg-slate-50 p-4 rounded-xl space-y-4 border border-slate-100 dark:bg-slate-700/50 dark:border-slate-600">
                 <h3 className="font-semibold text-slate-800 text-sm uppercase tracking-wide dark:text-slate-200">
                   {catForm.id ? t.admin.category.edit : t.admin.category.new}
@@ -1185,7 +1187,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                 </div>
               </div>
               
-              {/* 3. Sub Categories Add/Edit Form - Now Wrapped like Main Category Form */}
+               {/* 3. Sub Categories Add/Edit Form */}
               <div className="bg-slate-50 p-4 rounded-xl space-y-4 border border-slate-100 dark:bg-slate-700/50 dark:border-slate-600">
                 <h3 className="font-semibold text-slate-800 text-sm uppercase tracking-wide dark:text-slate-200">
                   {subCatForm.id ? t.admin.category.editSub : t.admin.category.addSub}
@@ -1229,7 +1231,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
               </div>
 
               <div className="border-t border-slate-100 my-4 dark:border-slate-700" />
-
+              
               {/* 4. Bulk Icon Upload Section */}
               <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-100 dark:bg-slate-700/50 dark:border-slate-600">
                 <div className="flex items-center justify-between">
@@ -1362,74 +1364,175 @@ const AdminModal: React.FC<AdminModalProps> = ({
                   </div>
                 )}
               </div>
-            </div>
+             </div>
           )}
 
-          {/* NOTION TAB */}
-          {activeTab === 'notion' && (
+          {/* CLOUD TAB */}
+          {activeTab === 'cloud' && (
             <div className="space-y-4">
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex gap-3 text-sm text-amber-800 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-200">
-                <AlertCircle className="w-5 h-5 shrink-0" />
-                <p>
-                  {t.admin.notion.warning}
-                  <br className="mb-1"/>
-                  <strong>{t.admin.notion.warningNote}</strong>
-                </p>
+               <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-4 dark:bg-slate-700/30 dark:border-slate-600">
+                  <div className="flex items-start gap-3">
+                     <Cloud className="w-6 h-6 text-indigo-500 mt-1" />
+                     <div>
+                        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{t.admin.cloud.title}</h3>
+                        <p className="text-xs text-slate-500 mt-1 leading-relaxed dark:text-slate-400">
+                           {t.admin.cloud.desc}
+                        </p>
+                     </div>
+                  </div>
+               </div>
+              
+              {/* Provider Selector */}
+              <div className="flex items-center gap-4 mb-4">
+                 <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.cloud.provider}</label>
+                 <div className="flex bg-slate-100 rounded-lg p-1 dark:bg-slate-700">
+                    <button 
+                      onClick={() => setLocalCloudConfig({ ...localCloudConfig, activeProvider: 'github' })}
+                      className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${localCloudConfig.activeProvider === 'github' ? 'bg-white text-indigo-600 shadow-sm dark:bg-slate-600 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+                    >
+                      GitHub Gist
+                    </button>
+                    <button 
+                      onClick={() => setLocalCloudConfig({ ...localCloudConfig, activeProvider: 'notion' })}
+                      className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${localCloudConfig.activeProvider === 'notion' ? 'bg-white text-indigo-600 shadow-sm dark:bg-slate-600 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+                    >
+                      Notion
+                    </button>
+                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.notion.token}</label>
-                <input 
-                  type="password" 
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:bg-slate-700 dark:text-white dark:border-slate-600"
-                  placeholder="secret_..."
-                  value={localNotionConfig.apiKey}
-                  onChange={(e) => setLocalNotionConfig({ ...localNotionConfig, apiKey: e.target.value })}
-                />
-              </div>
+              {/* GitHub Settings */}
+              {localCloudConfig.activeProvider === 'github' && (
+                <div className="space-y-4 animate-fadeIn">
+                    <div className="space-y-1">
+                      <div className="flex justify-between">
+                         <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.cloud.github.tokenLabel}</label>
+                         <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] text-indigo-600 hover:underline dark:text-indigo-400">
+                             {t.admin.cloud.github.help} <ExternalLink className="w-2.5 h-2.5" />
+                         </a>
+                      </div>
+                      <input 
+                        type="password" 
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:bg-slate-700 dark:text-white dark:border-slate-600 font-mono text-sm"
+                        placeholder={t.admin.cloud.github.tokenPlaceholder}
+                        value={localCloudConfig.githubToken}
+                        onChange={(e) => setLocalCloudConfig({ ...localCloudConfig, githubToken: e.target.value })}
+                      />
+                    </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.notion.dbId}</label>
-                <input 
-                  type="text" 
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:bg-slate-700 dark:text-white dark:border-slate-600"
-                  placeholder="32 char ID"
-                  value={localNotionConfig.databaseId}
-                  onChange={(e) => setLocalNotionConfig({ ...localNotionConfig, databaseId: e.target.value })}
-                />
-              </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.cloud.github.gistLabel}</label>
+                      <input 
+                        type="text" 
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:bg-slate-700 dark:text-white dark:border-slate-600 font-mono text-sm"
+                        placeholder={t.admin.cloud.github.gistPlaceholder}
+                        value={localCloudConfig.gistId}
+                        onChange={(e) => setLocalCloudConfig({ ...localCloudConfig, gistId: e.target.value })}
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-400">{t.admin.cloud.github.helpText}</p>
+                </div>
+              )}
 
-               <div className="flex items-center gap-2">
+              {/* Notion Settings */}
+              {localCloudConfig.activeProvider === 'notion' && (
+                <div className="space-y-4 animate-fadeIn">
+                   <div className="space-y-1">
+                      <div className="flex justify-between">
+                         <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.cloud.notion.tokenLabel}</label>
+                         <a href="https://www.notion.so/my-integrations" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] text-indigo-600 hover:underline dark:text-indigo-400">
+                             {t.admin.cloud.notion.help} <ExternalLink className="w-2.5 h-2.5" />
+                         </a>
+                      </div>
+                      <input 
+                        type="password" 
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:bg-slate-700 dark:text-white dark:border-slate-600 font-mono text-sm"
+                        placeholder={t.admin.cloud.notion.tokenPlaceholder}
+                        value={localCloudConfig.notionToken}
+                        onChange={(e) => setLocalCloudConfig({ ...localCloudConfig, notionToken: e.target.value })}
+                      />
+                   </div>
+                   <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.cloud.notion.pageLabel}</label>
+                      <input 
+                        type="text" 
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:bg-slate-700 dark:text-white dark:border-slate-600 font-mono text-sm"
+                        placeholder={t.admin.cloud.notion.pagePlaceholder}
+                        value={localCloudConfig.notionPageId}
+                        onChange={(e) => setLocalCloudConfig({ ...localCloudConfig, notionPageId: e.target.value })}
+                      />
+                   </div>
+                   
+                   {/* Notion API Proxy URL */}
+                   <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.cloud.notion.apiUrlLabel}</label>
+                      <input 
+                        type="text" 
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:bg-slate-700 dark:text-white dark:border-slate-600 font-mono text-sm"
+                        placeholder={t.admin.cloud.notion.apiUrlPlaceholder}
+                        value={localCloudConfig.notionApiUrl}
+                        onChange={(e) => setLocalCloudConfig({ ...localCloudConfig, notionApiUrl: e.target.value })}
+                      />
+                   </div>
+
+                   <p className="text-[10px] text-slate-400">
+                     {t.admin.cloud.notion.helpText}
+                   </p>
+                   <p className="text-[10px] text-amber-500 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {t.admin.cloud.providerWarning}
+                   </p>
+                </div>
+              )}
+
+               <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-700 mt-4">
                   <input 
                     type="checkbox"
-                    id="enableNotion"
+                    id="enableCloud"
                     className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 dark:bg-slate-700 dark:border-slate-500"
-                    checked={localNotionConfig.enabled}
-                    onChange={(e) => setLocalNotionConfig({ ...localNotionConfig, enabled: e.target.checked })}
+                    checked={localCloudConfig.enabled}
+                    onChange={(e) => setLocalCloudConfig({ ...localCloudConfig, enabled: e.target.checked })}
                   />
-                  <label htmlFor="enableNotion" className="text-sm font-medium text-slate-700 dark:text-slate-300">{t.admin.notion.enable}</label>
+                  <label htmlFor="enableCloud" className="text-sm font-medium text-slate-700 dark:text-slate-300">{t.admin.cloud.enable}</label>
               </div>
 
-              <div className="flex gap-3 pt-4">
-                <button 
-                  onClick={handleSaveNotion}
-                  className="flex-1 bg-white border border-slate-300 text-slate-700 font-medium py-2 rounded-lg hover:bg-slate-50 transition dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-600"
-                >
-                  {t.admin.notion.save}
-                </button>
-                <button 
-                  onClick={onSyncNotion}
-                  disabled={isSyncing || !localNotionConfig.enabled}
-                  className="flex-1 bg-black text-white font-medium py-2 rounded-lg hover:bg-slate-800 disabled:opacity-50 transition flex justify-center items-center gap-2 dark:bg-indigo-600 dark:hover:bg-indigo-700"
-                >
-                  {isSyncing ? t.admin.notion.syncing : (
-                    <>
-                      <Upload className="w-4 h-4" />
-                      {t.admin.notion.sync}
-                    </>
-                  )}
-                </button>
+              <div className="pt-4 grid grid-cols-2 gap-3">
+                 <button 
+                    onClick={handleSaveCloudConfig}
+                    className="col-span-2 bg-slate-100 text-slate-600 font-medium py-2 rounded-lg hover:bg-slate-200 transition dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+                 >
+                    {t.admin.cloud.saveConfig}
+                 </button>
+
+                 <button 
+                    onClick={onSyncUpload}
+                    disabled={
+                      isSyncing || 
+                      !localCloudConfig.enabled || 
+                      (localCloudConfig.activeProvider === 'github' && !localCloudConfig.githubToken) ||
+                      (localCloudConfig.activeProvider === 'notion' && (!localCloudConfig.notionToken || !localCloudConfig.notionPageId))
+                    }
+                    className="bg-indigo-600 text-white font-medium py-2.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition flex justify-center items-center gap-2"
+                 >
+                    {isSyncing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                    {t.admin.cloud.upload}
+                 </button>
+
+                 <button 
+                    onClick={onSyncDownload}
+                    disabled={
+                      isSyncing || 
+                      !localCloudConfig.enabled || 
+                      (localCloudConfig.activeProvider === 'github' && (!localCloudConfig.githubToken || !localCloudConfig.gistId)) ||
+                      (localCloudConfig.activeProvider === 'notion' && (!localCloudConfig.notionToken || !localCloudConfig.notionPageId))
+                    }
+                    className="bg-white border border-slate-200 text-slate-700 font-medium py-2.5 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition flex justify-center items-center gap-2 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+                 >
+                    {isSyncing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                    {t.admin.cloud.download}
+                 </button>
               </div>
+              <p className="text-[10px] text-slate-400 text-center">{t.admin.cloud.warning}</p>
             </div>
           )}
 

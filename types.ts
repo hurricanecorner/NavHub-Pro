@@ -1,3 +1,4 @@
+
 export type Language = 'en' | 'zh';
 
 export type Theme = 'light' | 'dark' | 'system';
@@ -30,8 +31,13 @@ export interface AppData {
   links: LinkItem[];
 }
 
-export interface NotionConfig {
-  apiKey: string;
-  databaseId: string;
+export interface CloudConfig {
   enabled: boolean;
+  activeProvider: 'github' | 'notion';
+  githubToken: string;
+  gistId: string;
+  notionToken: string;
+  notionPageId: string;
+  notionApiUrl?: string; // Custom API URL (Proxy)
+  lastSync?: number;
 }

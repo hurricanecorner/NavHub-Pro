@@ -1,3 +1,4 @@
+
 import { Language } from './types';
 
 export const TRANSLATIONS = {
@@ -34,7 +35,7 @@ export const TRANSLATIONS = {
       tabs: {
         addLink: "Add Link",
         categories: "Categories",
-        notion: "Notion Sync",
+        cloud: "Cloud Sync",
         data: "Data Backup"
       },
       data: {
@@ -110,16 +111,36 @@ export const TRANSLATIONS = {
           clear: "Clear All"
         }
       },
-      notion: {
-        warning: "Deploying to Notion requires an Integration Token and a Database ID.",
-        warningNote: "Note: Direct API syncing from this browser interface often requires a CORS proxy.",
-        token: "Notion Integration Token",
-        dbId: "Database ID",
-        enable: "Enable Integration",
-        save: "Save Settings",
-        sync: "Sync Now",
-        syncing: "Syncing...",
-        saved: "Configuration saved locally."
+      cloud: {
+        title: "Cloud Synchronization",
+        desc: "Sync your navigation data across devices. Choose your preferred provider.",
+        provider: "Sync Provider",
+        github: {
+          tokenLabel: "GitHub Personal Access Token",
+          tokenPlaceholder: "ghp_...",
+          gistLabel: "Gist ID",
+          gistPlaceholder: "Leave empty to create new, or paste ID to sync",
+          help: "How to get a Token?",
+          helpText: "Go to GitHub Settings -> Developer settings -> Personal access tokens (Classic). Select 'gist' scope.",
+        },
+        notion: {
+          tokenLabel: "Notion Integration Token",
+          tokenPlaceholder: "secret_...",
+          pageLabel: "Page ID",
+          pagePlaceholder: "32-character Page ID",
+          apiUrlLabel: "Notion API URL (Proxy)",
+          apiUrlPlaceholder: "https://your-worker.workers.dev/v1",
+          help: "Setup Guide",
+          helpText: "Create an Integration in Notion. Share a page with it. Copy the Page ID from the URL."
+        },
+        enable: "Enable Cloud Sync",
+        saveConfig: "Save Configuration",
+        upload: "Upload to Cloud",
+        download: "Download from Cloud",
+        uploadSuccess: "Data uploaded successfully!",
+        downloadSuccess: "Data downloaded successfully!",
+        warning: "Downloading will overwrite your current local data.",
+        providerWarning: "Note: Notion API requires a proxy (e.g., Cloudflare Worker) to work in the browser due to CORS."
       }
     }
   },
@@ -156,7 +177,7 @@ export const TRANSLATIONS = {
       tabs: {
         addLink: "添加链接",
         categories: "分类管理",
-        notion: "Notion 同步",
+        cloud: "云端同步",
         data: "数据备份"
       },
       data: {
@@ -232,16 +253,36 @@ export const TRANSLATIONS = {
           clear: "清空所有"
         }
       },
-      notion: {
-        warning: "部署到 Notion 需要集成令牌 (Token) 和数据库 ID。",
-        warningNote: "注意：由于 CORS 限制，直接从浏览器同步通常需要代理服务器。",
-        token: "Notion 集成令牌 (Token)",
-        dbId: "数据库 ID",
-        enable: "启用集成",
-        save: "保存设置",
-        sync: "立即同步",
-        syncing: "同步中...",
-        saved: "配置已保存到本地。"
+      cloud: {
+        title: "云端同步",
+        desc: "在多设备间同步导航数据。请选择您偏好的服务提供商。",
+        provider: "同步服务商",
+        github: {
+          tokenLabel: "GitHub 访问令牌 (Token)",
+          tokenPlaceholder: "ghp_...",
+          gistLabel: "Gist ID",
+          gistPlaceholder: "留空新建，或粘贴 ID 同步",
+          help: "如何获取 Token？",
+          helpText: "GitHub Settings -> Developer settings -> Personal access tokens (Classic)。勾选 'gist' 权限。",
+        },
+        notion: {
+          tokenLabel: "Notion Integration Token",
+          tokenPlaceholder: "secret_...",
+          pageLabel: "Page ID (页面 ID)",
+          pagePlaceholder: "32位 Page ID",
+          apiUrlLabel: "Notion API 地址 (代理)",
+          apiUrlPlaceholder: "https://your-worker.workers.dev/v1",
+          help: "配置指南",
+          helpText: "在 Notion 创建 Integration，将页面分享给它，从 URL 复制 Page ID。"
+        },
+        enable: "启用同步功能",
+        saveConfig: "保存配置",
+        upload: "上传到云端",
+        download: "从云端下载",
+        uploadSuccess: "上传成功！",
+        downloadSuccess: "数据下载成功！",
+        warning: "下载将覆盖当前的本地数据。",
+        providerWarning: "注意：由于浏览器跨域(CORS)限制，您必须配置反向代理(如 Cloudflare Worker)才能使用 Notion。"
       }
     }
   }

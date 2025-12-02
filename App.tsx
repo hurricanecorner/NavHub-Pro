@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef, ReactNode, Component, ErrorInfo } from 'react';
-import { Menu, Search, Plus, Settings, Edit, Lock, LogOut, GripVertical, RefreshCw, CheckCircle2, AlertCircle, Languages, AlertTriangle, Loader2, Moon, Sun, Monitor, Laptop, ArrowUp, Globe } from 'lucide-react';
+import React, { useState, useEffect, useRef, ReactNode, ErrorInfo } from 'react';
+import { Menu, Search, Settings, Edit, Lock, RefreshCw, CheckCircle2, AlertCircle, Languages, AlertTriangle, Loader2, Moon, Sun, Laptop, GripVertical } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
-import { AppData, LinkItem, NotionConfig, Language, Theme } from './types';
-import { loadData, saveData, loadNotionConfig, saveNotionConfig, syncToNotion, loadLanguage, saveLanguage, loadTheme, saveTheme } from './services/storageUtils';
+import { AppData, LinkItem, CloudConfig, Language, Theme } from './types';
+import { loadData, saveData, loadCloudConfig, saveCloudConfig, uploadToCloud, downloadFromCloud, loadLanguage, saveLanguage, loadTheme, saveTheme } from './services/storageUtils';
 import { TRANSLATIONS } from './translations';
 import Sidebar from './components/Sidebar';
 import LinkCard from './components/LinkCard';
@@ -18,7 +18,7 @@ interface ErrorBoundaryState {
 }
 
 // Error Boundary Component
-class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   public state: ErrorBoundaryState = {
     hasError: false
   };
@@ -60,7 +60,9 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
 const Dashboard: React.FC = () => {
   const [data, setData] = useState<AppData>({ categories: [], links: [] });
-  const [notionConfig, setNotionConfig] = useState<NotionConfig>({ apiKey: '', databaseId: '', enabled: false });
+  const [cloudConfig, setCloudConfig] = useState<CloudConfig>({ 
+    enabled: false, activeProvider: 'github', githubToken: '', gistId: '', notionToken: '', notionPageId: '' 
+  });
   const [lang, setLang] = useState<Language>('zh');
   const [theme, setTheme] = useState<Theme>('system');
   const [isLoading, setIsLoading] = useState(true);
@@ -93,11 +95,11 @@ const Dashboard: React.FC = () => {
   // Initialize
   useEffect(() => {
     const loadedData = loadData();
-    const loadedConfig = loadNotionConfig();
+    const loadedConfig = loadCloudConfig();
     const loadedLang = loadLanguage();
     const loadedTheme = loadTheme();
     setData(loadedData);
-    setNotionConfig(loadedConfig);
+    setCloudConfig(loadedConfig);
     setLang(loadedLang);
     setTheme(loadedTheme);
     if (loadedData.categories.length > 0) {
@@ -121,38 +123,31 @@ const Dashboard: React.FC = () => {
 
   // Search Debounce Effect
   useEffect(() => {
-    // If input is cleared, reset immediately
     if (!searchInputValue) {
       setActiveSearchQuery('');
       setIsSearching(false);
       return;
     }
 
-    // Set loading indicator only if search takes longer than 200ms (simulated or real delay)
     const loadingTimer = setTimeout(() => {
       setIsSearching(true);
     }, 200);
 
-    // Debounce the actual filtering (simulating network/processing delay)
     const debounceTimer = setTimeout(() => {
       setActiveSearchQuery(searchInputValue);
       setIsSearching(false);
-    }, 500); // 500ms debounce ensures the 200ms loading threshold is crossed for demonstration
+    }, 500);
 
     return () => {
       clearTimeout(loadingTimer);
       clearTimeout(debounceTimer);
-      // We don't reset isSearching to false here immediately to prevent flicker
-      // It will settle when the next effect runs or timers complete
       setIsSearching(false);
     };
   }, [searchInputValue]);
 
-  // Handle scroll to show/hide "Go to Top" button
   const handleScroll = () => {
     if (mainContentRef.current) {
       const { scrollTop, scrollHeight } = mainContentRef.current;
-      // Show button if scrolled more than halfway through the content area
       setShowScrollTop(scrollTop > scrollHeight / 2);
     }
   };
@@ -163,19 +158,17 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  // Update localStorage when data changes
   const handleUpdateData = (newData: AppData) => {
     setData(newData);
     saveData(newData);
-    // If data changes, we are no longer strictly synced
     if (syncStatus === 'synced') {
       setSyncStatus('idle');
     }
   };
 
-  const handleUpdateNotionConfig = (newConfig: NotionConfig) => {
-    setNotionConfig(newConfig);
-    saveNotionConfig(newConfig);
+  const handleUpdateCloudConfig = (newConfig: CloudConfig) => {
+    setCloudConfig(newConfig);
+    saveCloudConfig(newConfig);
   };
 
   const handleToggleLanguage = () => {
@@ -189,25 +182,40 @@ const Dashboard: React.FC = () => {
     saveTheme(newTheme);
   };
 
-  const handleSyncNotion = async () => {
-    if (!notionConfig.enabled) {
-      alert("Notion integration is not enabled.");
+  const handleSyncUpload = async () => {
+    if (!cloudConfig.enabled) {
+      alert("Please enable cloud sync first.");
       return;
     }
 
-    // Close modal to show the visual indicator in header
-    setIsAdminModalOpen(false);
-    
+    if (cloudConfig.activeProvider === 'github' && !cloudConfig.githubToken) {
+      alert("Please configure GitHub Token.");
+      return;
+    }
+
+    if (cloudConfig.activeProvider === 'notion' && (!cloudConfig.notionToken || !cloudConfig.notionPageId)) {
+      alert("Please configure Notion Token and Page ID.");
+      return;
+    }
+
     setIsSyncing(true);
     setSyncStatus('syncing');
     
-    const result = await syncToNotion(data, notionConfig);
+    const result = await uploadToCloud(data, cloudConfig);
     
     setIsSyncing(false);
     
     if (result.success) {
       setSyncStatus('synced');
-      // Clear success status after 5 seconds to keep UI clean
+      alert(t.admin.cloud.uploadSuccess);
+      
+      // Update config with new Gist ID if created (GitHub only)
+      if (cloudConfig.activeProvider === 'github' && result.newGistId && result.newGistId !== cloudConfig.gistId) {
+        const newConfig = { ...cloudConfig, gistId: result.newGistId };
+        setCloudConfig(newConfig);
+        saveCloudConfig(newConfig);
+      }
+      
       setTimeout(() => {
         setSyncStatus((prev) => prev === 'synced' ? 'idle' : prev);
       }, 5000);
@@ -215,6 +223,45 @@ const Dashboard: React.FC = () => {
       setSyncStatus('error');
       alert(result.message);
     }
+  };
+
+  const handleSyncDownload = async () => {
+     if (!cloudConfig.enabled) {
+       alert("Please enable cloud sync first.");
+       return;
+     }
+
+     if (cloudConfig.activeProvider === 'github' && (!cloudConfig.githubToken || !cloudConfig.gistId)) {
+       alert("Please configure GitHub Token and Gist ID.");
+       return;
+     }
+
+     if (cloudConfig.activeProvider === 'notion' && (!cloudConfig.notionToken || !cloudConfig.notionPageId)) {
+       alert("Please configure Notion Token and Page ID.");
+       return;
+     }
+
+     if (!window.confirm(t.admin.cloud.warning)) {
+       return;
+     }
+
+     setIsSyncing(true);
+     setSyncStatus('syncing');
+     
+     const result = await downloadFromCloud(cloudConfig);
+     
+     setIsSyncing(false);
+
+     if (result.success && result.data) {
+       setData(result.data);
+       saveData(result.data);
+       setSyncStatus('synced');
+       alert(t.admin.cloud.downloadSuccess);
+       setIsAdminModalOpen(false); 
+     } else {
+       setSyncStatus('error');
+       alert(result.message);
+     }
   };
 
   const handleDeleteLink = (id: string) => {
@@ -240,7 +287,6 @@ const Dashboard: React.FC = () => {
     if (!destination) return;
     if (source.droppableId === destination.droppableId && source.index === destination.index) return;
 
-    // Handle Sub-Category Reordering
     if (type === 'SUBCAT') {
       const sourceCatId = source.droppableId.replace('cat-', '');
       const destCatId = destination.droppableId.replace('cat-', '');
@@ -253,23 +299,19 @@ const Dashboard: React.FC = () => {
       const newCategories = [...data.categories];
       const sourceSubCats = [...newCategories[sourceCatIndex].subCategories];
       
-      // Remove from source
       const [movedSubCat] = sourceSubCats.splice(source.index, 1);
 
       if (sourceCatId === destCatId) {
-        // Same list reorder
         sourceSubCats.splice(destination.index, 0, movedSubCat);
         newCategories[sourceCatIndex] = { ...newCategories[sourceCatIndex], subCategories: sourceSubCats };
         handleUpdateData({ ...data, categories: newCategories });
       } else {
-        // Move to different category
         const destSubCats = [...newCategories[destCatIndex].subCategories];
         destSubCats.splice(destination.index, 0, movedSubCat);
 
         newCategories[sourceCatIndex] = { ...newCategories[sourceCatIndex], subCategories: sourceSubCats };
         newCategories[destCatIndex] = { ...newCategories[destCatIndex], subCategories: destSubCats };
 
-        // Update all links belonging to this sub-category
         const updatedLinks = data.links.map(link => {
           if (link.categoryId === sourceCatId && link.subCategoryId === movedSubCat.id) {
             return { ...link, categoryId: destCatId };
@@ -282,39 +324,29 @@ const Dashboard: React.FC = () => {
       return;
     }
 
-    // Handle Link Reordering
     if (type === 'LINK') {
-      // Parse IDs from droppableId: 'links__CATID__SUBCATID'
       const [, sourceCatId, sourceSubId] = source.droppableId.split('__');
       const [, destCatId, destSubId] = destination.droppableId.split('__');
 
       const allLinks = [...data.links];
-
-      // Get links for source and destination lists (filtered view)
       const sourceLinks = allLinks.filter(l => l.categoryId === sourceCatId && l.subCategoryId === sourceSubId);
       const destLinks = source.droppableId === destination.droppableId 
         ? sourceLinks 
         : allLinks.filter(l => l.categoryId === destCatId && l.subCategoryId === destSubId);
 
-      // Get links that are NOT involved in this operation (to preserve them)
       const unaffectedLinks = allLinks.filter(l => {
         const isSource = l.categoryId === sourceCatId && l.subCategoryId === sourceSubId;
         const isDest = l.categoryId === destCatId && l.subCategoryId === destSubId;
         return !isSource && !isDest;
       });
 
-      // Move the item
       const [movedLink] = sourceLinks.splice(source.index, 1);
-      
-      // Update link metadata
       const updatedLink = { ...movedLink, categoryId: destCatId, subCategoryId: destSubId };
 
       destLinks.splice(destination.index, 0, updatedLink);
 
-      // Reconstruct the master list
       let newLinks;
       if (source.droppableId === destination.droppableId) {
-        // destLinks is reference to sourceLinks, so it contains the updates
         newLinks = [...unaffectedLinks, ...sourceLinks];
       } else {
         newLinks = [...unaffectedLinks, ...sourceLinks, ...destLinks];
@@ -324,7 +356,6 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  // Filter and Sort links based on debounced query
   const filteredLinks = React.useMemo(() => {
     if (!activeSearchQuery) return [];
     
@@ -339,12 +370,8 @@ const Dashboard: React.FC = () => {
         const aTitleMatch = a.title.toLowerCase().includes(lowerQuery);
         const bTitleMatch = b.title.toLowerCase().includes(lowerQuery);
 
-        // Priority 1: Matches in Title come before matches only in Description
         if (aTitleMatch && !bTitleMatch) return -1;
         if (!aTitleMatch && bTitleMatch) return 1;
-
-        // Priority 2: If both match title or neither match title (both match desc), 
-        // maintain roughly original order (or equal weight)
         return 0;
       });
   }, [data.links, activeSearchQuery]);
@@ -355,7 +382,6 @@ const Dashboard: React.FC = () => {
     <DragDropContext onDragEnd={onDragEnd}>
       <div className="flex h-screen bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100 transition-colors">
         
-        {/* Sidebar */}
         <Sidebar 
           categories={data.categories}
           links={data.links}
@@ -366,10 +392,8 @@ const Dashboard: React.FC = () => {
           t={t}
         />
 
-        {/* Main Content */}
         <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
           
-          {/* Header */}
           <header className="h-16 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-4 lg:px-8 z-30 sticky top-0 dark:bg-slate-800/80 dark:border-slate-700 transition-colors">
             <div className="flex items-center gap-4 flex-1">
               <button 
@@ -398,8 +422,7 @@ const Dashboard: React.FC = () => {
 
             <div className="flex items-center gap-2">
               
-              {/* Sync Status Indicator */}
-              {notionConfig.enabled && syncStatus !== 'idle' && (
+              {cloudConfig.enabled && syncStatus !== 'idle' && (
                 <div className={`
                   hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium mr-2 transition-all border
                   ${syncStatus === 'syncing' ? 'bg-blue-50 text-blue-600 border-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800' : ''}
@@ -413,12 +436,11 @@ const Dashboard: React.FC = () => {
                 </div>
               )}
 
-              {/* Theme Switcher (Hover Dropdown) */}
               <div className="relative group z-50">
                  <button className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors dark:text-slate-500 dark:hover:text-slate-300 dark:hover:bg-slate-700">
                     {theme === 'light' && <Sun className="w-5 h-5" />}
                     {theme === 'dark' && <Moon className="w-5 h-5" />}
-                    {theme === 'system' && <Monitor className="w-5 h-5" />}
+                    {theme === 'system' && <Laptop className="w-5 h-5" />}
                  </button>
                  
                  <div className="absolute right-0 top-full pt-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 transform origin-top-right w-36">
@@ -448,7 +470,6 @@ const Dashboard: React.FC = () => {
                  </div>
               </div>
 
-              {/* Language Switcher */}
               <button
                 onClick={handleToggleLanguage}
                 className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors flex items-center gap-2 dark:text-slate-500 dark:hover:text-slate-300 dark:hover:bg-slate-700"
@@ -476,7 +497,6 @@ const Dashboard: React.FC = () => {
             </div>
           </header>
 
-          {/* Content Scroll Area */}
           <div 
             ref={mainContentRef}
             onScroll={handleScroll}
@@ -484,7 +504,6 @@ const Dashboard: React.FC = () => {
           >
             
             {searchInputValue ? (
-              // Search Results View
               <div>
                  <div className="flex items-center gap-3 mb-6">
                     <h2 className="text-xl font-bold text-slate-800 dark:text-white">{t.app.searchResults}</h2>
@@ -511,7 +530,6 @@ const Dashboard: React.FC = () => {
                  )}
               </div>
             ) : (
-              // Categorized View
               data.categories.map(category => (
                 <section key={category.id} id={`category-${category.id}`} className="scroll-mt-24">
                   <div className="flex items-center gap-3 mb-6">
@@ -519,7 +537,6 @@ const Dashboard: React.FC = () => {
                     <div className="h-px bg-slate-200 flex-1 dark:bg-slate-700" />
                   </div>
 
-                  {/* Sub-Category List (Sortable) */}
                   <Droppable droppableId={`cat-${category.id}`} type="SUBCAT">
                     {(provided) => (
                       <div 
@@ -553,7 +570,6 @@ const Dashboard: React.FC = () => {
                                       <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider dark:text-slate-400">{subCat.name}</h3>
                                     </div>
 
-                                    {/* Links Grid (Sortable) */}
                                     <Droppable droppableId={`links__${category.id}__${subCat.id}`} type="LINK" direction="horizontal">
                                       {(provided) => (
                                         <div 
@@ -588,20 +604,6 @@ const Dashboard: React.FC = () => {
                                             </Draggable>
                                           ))}
                                           {provided.placeholder}
-
-                                          {/* Add Button (Only in Edit Mode) */}
-                                          {isEditMode && (
-                                            <button 
-                                              onClick={() => {
-                                                setEditingItem(null);
-                                                setIsAdminModalOpen(true);
-                                              }}
-                                              className="border-2 border-dashed border-slate-200 rounded-xl p-4 flex flex-col items-center justify-center text-slate-400 hover:border-indigo-300 hover:text-indigo-500 hover:bg-indigo-50/50 transition-all min-h-[100px] dark:border-slate-700 dark:text-slate-500 dark:hover:border-indigo-500/50 dark:hover:text-indigo-400 dark:hover:bg-indigo-900/20"
-                                            >
-                                              <Plus className="w-6 h-6 mb-2" />
-                                              <span className="text-sm font-medium">{t.app.addLink}</span>
-                                            </button>
-                                          )}
                                         </div>
                                       )}
                                     </Droppable>
@@ -611,7 +613,11 @@ const Dashboard: React.FC = () => {
                             );
                           })
                         ) : (
-                          <p className="text-slate-400 italic dark:text-slate-500">{t.app.noSubCategories}</p>
+                          isEditMode && (
+                             <div className="p-8 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-slate-400 dark:border-slate-700">
+                                <p className="text-sm">{t.app.noSubCategories}</p>
+                             </div>
+                          )
                         )}
                         {provided.placeholder}
                       </div>
@@ -620,43 +626,34 @@ const Dashboard: React.FC = () => {
                 </section>
               ))
             )}
-            
-            <div className="h-12" /> {/* Bottom spacer */}
           </div>
 
-          {/* Scroll To Top Button */}
-          <button
-            onClick={scrollToTop}
-            className={`fixed bottom-8 right-8 p-3 bg-indigo-600 text-white rounded-full shadow-lg hover:bg-indigo-700 hover:shadow-xl transition-all duration-300 z-30 ${
-              showScrollTop ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10 pointer-events-none'
-            }`}
-            aria-label="Scroll to top"
-          >
-            <ArrowUp className="w-6 h-6" />
-          </button>
-        </main>
+          <AdminModal 
+            isOpen={isAdminModalOpen}
+            onClose={handleCloseModal}
+            data={data}
+            onUpdateData={handleUpdateData}
+            cloudConfig={cloudConfig}
+            onUpdateCloudConfig={handleUpdateCloudConfig}
+            onSyncUpload={handleSyncUpload}
+            onSyncDownload={handleSyncDownload}
+            isSyncing={isSyncing}
+            editingItem={editingItem}
+            t={t}
+          />
 
-        <AdminModal 
-          isOpen={isAdminModalOpen}
-          onClose={handleCloseModal}
-          data={data}
-          onUpdateData={handleUpdateData}
-          notionConfig={notionConfig}
-          onUpdateNotionConfig={handleUpdateNotionConfig}
-          onSyncNotion={handleSyncNotion}
-          isSyncing={isSyncing}
-          editingItem={editingItem}
-          t={t}
-        />
+        </main>
       </div>
     </DragDropContext>
   );
 };
 
-const App: React.FC = () => (
-  <ErrorBoundary>
-    <Dashboard />
-  </ErrorBoundary>
-);
+const App: React.FC = () => {
+  return (
+    <ErrorBoundary>
+      <Dashboard />
+    </ErrorBoundary>
+  );
+};
 
 export default App;
