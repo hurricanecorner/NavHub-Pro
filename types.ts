@@ -22,6 +22,7 @@ export interface LinkItem {
   iconUrl?: string; // URL or Base64
   categoryId: string;
   subCategoryId: string;
+  tags?: string[];
 }
 
 export interface AppData {

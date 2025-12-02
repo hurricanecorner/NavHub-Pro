@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { X, Plus, Save, Upload, AlertCircle, Edit2, Trash2, CornerDownRight, Folder, ListPlus, FileText, Images, ArrowRight, Check, Undo2 } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Plus, Save, Upload, AlertCircle, Edit2, Trash2, CornerDownRight, Folder, ListPlus, FileText, Images, ArrowRight, Check, Undo2, Tag } from 'lucide-react';
 import { AppData, Category, LinkItem, NotionConfig, SubCategory } from '../types';
 
 interface AdminModalProps {
@@ -32,9 +32,14 @@ const AdminModal: React.FC<AdminModalProps> = ({
   
   // Link Form State
   const [linkForm, setLinkForm] = useState<Partial<LinkItem>>({
-    title: '', url: '', description: '', categoryId: '', subCategoryId: '', iconUrl: ''
+    title: '', url: '', description: '', categoryId: '', subCategoryId: '', iconUrl: '', tags: []
   });
   const [linkErrors, setLinkErrors] = useState<{ title?: string; url?: string; categoryId?: string }>({});
+  
+  // Tag Inputs
+  const [tagInput, setTagInput] = useState('');
+  const [bulkTags, setBulkTags] = useState<string[]>([]);
+  const [bulkTagInput, setBulkTagInput] = useState('');
 
   // Bulk Import State
   const [bulkUrls, setBulkUrls] = useState('');
@@ -60,15 +65,26 @@ const AdminModal: React.FC<AdminModalProps> = ({
   // Notion Form State
   const [localNotionConfig, setLocalNotionConfig] = useState<NotionConfig>(notionConfig);
 
+  // Get all unique tags from existing links for suggestions
+  const existingTags = useMemo(() => {
+    const tags = new Set<string>();
+    data.links.forEach(link => {
+      if (link.tags) {
+        link.tags.forEach(t => tags.add(t));
+      }
+    });
+    return Array.from(tags).sort();
+  }, [data.links]);
+
   useEffect(() => {
     if (isOpen) {
       if (editingItem) {
-        setLinkForm(editingItem);
+        setLinkForm({ ...editingItem, tags: editingItem.tags || [] });
         setActiveTab('link');
         setLinkMode('single'); // Always single mode when editing
       } else {
         // Reset link form
-        setLinkForm({ title: '', url: '', description: '', categoryId: data.categories[0]?.id || '', subCategoryId: '', iconUrl: '' });
+        setLinkForm({ title: '', url: '', description: '', categoryId: data.categories[0]?.id || '', subCategoryId: '', iconUrl: '', tags: [] });
       }
       setLocalNotionConfig(notionConfig);
       // Reset forms
@@ -80,6 +96,9 @@ const AdminModal: React.FC<AdminModalProps> = ({
       setBulkIcons([]);
       setSelectedBulkIconId(null);
       setLastBulkActionData(null); // Reset undo history on open
+      setTagInput('');
+      setBulkTags([]);
+      setBulkTagInput('');
     }
   }, [isOpen, editingItem, data, notionConfig]);
 
@@ -99,7 +118,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
   const handleBulkIconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files) {
-      Array.from(files).forEach(file => {
+      Array.from(files).forEach((file: File) => {
         const reader = new FileReader();
         reader.onloadend = () => {
           setBulkIcons(prev => [
@@ -168,6 +187,42 @@ const AdminModal: React.FC<AdminModalProps> = ({
     ));
   };
 
+  // --- Tag Logic ---
+
+  const handleAddTag = (tag: string, isBulk = false) => {
+    const cleanTag = tag.trim();
+    if (!cleanTag) return;
+    
+    // Case-insensitive check
+    const isDuplicate = (tags: string[]) => tags.some(t => t.toLowerCase() === cleanTag.toLowerCase());
+
+    if (isBulk) {
+      if (isDuplicate(bulkTags)) {
+        alert(t.admin.link.validation.tagExists || "Tag already exists!");
+        return;
+      }
+      setBulkTags([...bulkTags, cleanTag]);
+      setBulkTagInput('');
+    } else {
+      const currentTags = linkForm.tags || [];
+      if (isDuplicate(currentTags)) {
+        alert(t.admin.link.validation.tagExists || "Tag already exists!");
+        return;
+      }
+      setLinkForm({ ...linkForm, tags: [...currentTags, cleanTag] });
+      setTagInput('');
+    }
+  };
+
+  const handleRemoveTag = (tag: string, isBulk = false) => {
+    if (isBulk) {
+      setBulkTags(bulkTags.filter(t => t !== tag));
+    } else {
+      const currentTags = linkForm.tags || [];
+      setLinkForm({ ...linkForm, tags: currentTags.filter(t => t !== tag) });
+    }
+  };
+
   const validateLink = (): boolean => {
     const errors: { title?: string; url?: string; categoryId?: string } = {};
     let isValid = true;
@@ -213,6 +268,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
         categoryId: linkForm.categoryId || '',
         subCategoryId: linkForm.subCategoryId || (data.categories.find(c => c.id === linkForm.categoryId)?.subCategories[0]?.id || ''),
         iconUrl: linkForm.iconUrl,
+        tags: linkForm.tags || [],
       };
       updatedLinks.push(newLink);
     }
@@ -277,13 +333,16 @@ const AdminModal: React.FC<AdminModalProps> = ({
         description: '',
         categoryId: linkForm.categoryId || '',
         subCategoryId: linkForm.subCategoryId || (data.categories.find(c => c.id === linkForm.categoryId)?.subCategories[0]?.id || ''),
-        iconUrl: ''
+        iconUrl: '',
+        tags: [...bulkTags] // Copy bulk tags to each item
       });
     });
 
     onUpdateData({ ...data, links: [...data.links, ...newLinks] });
     
     setBulkUrls(''); // Clear input on success
+    setBulkTags([]); // Clear tags
+    setBulkDefaultTitle('');
     alert(t.admin.link.bulk.success.replace('{count}', newLinks.length));
     // Do NOT close modal, allow Undo
   };
@@ -560,6 +619,68 @@ const AdminModal: React.FC<AdminModalProps> = ({
                     />
                   </div>
 
+                  {/* Tags Section (Single) */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.link.tags}</label>
+                    
+                    {/* Input Area */}
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input 
+                          type="text" 
+                          className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition text-sm dark:bg-slate-700 dark:text-white dark:border-slate-600"
+                          placeholder="Add a tag..."
+                          value={tagInput}
+                          onChange={(e) => setTagInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddTag(tagInput);
+                            }
+                          }}
+                        />
+                      </div>
+                      <button 
+                        onClick={() => handleAddTag(tagInput)}
+                        disabled={!tagInput.trim()}
+                        className="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-50 text-xs font-medium dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+                      >
+                        {t.admin.link.addTag}
+                      </button>
+                    </div>
+
+                    {/* Selected Tags */}
+                    {linkForm.tags && linkForm.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {linkForm.tags.map(tag => (
+                          <span key={tag} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-indigo-50 text-indigo-700 text-xs font-medium dark:bg-indigo-900/30 dark:text-indigo-300">
+                            #{tag}
+                            <button onClick={() => handleRemoveTag(tag)} className="hover:text-indigo-900 dark:hover:text-indigo-100"><X className="w-3 h-3" /></button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Suggestions */}
+                    {existingTags.length > 0 && (
+                      <div className="pt-2">
+                        <p className="text-[10px] text-slate-400 mb-1.5 uppercase font-medium">{t.admin.link.suggestedTags}</p>
+                        <div className="flex flex-wrap gap-1.5">
+                           {existingTags.filter(t => !linkForm.tags?.includes(t)).slice(0, 10).map(tag => (
+                             <button
+                               key={tag}
+                               onClick={() => handleAddTag(tag)}
+                               className="px-2 py-0.5 rounded border border-slate-200 text-slate-500 text-[10px] hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 transition-colors dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                             >
+                               #{tag}
+                             </button>
+                           ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="space-y-1">
                     <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.link.icon}</label>
                     <div className="flex gap-4 items-center">
@@ -650,6 +771,68 @@ const AdminModal: React.FC<AdminModalProps> = ({
                       value={bulkDefaultTitle}
                       onChange={(e) => setBulkDefaultTitle(e.target.value)}
                     />
+                  </div>
+
+                  {/* Tags Section (Bulk) */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.link.tags}</label>
+                    
+                    {/* Input Area */}
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input 
+                          type="text" 
+                          className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition text-sm dark:bg-slate-700 dark:text-white dark:border-slate-600"
+                          placeholder="Add tag for all..."
+                          value={bulkTagInput}
+                          onChange={(e) => setBulkTagInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddTag(bulkTagInput, true);
+                            }
+                          }}
+                        />
+                      </div>
+                      <button 
+                        onClick={() => handleAddTag(bulkTagInput, true)}
+                        disabled={!bulkTagInput.trim()}
+                        className="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-50 text-xs font-medium dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+                      >
+                        {t.admin.link.addTag}
+                      </button>
+                    </div>
+
+                    {/* Selected Tags */}
+                    {bulkTags.length > 0 && (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {bulkTags.map(tag => (
+                          <span key={tag} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-indigo-50 text-indigo-700 text-xs font-medium dark:bg-indigo-900/30 dark:text-indigo-300">
+                            #{tag}
+                            <button onClick={() => handleRemoveTag(tag, true)} className="hover:text-indigo-900 dark:hover:text-indigo-100"><X className="w-3 h-3" /></button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Suggestions */}
+                    {existingTags.length > 0 && (
+                      <div className="pt-2">
+                        <p className="text-[10px] text-slate-400 mb-1.5 uppercase font-medium">{t.admin.link.suggestedTags}</p>
+                        <div className="flex flex-wrap gap-1.5">
+                           {existingTags.filter(t => !bulkTags.includes(t)).slice(0, 10).map(tag => (
+                             <button
+                               key={tag}
+                               onClick={() => handleAddTag(tag, true)}
+                               className="px-2 py-0.5 rounded border border-slate-200 text-slate-500 text-[10px] hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 transition-colors dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                             >
+                               #{tag}
+                             </button>
+                           ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <button 

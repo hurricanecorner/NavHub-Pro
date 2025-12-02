@@ -42,6 +42,9 @@ export const TRANSLATIONS = {
         category: "Category",
         subCategory: "Sub-Category",
         description: "Description",
+        tags: "Tags",
+        addTag: "Add",
+        suggestedTags: "Suggested Tags",
         icon: "Icon",
         uploadOrPaste: "Or paste image URL...",
         selectCategory: "-- Select --",
@@ -51,7 +54,8 @@ export const TRANSLATIONS = {
           titleRequired: "Title is required",
           urlRequired: "URL is required",
           urlInvalid: "Invalid URL format (must start with http:// or https://)",
-          categoryRequired: "Category is required"
+          categoryRequired: "Category is required",
+          tagExists: "Tag already exists in this list!"
         },
         modes: {
           single: "Single Entry",
@@ -148,6 +152,9 @@ export const TRANSLATIONS = {
         category: "主分类",
         subCategory: "子分类",
         description: "描述",
+        tags: "标签",
+        addTag: "添加",
+        suggestedTags: "常用标签",
         icon: "图标",
         uploadOrPaste: "或粘贴图片链接...",
         selectCategory: "-- 请选择 --",
@@ -157,7 +164,8 @@ export const TRANSLATIONS = {
           titleRequired: "标题不能为空",
           urlRequired: "链接地址不能为空",
           urlInvalid: "无效的链接格式 (必须以 http:// 或 https:// 开头)",
-          categoryRequired: "请选择分类"
+          categoryRequired: "请选择分类",
+          tagExists: "该标签已存在！"
         },
         modes: {
           single: "单条录入",

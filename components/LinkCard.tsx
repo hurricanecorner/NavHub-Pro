@@ -49,6 +49,17 @@ const LinkCard: React.FC<LinkCardProps> = ({ item, isEditMode, onEdit, onDelete,
         <h3 className="font-semibold text-slate-800 truncate pr-6 mb-1 text-sm dark:text-slate-200">{item.title}</h3>
         {/* Enforce 2-line limit */}
         <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed dark:text-slate-400">{item.description}</p>
+        
+        {/* Tags */}
+        {item.tags && item.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {item.tags.map((tag, idx) => (
+              <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-700/60 dark:text-slate-300">
+                #{tag}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Action / Link */}
