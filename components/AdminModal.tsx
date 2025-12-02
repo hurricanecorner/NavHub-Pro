@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Plus, Save, Upload, AlertCircle, Edit2, Trash2, CornerDownRight, Folder, ListPlus, FileText, Images, ArrowRight, Check, Undo2, Tag, Download, Book, Cloud, ExternalLink, RefreshCw } from 'lucide-react';
+import { X, Plus, Save, Upload, AlertCircle, Edit2, Trash2, CornerDownRight, Folder, ListPlus, FileText, Images, ArrowRight, Check, Undo2, Tag, Download, Book, Cloud, ExternalLink, RefreshCw, Settings } from 'lucide-react';
 import { AppData, Category, LinkItem, CloudConfig, SubCategory } from '../types';
 
 interface AdminModalProps {
@@ -66,6 +66,164 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
   // Cloud Config State
   const [localCloudConfig, setLocalCloudConfig] = useState<CloudConfig>(cloudConfig);
+
+  // Data Export/Import helpers
+  const handleExportData = () => {
+    // Generate Netscape Bookmark HTML format
+    const now = Math.floor(Date.now() / 1000);
+    
+    let html = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<!-- This is an automatically generated file.
+     It will be read and overwritten.
+     DO NOT EDIT! -->
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
+<TITLE>NavHub Bookmarks</TITLE>
+<H1>NavHub Bookmarks</H1>
+<DL><p>
+`;
+
+    data.categories.forEach(cat => {
+      html += `    <DT><H3 ADD_DATE="${now}" LAST_MODIFIED="${now}">${cat.name}</H3>\n`;
+      html += `    <DL><p>\n`;
+      
+      // Subcategories as nested folders
+      if (cat.subCategories.length > 0) {
+        cat.subCategories.forEach(sub => {
+          html += `        <DT><H3 ADD_DATE="${now}" LAST_MODIFIED="${now}">${sub.name}</H3>\n`;
+          html += `        <DL><p>\n`;
+          
+          const links = data.links.filter(l => l.categoryId === cat.id && l.subCategoryId === sub.id);
+          links.forEach(link => {
+            html += `            <DT><A HREF="${link.url}" ADD_DATE="${now}" ICON="${link.iconUrl || ''}">${link.title}</A>\n`;
+            if (link.description) {
+              html += `            <DD>${link.description}\n`;
+            }
+          });
+          
+          html += `        </DL><p>\n`;
+        });
+      }
+      
+      // Links directly in category (if any, though current model forces subcat)
+      // NavHub currently requires subcategory for links, so we mainly iterate subcategories above.
+      
+      html += `    </DL><p>\n`;
+    });
+
+    html += `</DL><p>`;
+
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `navhub-bookmarks-${new Date().toISOString().slice(0, 10)}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const htmlContent = event.target?.result as string;
+      if (!htmlContent) return;
+
+      try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlContent, 'text/html');
+        
+        const newCategories: Category[] = [];
+        const newLinks: LinkItem[] = [];
+        let catIdCounter = Date.now();
+        let subIdCounter = 0;
+        let linkIdCounter = 0;
+
+        // Find top-level DL
+        const rootDl = doc.querySelector('dl');
+        if (!rootDl) throw new Error("Invalid Bookmark file");
+
+        // Iterate direct children of root DL (Top Level Categories)
+        // Note: Structure is usually DT > H3 (Folder Name) + DL (Contents)
+        const topLevelDts = Array.from(rootDl.children).filter(el => el.tagName === 'DT');
+
+        topLevelDts.forEach(dt => {
+          const h3 = dt.querySelector('h3');
+          const dl = dt.querySelector('dl');
+          
+          if (h3 && dl) {
+            const catName = h3.textContent || "Untitled";
+            const catId = `c-${catIdCounter++}`;
+            const subCategories: SubCategory[] = [];
+
+            // Iterate children of category DL (Sub Folders or Links)
+            const subLevelDts = Array.from(dl.children).filter(el => el.tagName === 'DT');
+
+            subLevelDts.forEach(subDt => {
+              const subH3 = subDt.querySelector('h3');
+              const subDl = subDt.querySelector('dl');
+
+              if (subH3) {
+                // It is a subfolder -> SubCategory
+                const subName = subH3.textContent || "Untitled";
+                const subId = `sc-${catId}-${subIdCounter++}`;
+                subCategories.push({ id: subId, name: subName });
+
+                if (subDl) {
+                  const linkDts = Array.from(subDl.children).filter(el => el.tagName === 'DT');
+                  linkDts.forEach(linkDt => {
+                    const a = linkDt.querySelector('a');
+                    if (a) {
+                      newLinks.push({
+                        id: `l-${catId}-${subId}-${linkIdCounter++}`,
+                        title: a.textContent || "Link",
+                        url: a.href,
+                        description: "", // DD tag often follows DT for description, simplistic parsing here
+                        categoryId: catId,
+                        subCategoryId: subId,
+                        iconUrl: a.getAttribute('ICON') || '',
+                        tags: []
+                      });
+                    }
+                  });
+                }
+              } else {
+                 // It is a link directly in category? 
+                 // NavHub data model requires SubCategory. 
+                 // We could create a "General" subcategory if needed, but for now skip or handle later.
+              }
+            });
+
+            // Ensure at least one subcategory if links need it, or valid category
+            newCategories.push({
+              id: catId,
+              name: catName,
+              subCategories: subCategories,
+              icon: '' // Cannot easily extract icon for folder from standard bookmarks
+            });
+          }
+        });
+
+        if (newCategories.length > 0) {
+            if (window.confirm(t.admin.data.confirm)) {
+              onUpdateData({ categories: newCategories, links: newLinks });
+              alert(t.admin.data.success);
+              onClose();
+            }
+        } else {
+            alert("No folders found in bookmark file.");
+        }
+
+      } catch (error) {
+        console.error("Import Error", error);
+        alert(t.admin.data.error);
+      }
+    };
+    reader.readAsText(file);
+  };
 
   // Get all unique tags from existing links for suggestions
   const existingTags = useMemo(() => {
@@ -461,1123 +619,884 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
   const handleSaveCloudConfig = () => {
     onUpdateCloudConfig(localCloudConfig);
-    // Simple feedback
-    alert(t.admin.cloud.saveConfig + " - OK"); 
-  };
-
-  // --- Data Import/Export Logic (HTML Bookmarks) ---
-
-  const handleExportData = () => {
-    let html = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
-<!-- This is an automatically generated file.
-     It will be read and overwritten.
-     DO NOT EDIT! -->
-<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
-<TITLE>NavHub Bookmarks</TITLE>
-<H1>NavHub Bookmarks</H1>
-<DL><p>
-`;
-
-    data.categories.forEach(cat => {
-      html += `    <DT><H3 ADD_DATE="${Date.now()}" LAST_MODIFIED="${Date.now()}">${cat.name}</H3>\n`;
-      html += `    <DL><p>\n`;
-      
-      cat.subCategories.forEach(sub => {
-         html += `        <DT><H3 ADD_DATE="${Date.now()}" LAST_MODIFIED="${Date.now()}">${sub.name}</H3>\n`;
-         html += `        <DL><p>\n`;
-         
-         const links = data.links.filter(l => l.categoryId === cat.id && l.subCategoryId === sub.id);
-         links.forEach(link => {
-            html += `            <DT><A HREF="${link.url}" ADD_DATE="${Date.now()}" ICON="${link.iconUrl || ''}" TAGS="${(link.tags || []).join(',')}">${link.title}</A>\n`;
-            if (link.description) {
-              html += `            <DD>${link.description}\n`;
-            }
-         });
-
-         html += `        </DL><p>\n`;
-      });
-
-      html += `    </DL><p>\n`;
-    });
-
-    html += `</DL><p>`;
-
-    const blob = new Blob([html], { type: 'text/html' });
-    const href = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = href;
-    link.download = `navhub_bookmarks_${new Date().toISOString().split('T')[0]}.html`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const htmlContent = event.target?.result as string;
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(htmlContent, 'text/html');
-        
-        const newCategories: Category[] = [];
-        const newLinks: LinkItem[] = [];
-
-        const rootDl = doc.querySelector('dl'); // First DL is usually root (after H1)
-        if (!rootDl) {
-             alert(t.admin.data.error);
-             return;
-        }
-
-        const topLevelDts = Array.from(rootDl.children).filter(node => node.tagName === 'DT');
-        
-        topLevelDts.forEach(dt => {
-            const h3 = dt.querySelector('h3');
-            if (!h3) return; // Not a folder?
-
-            const catName = h3.textContent || 'Untitled';
-            const catId = `c-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-            
-            // Find the DL for this folder
-            const subDl = dt.querySelector('dl') || (dt.nextElementSibling?.tagName === 'DL' ? dt.nextElementSibling : null);
-            
-            const subCategories: SubCategory[] = [];
-            
-            if (subDl) {
-                const subDts = Array.from(subDl.children).filter(node => node.tagName === 'DT');
-                
-                subDts.forEach(subDt => {
-                    const subH3 = subDt.querySelector('h3');
-                    if (subH3) {
-                        // It's a SubCategory
-                        const subName = subH3.textContent || 'Untitled';
-                        const subId = `sc-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-                        
-                        subCategories.push({ id: subId, name: subName });
-                        
-                        // Links in SubCategory
-                        const linkDl = subDt.querySelector('dl') || (subDt.nextElementSibling?.tagName === 'DL' ? subDt.nextElementSibling : null);
-                        if (linkDl) {
-                             const linkDts = Array.from(linkDl.children).filter(node => node.tagName === 'DT');
-                             linkDts.forEach(linkDt => {
-                                 const a = linkDt.querySelector('a');
-                                 if (a) {
-                                     const title = a.textContent || 'Untitled';
-                                     const url = a.getAttribute('href') || '#';
-                                     const iconUrl = a.getAttribute('icon') || '';
-                                     const tagsAttr = a.getAttribute('tags');
-                                     const tags = tagsAttr ? tagsAttr.split(',').filter(Boolean) : [];
-                                     
-                                     let description = '';
-                                     const dd = linkDt.nextElementSibling;
-                                     if (dd && dd.tagName === 'DD') {
-                                         description = dd.textContent?.trim() || '';
-                                     }
-
-                                     newLinks.push({
-                                         id: `l-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                                         title,
-                                         url,
-                                         description,
-                                         iconUrl,
-                                         categoryId: catId,
-                                         subCategoryId: subId,
-                                         tags
-                                     });
-                                 }
-                             });
-                        }
-                    } else {
-                        // Link at Category Level (No subcategory)
-                        // Create a "General" subcategory for these orphans
-                        let generalSub = subCategories.find(s => s.name === 'General');
-                        if (!generalSub) {
-                            generalSub = { id: `sc-gen-${catId}`, name: 'General' };
-                            subCategories.push(generalSub);
-                        }
-                        
-                        const a = subDt.querySelector('a');
-                        if (a) {
-                            const title = a.textContent || 'Untitled';
-                            const url = a.getAttribute('href') || '#';
-                            const iconUrl = a.getAttribute('icon') || '';
-                            const tagsAttr = a.getAttribute('tags');
-                            const tags = tagsAttr ? tagsAttr.split(',').filter(Boolean) : [];
-
-                             let description = '';
-                             const dd = subDt.nextElementSibling;
-                             if (dd && dd.tagName === 'DD') {
-                                 description = dd.textContent?.trim() || '';
-                             }
-
-                            newLinks.push({
-                                 id: `l-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                                 title,
-                                 url,
-                                 description,
-                                 iconUrl,
-                                 categoryId: catId,
-                                 subCategoryId: generalSub.id,
-                                 tags
-                             });
-                        }
-                    }
-                });
-            }
-
-            newCategories.push({
-                id: catId,
-                name: catName,
-                icon: '', 
-                subCategories
-            });
-        });
-
-        if (newCategories.length > 0) {
-           if (window.confirm(t.admin.data.confirm)) {
-            onUpdateData({ categories: newCategories, links: newLinks });
-            alert(t.admin.data.success);
-            onClose();
-           }
-        } else {
-            alert(t.admin.data.error);
-        }
-
-      } catch (err) {
-        console.error(err);
-        alert(t.admin.data.error);
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
+    alert(t.admin.cloud.saveConfig + " Success");
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] dark:bg-slate-800">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div 
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" 
+        onClick={onClose}
+      />
+
+      {/* Modal Content */}
+      <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden relative z-10 dark:bg-slate-900 dark:border dark:border-slate-700 animate-fadeIn">
+        
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50 dark:border-slate-700">
-          <div className="flex items-center gap-4">
-            <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">
-              {editingItem ? t.admin.editLink : t.admin.title}
-            </h2>
-            {/* Undo Button */}
-            {lastBulkActionData && (
-              <button 
-                onClick={handleUndo}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-600 rounded-full text-xs font-medium hover:bg-amber-100 border border-amber-200 transition-colors dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800"
-                title={t.admin.undo}
-              >
-                <Undo2 className="w-3.5 h-3.5" />
-                {t.admin.undo}
-              </button>
-            )}
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-200 transition dark:hover:bg-slate-700 dark:text-slate-500 dark:hover:text-slate-300">
+        <div className="h-16 border-b border-slate-100 flex items-center justify-between px-6 shrink-0 dark:border-slate-800">
+          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2 dark:text-white">
+            <Settings className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            {t.admin.title}
+          </h2>
+          <button 
+            onClick={onClose}
+            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors dark:text-slate-500 dark:hover:text-slate-300 dark:hover:bg-slate-800"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Tabs */}
-        {!editingItem && (
-          <div className="flex border-b border-slate-100 dark:border-slate-700 overflow-x-auto">
-            <button 
-              onClick={() => setActiveTab('link')} 
-              className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors min-w-[80px] ${activeTab === 'link' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
-            >
-              {t.admin.tabs.addLink}
-            </button>
-            <button 
-              onClick={() => setActiveTab('category')} 
-              className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors min-w-[80px] ${activeTab === 'category' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
-            >
-              {t.admin.tabs.categories}
-            </button>
-            <button 
-              onClick={() => setActiveTab('cloud')} 
-              className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors min-w-[80px] ${activeTab === 'cloud' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
-            >
-              {t.admin.tabs.cloud}
-            </button>
-            <button 
-              onClick={() => setActiveTab('data')} 
-              className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors min-w-[80px] ${activeTab === 'data' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
-            >
-              {t.admin.tabs.data}
-            </button>
+        {/* Tabs & Content Container */}
+        <div className="flex flex-1 overflow-hidden">
+          
+          {/* Sidebar Tabs (Desktop) */}
+          <div className="w-48 bg-slate-50 border-r border-slate-100 hidden md:block dark:bg-slate-800/50 dark:border-slate-800">
+            <nav className="p-3 space-y-1">
+              <button 
+                onClick={() => setActiveTab('link')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'link' ? 'bg-white shadow-sm text-indigo-600 dark:bg-slate-700 dark:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50'}`}
+              >
+                <Plus className="w-4 h-4" />
+                {t.admin.tabs.addLink}
+              </button>
+              <button 
+                onClick={() => setActiveTab('category')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'category' ? 'bg-white shadow-sm text-indigo-600 dark:bg-slate-700 dark:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50'}`}
+              >
+                <Folder className="w-4 h-4" />
+                {t.admin.tabs.categories}
+              </button>
+              <button 
+                onClick={() => setActiveTab('cloud')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'cloud' ? 'bg-white shadow-sm text-indigo-600 dark:bg-slate-700 dark:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50'}`}
+              >
+                <Cloud className="w-4 h-4" />
+                {t.admin.tabs.cloud}
+              </button>
+              <button 
+                onClick={() => setActiveTab('data')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'data' ? 'bg-white shadow-sm text-indigo-600 dark:bg-slate-700 dark:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50'}`}
+              >
+                <Save className="w-4 h-4" />
+                {t.admin.tabs.data}
+              </button>
+            </nav>
           </div>
-        )}
 
-        {/* Content */}
-        <div className="p-6 overflow-y-auto">
-          
-          {/* LINK TAB */}
-          {activeTab === 'link' && (
-            <div className="space-y-4">
-              
-              {/* Mode Toggle (Single vs Bulk) - Only when not editing */}
-              {!editingItem && (
-                <div className="flex p-1 bg-slate-100 rounded-lg mb-4 dark:bg-slate-700">
-                  <button 
-                    onClick={() => setLinkMode('single')}
-                    className={`flex-1 flex items-center justify-center gap-2 py-1.5 text-xs font-medium rounded-md transition-all ${linkMode === 'single' ? 'bg-white shadow text-indigo-600 dark:bg-slate-600 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
-                  >
-                    <FileText className="w-3.5 h-3.5" />
-                    {t.admin.link.modes.single}
-                  </button>
-                  <button 
-                    onClick={() => setLinkMode('bulk')}
-                    className={`flex-1 flex items-center justify-center gap-2 py-1.5 text-xs font-medium rounded-md transition-all ${linkMode === 'bulk' ? 'bg-white shadow text-indigo-600 dark:bg-slate-600 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
-                  >
-                    <ListPlus className="w-3.5 h-3.5" />
-                    {t.admin.link.modes.bulk}
-                  </button>
-                </div>
-              )}
-
-              {/* SINGLE MODE */}
-              {linkMode === 'single' && (
-                <>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.link.title} <span className="text-red-500">*</span></label>
-                      <input 
-                        type="text" 
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition dark:bg-slate-700 dark:text-white ${linkErrors.title ? 'border-red-500 focus:ring-red-200 focus:border-red-500' : 'border-slate-200 dark:border-slate-600'}`}
-                        placeholder="e.g. Google"
-                        value={linkForm.title}
-                        onChange={(e) => {
-                          setLinkForm({ ...linkForm, title: e.target.value });
-                          if(linkErrors.title) setLinkErrors({...linkErrors, title: undefined});
-                        }}
-                      />
-                      {linkErrors.title && <p className="text-red-500 text-xs mt-1">{linkErrors.title}</p>}
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.link.url} <span className="text-red-500">*</span></label>
-                      <input 
-                        type="text" 
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition dark:bg-slate-700 dark:text-white ${linkErrors.url ? 'border-red-500 focus:ring-red-200 focus:border-red-500' : 'border-slate-200 dark:border-slate-600'}`}
-                        placeholder="google.com"
-                        value={linkForm.url}
-                        onChange={(e) => {
-                          setLinkForm({ ...linkForm, url: e.target.value });
-                          if(linkErrors.url) setLinkErrors({...linkErrors, url: undefined});
-                        }}
-                      />
-                      {linkErrors.url && <p className="text-red-500 text-xs mt-1">{linkErrors.url}</p>}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.link.category} <span className="text-red-500">*</span></label>
-                      <select 
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white dark:bg-slate-700 dark:text-white ${linkErrors.categoryId ? 'border-red-500' : 'border-slate-200 dark:border-slate-600'}`}
-                        value={linkForm.categoryId}
-                        onChange={(e) => {
-                          setLinkForm({ ...linkForm, categoryId: e.target.value, subCategoryId: '' });
-                          if(linkErrors.categoryId) setLinkErrors({...linkErrors, categoryId: undefined});
-                        }}
-                      >
-                        {data.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </select>
-                      {linkErrors.categoryId && <p className="text-red-500 text-xs mt-1">{linkErrors.categoryId}</p>}
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.link.subCategory}</label>
-                      <select 
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white dark:bg-slate-700 dark:text-white dark:border-slate-600"
-                        value={linkForm.subCategoryId}
-                        onChange={(e) => setLinkForm({ ...linkForm, subCategoryId: e.target.value })}
-                        disabled={!linkForm.categoryId}
-                      >
-                        <option value="">{t.admin.link.selectCategory}</option>
-                        {data.categories.find(c => c.id === linkForm.categoryId)?.subCategories.map(sc => (
-                          <option key={sc.id} value={sc.id}>{sc.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.link.description}</label>
-                    <textarea 
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition dark:bg-slate-700 dark:text-white dark:border-slate-600"
-                      rows={2}
-                      placeholder="..."
-                      value={linkForm.description}
-                      onChange={(e) => setLinkForm({ ...linkForm, description: e.target.value })}
-                    />
-                  </div>
-
-                  {/* Tags Section (Single) */}
-                  <div className="space-y-2">
-                    <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.link.tags}</label>
-                    
-                    {/* Input Area */}
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <input 
-                          type="text" 
-                          className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition text-sm dark:bg-slate-700 dark:text-white dark:border-slate-600"
-                          placeholder="Add a tag..."
-                          value={tagInput}
-                          onChange={(e) => setTagInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleAddTag(tagInput);
-                            }
-                          }}
-                        />
-                      </div>
-                      <button 
-                        onClick={() => handleAddTag(tagInput)}
-                        disabled={!tagInput.trim()}
-                        className="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-50 text-xs font-medium dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
-                      >
-                        {t.admin.link.addTag}
-                      </button>
-                    </div>
-
-                    {/* Selected Tags */}
-                    {linkForm.tags && linkForm.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        {linkForm.tags.map(tag => (
-                          <span key={tag} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-indigo-50 text-indigo-700 text-xs font-medium dark:bg-indigo-900/30 dark:text-indigo-300">
-                            #{tag}
-                            <button onClick={() => handleRemoveTag(tag)} className="hover:text-indigo-900 dark:hover:text-indigo-100"><X className="w-3 h-3" /></button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Suggestions */}
-                    {existingTags.length > 0 && (
-                      <div className="pt-2">
-                        <p className="text-[10px] text-slate-400 mb-1.5 uppercase font-medium">{t.admin.link.suggestedTags}</p>
-                        <div className="flex flex-wrap gap-1.5">
-                           {existingTags.filter(t => !linkForm.tags?.includes(t)).slice(0, 10).map(tag => (
-                             <button
-                               key={tag}
-                               onClick={() => handleAddTag(tag)}
-                               className="px-2 py-0.5 rounded border border-slate-200 text-slate-500 text-[10px] hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 transition-colors dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                             >
-                               #{tag}
-                             </button>
-                           ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.link.icon}</label>
-                    <div className="flex gap-4 items-center">
-                      <div className="relative group w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center overflow-hidden border border-slate-200 shrink-0 dark:bg-slate-700 dark:border-slate-600">
-                        {linkForm.iconUrl ? (
-                          <img src={linkForm.iconUrl} alt="Preview" className="w-full h-full object-cover" />
-                        ) : (
-                          <Upload className="w-5 h-5 text-slate-400" />
-                        )}
-                        <input 
-                          type="file" 
-                          accept="image/*"
-                          className="absolute inset-0 opacity-0 cursor-pointer"
-                          onChange={(e) => handleImageUpload(e, (res) => setLinkForm({ ...linkForm, iconUrl: res }))}
-                        />
-                      </div>
-                      <input 
-                        type="text" 
-                        className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm dark:bg-slate-700 dark:text-white dark:border-slate-600"
-                        placeholder={t.admin.link.uploadOrPaste}
-                        value={linkForm.iconUrl}
-                        onChange={(e) => setLinkForm({ ...linkForm, iconUrl: e.target.value })}
-                      />
-                    </div>
-                  </div>
-
-                  <button 
-                    onClick={handleSaveLink}
-                    className="w-full mt-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2"
-                  >
-                    <Save className="w-4 h-4" />
-                    {editingItem ? t.admin.link.update : t.admin.link.create}
-                  </button>
-                </>
-              )}
-
-              {/* BULK MODE */}
-              {linkMode === 'bulk' && !editingItem && (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.link.category} <span className="text-red-500">*</span></label>
-                      <select 
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white dark:bg-slate-700 dark:text-white ${linkErrors.categoryId ? 'border-red-500' : 'border-slate-200 dark:border-slate-600'}`}
-                        value={linkForm.categoryId}
-                        onChange={(e) => {
-                          setLinkForm({ ...linkForm, categoryId: e.target.value, subCategoryId: '' });
-                          if(linkErrors.categoryId) setLinkErrors({...linkErrors, categoryId: undefined});
-                        }}
-                      >
-                        {data.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </select>
-                      {linkErrors.categoryId && <p className="text-red-500 text-xs mt-1">{linkErrors.categoryId}</p>}
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.link.subCategory}</label>
-                      <select 
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white dark:bg-slate-700 dark:text-white dark:border-slate-600"
-                        value={linkForm.subCategoryId}
-                        onChange={(e) => setLinkForm({ ...linkForm, subCategoryId: e.target.value })}
-                        disabled={!linkForm.categoryId}
-                      >
-                        <option value="">{t.admin.link.selectCategory}</option>
-                        {data.categories.find(c => c.id === linkForm.categoryId)?.subCategories.map(sc => (
-                          <option key={sc.id} value={sc.id}>{sc.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.link.bulk.label}</label>
-                    <textarea 
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition dark:bg-slate-700 dark:text-white dark:border-slate-600 font-mono text-sm"
-                      rows={6}
-                      placeholder={t.admin.link.bulk.placeholder}
-                      value={bulkUrls}
-                      onChange={(e) => setBulkUrls(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.link.bulk.defaultTitle}</label>
-                    <input 
-                      type="text" 
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition dark:bg-slate-700 dark:text-white dark:border-slate-600"
-                      placeholder={t.admin.link.bulk.defaultTitlePlaceholder}
-                      value={bulkDefaultTitle}
-                      onChange={(e) => setBulkDefaultTitle(e.target.value)}
-                    />
-                  </div>
-
-                  {/* Tags Section (Bulk) */}
-                  <div className="space-y-2">
-                    <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.link.tags}</label>
-                    
-                    {/* Input Area */}
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <input 
-                          type="text" 
-                          className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition text-sm dark:bg-slate-700 dark:text-white dark:border-slate-600"
-                          placeholder="Add tag for all..."
-                          value={bulkTagInput}
-                          onChange={(e) => setBulkTagInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleAddTag(bulkTagInput, true);
-                            }
-                          }}
-                        />
-                      </div>
-                      <button 
-                        onClick={() => handleAddTag(bulkTagInput, true)}
-                        disabled={!bulkTagInput.trim()}
-                        className="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-50 text-xs font-medium dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
-                      >
-                        {t.admin.link.addTag}
-                      </button>
-                    </div>
-
-                    {/* Selected Tags */}
-                    {bulkTags.length > 0 && (
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        {bulkTags.map(tag => (
-                          <span key={tag} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-indigo-50 text-indigo-700 text-xs font-medium dark:bg-indigo-900/30 dark:text-indigo-300">
-                            #{tag}
-                            <button onClick={() => handleRemoveTag(tag, true)} className="hover:text-indigo-900 dark:hover:text-indigo-100"><X className="w-3 h-3" /></button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Suggestions */}
-                    {existingTags.length > 0 && (
-                      <div className="pt-2">
-                        <p className="text-[10px] text-slate-400 mb-1.5 uppercase font-medium">{t.admin.link.suggestedTags}</p>
-                        <div className="flex flex-wrap gap-1.5">
-                           {existingTags.filter(t => !bulkTags.includes(t)).slice(0, 10).map(tag => (
-                             <button
-                               key={tag}
-                               onClick={() => handleAddTag(tag, true)}
-                               className="px-2 py-0.5 rounded border border-slate-200 text-slate-500 text-[10px] hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 transition-colors dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                             >
-                               #{tag}
-                             </button>
-                           ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <button 
-                    onClick={handleBulkImport}
-                    className="w-full mt-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2"
-                  >
-                    <ListPlus className="w-4 h-4" />
-                    {t.admin.link.bulk.import}
-                  </button>
-                </div>
-              )}
+          {/* Main Content Area */}
+          <div className="flex-1 overflow-y-auto p-6 scroll-smooth">
+            
+            {/* Mobile Tabs */}
+            <div className="md:hidden flex overflow-x-auto gap-2 mb-6 pb-2 no-scrollbar">
+              <button 
+                onClick={() => setActiveTab('link')}
+                className={`flex-none px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${activeTab === 'link' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}
+              >
+                {t.admin.tabs.addLink}
+              </button>
+              <button 
+                onClick={() => setActiveTab('category')}
+                className={`flex-none px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${activeTab === 'category' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}
+              >
+                {t.admin.tabs.categories}
+              </button>
+              <button 
+                onClick={() => setActiveTab('cloud')}
+                className={`flex-none px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${activeTab === 'cloud' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}
+              >
+                {t.admin.tabs.cloud}
+              </button>
+              <button 
+                onClick={() => setActiveTab('data')}
+                className={`flex-none px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${activeTab === 'data' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}
+              >
+                {t.admin.tabs.data}
+              </button>
             </div>
-          )}
-          
-          {/* CATEGORY TAB */}
-          {activeTab === 'category' && (
-             <div className="space-y-8">
-               {/* 1. Existing Categories List */}
-              <div className="space-y-2">
-                 <h3 className="font-semibold text-slate-700 text-sm dark:text-slate-300">{t.admin.category.existing}</h3>
-                 <div className="border border-slate-200 rounded-lg overflow-hidden divide-y divide-slate-100 max-h-64 overflow-y-auto dark:border-slate-700 dark:divide-slate-700">
-                    {data.categories.length === 0 && <p className="p-4 text-slate-400 text-sm text-center">{t.admin.category.noCategories}</p>}
-                    {data.categories.map(cat => (
-                      <div key={cat.id} className="bg-white group dark:bg-slate-800">
-                         {/* Main Category Row */}
-                         <div className="p-3 flex items-center justify-between hover:bg-slate-50 transition-colors dark:hover:bg-slate-700/50">
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center overflow-hidden shrink-0 dark:bg-indigo-900/30 dark:border-indigo-800">
-                                  {cat.icon ? <img src={cat.icon} className="w-full h-full object-cover" /> : <Folder className="w-4 h-4 text-indigo-400 dark:text-indigo-300" />}
-                                </div>
-                                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{cat.name}</span>
-                                <span className="text-xs text-slate-400">({cat.subCategories.length})</span>
-                            </div>
-                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button 
-                                  onClick={() => handleEditCategory(cat)}
-                                  className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded dark:hover:bg-slate-600"
-                                  title={t.admin.category.edit}
-                                >
-                                  <Edit2 className="w-4 h-4" />
-                                </button>
-                                <button 
-                                  onClick={() => handleDeleteCategory(cat.id)}
-                                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded dark:hover:bg-slate-600"
-                                  title="Delete"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                            </div>
-                         </div>
-                         
-                         {/* Sub-Categories List (Nested) */}
-                         {cat.subCategories.length > 0 && (
-                           <div className="bg-slate-50/50 border-t border-slate-100 pl-14 pr-3 py-2 space-y-1 dark:bg-slate-900/30 dark:border-slate-700">
-                              {cat.subCategories.map(sc => (
-                                <div key={sc.id} className="flex items-center justify-between group/sub">
-                                   <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                                      <CornerDownRight className="w-3 h-3 text-slate-300 dark:text-slate-600" />
-                                      <span>{sc.name}</span>
-                                   </div>
-                                   <div className="flex gap-1 opacity-0 group-hover/sub:opacity-100 transition-opacity">
-                                      <button 
-                                        onClick={() => handleEditSubCategory(cat.id, sc)}
-                                        className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded dark:hover:bg-slate-700"
-                                        title="Edit Sub-Category"
-                                      >
-                                        <Edit2 className="w-3 h-3" />
-                                      </button>
-                                      <button 
-                                        onClick={() => handleDeleteSubCategory(cat.id, sc.id)}
-                                        className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded dark:hover:bg-slate-700"
-                                        title="Delete Sub-Category"
-                                      >
-                                        <Trash2 className="w-3 h-3" />
-                                      </button>
-                                   </div>
-                                </div>
-                              ))}
-                           </div>
-                         )}
-                      </div>
-                    ))}
-                 </div>
-              </div>
 
-               {/* 2. Category Form (Add/Edit) */}
-              <div className="bg-slate-50 p-4 rounded-xl space-y-4 border border-slate-100 dark:bg-slate-700/50 dark:border-slate-600">
-                <h3 className="font-semibold text-slate-800 text-sm uppercase tracking-wide dark:text-slate-200">
-                  {catForm.id ? t.admin.category.edit : t.admin.category.new}
-                </h3>
-                <div className="space-y-3">
-                   <div className="flex gap-4">
-                     {/* Icon Input */}
-                      <div className="space-y-1 shrink-0">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase block dark:text-slate-400">{t.admin.category.icon}</label>
-                        <div className="relative w-10 h-10 rounded-lg bg-white border border-dashed border-slate-300 flex items-center justify-center overflow-hidden hover:border-indigo-400 hover:bg-indigo-50 transition-all group cursor-pointer dark:bg-slate-600 dark:border-slate-500 dark:hover:bg-slate-500">
-                           {catForm.icon ? (
-                              <img src={catForm.icon} alt="Icon" className="w-full h-full object-cover" />
-                           ) : (
-                              <Folder className="w-5 h-5 text-slate-300 group-hover:text-indigo-500 transition-colors dark:text-slate-400 dark:group-hover:text-indigo-300" />
-                           )}
-                           <input 
-                            type="file" 
-                            accept="image/*"
-                            className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                            onChange={(e) => handleImageUpload(e, (res) => setCatForm({ ...catForm, icon: res }))}
-                            title="Upload Icon"
+            {/* --- LINK TAB --- */}
+            {activeTab === 'link' && (
+              <div className="space-y-6 max-w-2xl mx-auto">
+                {!editingItem && (
+                  <div className="flex bg-slate-100 p-1 rounded-lg mb-6 dark:bg-slate-800">
+                    <button 
+                      onClick={() => setLinkMode('single')} 
+                      className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${linkMode === 'single' ? 'bg-white text-indigo-600 shadow-sm dark:bg-slate-700 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+                    >
+                      <Plus className="w-4 h-4" />
+                      {t.admin.link.modes.single}
+                    </button>
+                    <button 
+                      onClick={() => setLinkMode('bulk')} 
+                      className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${linkMode === 'bulk' ? 'bg-white text-indigo-600 shadow-sm dark:bg-slate-700 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+                    >
+                      <ListPlus className="w-4 h-4" />
+                      {t.admin.link.modes.bulk}
+                    </button>
+                  </div>
+                )}
+
+                {linkMode === 'single' ? (
+                  <div className="space-y-4 animate-fadeIn">
+                     {/* Title & URL */}
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.title} <span className="text-red-500">*</span></label>
+                          <input 
+                            type="text" 
+                            value={linkForm.title} 
+                            onChange={(e) => {
+                              setLinkForm({ ...linkForm, title: e.target.value });
+                              setLinkErrors({ ...linkErrors, title: '' });
+                            }}
+                            className={`w-full px-3 py-2 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:bg-slate-800 dark:border-slate-700 dark:text-white ${linkErrors.title ? 'border-red-500 bg-red-50 dark:bg-red-900/20' : 'border-slate-200'}`}
                           />
+                          {linkErrors.title && <p className="text-xs text-red-500">{linkErrors.title}</p>}
                         </div>
-                      </div>
-                      
-                      {/* Name Input */}
-                      <div className="space-y-1 flex-1">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase block dark:text-slate-400">{t.admin.category.name}</label>
-                        <input 
-                          type="text" 
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 bg-white dark:bg-slate-600 dark:text-white dark:border-slate-500"
-                          value={catForm.name}
-                          onChange={(e) => setCatForm({ ...catForm, name: e.target.value })}
-                        />
-                      </div>
-                   </div>
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.url} <span className="text-red-500">*</span></label>
+                          <input 
+                            type="text" 
+                            value={linkForm.url} 
+                            onChange={(e) => {
+                              setLinkForm({ ...linkForm, url: e.target.value });
+                              setLinkErrors({ ...linkErrors, url: '' });
+                            }}
+                            placeholder="https://"
+                            className={`w-full px-3 py-2 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:bg-slate-800 dark:border-slate-700 dark:text-white ${linkErrors.url ? 'border-red-500 bg-red-50 dark:bg-red-900/20' : 'border-slate-200'}`}
+                          />
+                          {linkErrors.url && <p className="text-xs text-red-500">{linkErrors.url}</p>}
+                        </div>
+                     </div>
 
-                   {/* Icon URL Input (Optional) */}
-                   <div className="space-y-1">
-                      <input 
-                        type="text" 
-                        className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-white dark:bg-slate-600 dark:text-white dark:border-slate-500"
-                        placeholder="Icon URL..."
-                        value={catForm.icon}
-                        onChange={(e) => setCatForm({ ...catForm, icon: e.target.value })}
-                      />
+                     {/* Category & SubCategory */}
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.category} <span className="text-red-500">*</span></label>
+                          <select 
+                            value={linkForm.categoryId} 
+                            onChange={(e) => {
+                              const newCatId = e.target.value;
+                              const newSubId = data.categories.find(c => c.id === newCatId)?.subCategories[0]?.id || '';
+                              setLinkForm({ ...linkForm, categoryId: newCatId, subCategoryId: newSubId });
+                              setLinkErrors({ ...linkErrors, categoryId: '' });
+                            }}
+                            className={`w-full px-3 py-2 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:bg-slate-800 dark:border-slate-700 dark:text-white ${linkErrors.categoryId ? 'border-red-500' : 'border-slate-200'}`}
+                          >
+                            <option value="">{t.admin.link.selectCategory}</option>
+                            {data.categories.map(c => (
+                              <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.subCategory}</label>
+                          <select 
+                            value={linkForm.subCategoryId} 
+                            onChange={(e) => setLinkForm({ ...linkForm, subCategoryId: e.target.value })}
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                            disabled={!linkForm.categoryId}
+                          >
+                            {linkForm.categoryId && data.categories.find(c => c.id === linkForm.categoryId)?.subCategories.map(sc => (
+                              <option key={sc.id} value={sc.id}>{sc.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                     </div>
+
+                     {/* Description */}
+                     <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.description}</label>
+                        <textarea 
+                          value={linkForm.description} 
+                          onChange={(e) => setLinkForm({ ...linkForm, description: e.target.value })}
+                          rows={2}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all resize-none dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                        />
+                     </div>
+
+                     {/* Tags */}
+                     <div className="space-y-2">
+                        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.tags}</label>
+                        
+                        <div className="flex flex-wrap gap-2 mb-2 p-2 bg-slate-50 border border-slate-200 rounded-lg min-h-[42px] dark:bg-slate-800 dark:border-slate-700">
+                           {linkForm.tags && linkForm.tags.length > 0 ? (
+                             linkForm.tags.map(tag => (
+                               <span key={tag} className="inline-flex items-center gap-1 px-2 py-1 rounded bg-indigo-100 text-indigo-700 text-xs font-medium dark:bg-indigo-900/50 dark:text-indigo-300">
+                                 {tag}
+                                 <button onClick={() => handleRemoveTag(tag)} className="hover:text-indigo-900 dark:hover:text-indigo-100"><X className="w-3 h-3" /></button>
+                               </span>
+                             ))
+                           ) : (
+                             <span className="text-slate-400 text-sm italic p-1">{t.admin.link.tags}</span>
+                           )}
+                        </div>
+
+                        <div className="flex gap-2">
+                           <div className="relative flex-1">
+                             <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                             <input 
+                               type="text" 
+                               value={tagInput}
+                               onChange={e => setTagInput(e.target.value)}
+                               onKeyDown={e => {
+                                 if (e.key === 'Enter') {
+                                   e.preventDefault();
+                                   handleAddTag(tagInput);
+                                 }
+                               }}
+                               className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                               placeholder={t.admin.link.addTag}
+                             />
+                           </div>
+                           <button 
+                             onClick={() => handleAddTag(tagInput)}
+                             className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                           >
+                             <Plus className="w-4 h-4" />
+                           </button>
+                        </div>
+                        
+                        {/* Suggestions */}
+                        {existingTags.length > 0 && (
+                          <div className="mt-2">
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">{t.admin.link.suggestedTags}</p>
+                            <div className="flex flex-wrap gap-1">
+                              {existingTags.slice(0, 10).map(tag => (
+                                <button 
+                                  key={tag}
+                                  onClick={() => handleAddTag(tag)}
+                                  className="text-xs px-2 py-0.5 bg-slate-100 text-slate-500 rounded hover:bg-indigo-50 hover:text-indigo-600 transition-colors dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-indigo-900/30"
+                                >
+                                  {tag}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                     </div>
+
+                     {/* Icon */}
+                     <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.icon}</label>
+                        <div className="flex items-center gap-4">
+                           <div className="w-12 h-12 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden shrink-0 dark:bg-slate-800 dark:border-slate-700">
+                             {linkForm.iconUrl ? (
+                               <img src={linkForm.iconUrl} alt="Preview" className="w-full h-full object-cover" />
+                             ) : (
+                               <Images className="w-5 h-5 text-slate-400" />
+                             )}
+                           </div>
+                           <div className="flex-1 space-y-2">
+                              <label className="flex items-center justify-center w-full px-4 py-2 bg-white border border-slate-200 border-dashed rounded-lg cursor-pointer hover:bg-slate-50 transition-colors dark:bg-slate-800 dark:border-slate-700 dark:hover:bg-slate-700">
+                                <span className="text-sm text-slate-600 dark:text-slate-400">Upload Image</span>
+                                <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, (res) => setLinkForm({ ...linkForm, iconUrl: res }))} />
+                              </label>
+                              <input 
+                                type="text" 
+                                value={linkForm.iconUrl}
+                                onChange={(e) => setLinkForm({ ...linkForm, iconUrl: e.target.value })}
+                                placeholder={t.admin.link.uploadOrPaste}
+                                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                              />
+                           </div>
+                        </div>
+                     </div>
+
+                     {/* Submit Button */}
+                     <div className="pt-4 flex justify-end">
+                       <button 
+                         onClick={handleSaveLink}
+                         className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-lg text-sm font-medium shadow-md shadow-indigo-200 dark:shadow-none transition-all active:scale-95 flex items-center gap-2"
+                       >
+                         <Save className="w-4 h-4" />
+                         <span>{editingItem ? t.admin.link.update : t.admin.link.create}</span>
+                       </button>
+                     </div>
+                  </div>
+                ) : (
+                  // BULK MODE
+                  <div className="space-y-4 animate-fadeIn">
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.category} <span className="text-red-500">*</span></label>
+                          <select 
+                            value={linkForm.categoryId} 
+                            onChange={(e) => {
+                              const newCatId = e.target.value;
+                              const newSubId = data.categories.find(c => c.id === newCatId)?.subCategories[0]?.id || '';
+                              setLinkForm({ ...linkForm, categoryId: newCatId, subCategoryId: newSubId });
+                              setLinkErrors({ ...linkErrors, categoryId: '' });
+                            }}
+                            className={`w-full px-3 py-2 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:bg-slate-800 dark:border-slate-700 dark:text-white ${linkErrors.categoryId ? 'border-red-500' : 'border-slate-200'}`}
+                          >
+                            <option value="">{t.admin.link.selectCategory}</option>
+                            {data.categories.map(c => (
+                              <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.subCategory}</label>
+                          <select 
+                            value={linkForm.subCategoryId} 
+                            onChange={(e) => setLinkForm({ ...linkForm, subCategoryId: e.target.value })}
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                            disabled={!linkForm.categoryId}
+                          >
+                            {linkForm.categoryId && data.categories.find(c => c.id === linkForm.categoryId)?.subCategories.map(sc => (
+                              <option key={sc.id} value={sc.id}>{sc.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                     </div>
+
+                     <div className="space-y-1.5">
+                       <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.bulk.label}</label>
+                       <textarea 
+                         value={bulkUrls}
+                         onChange={e => setBulkUrls(e.target.value)}
+                         placeholder={t.admin.link.bulk.placeholder}
+                         rows={8}
+                         className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                       />
+                     </div>
+                     
+                     {/* Bulk Default Title */}
+                     <div className="space-y-1.5">
+                       <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.bulk.defaultTitle}</label>
+                       <input 
+                         type="text" 
+                         value={bulkDefaultTitle}
+                         onChange={e => setBulkDefaultTitle(e.target.value)}
+                         placeholder={t.admin.link.bulk.defaultTitlePlaceholder}
+                         className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                       />
+                     </div>
+
+                     {/* Bulk Tags */}
+                     <div className="space-y-2">
+                        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.tags}</label>
+                        <div className="flex flex-wrap gap-2 mb-2 p-2 bg-slate-50 border border-slate-200 rounded-lg min-h-[42px] dark:bg-slate-800 dark:border-slate-700">
+                           {bulkTags.map(tag => (
+                             <span key={tag} className="inline-flex items-center gap-1 px-2 py-1 rounded bg-indigo-100 text-indigo-700 text-xs font-medium dark:bg-indigo-900/50 dark:text-indigo-300">
+                               {tag}
+                               <button onClick={() => handleRemoveTag(tag, true)} className="hover:text-indigo-900 dark:hover:text-indigo-100"><X className="w-3 h-3" /></button>
+                             </span>
+                           ))}
+                        </div>
+                        <div className="flex gap-2">
+                           <input 
+                             type="text" 
+                             value={bulkTagInput}
+                             onChange={e => setBulkTagInput(e.target.value)}
+                             onKeyDown={e => {
+                               if (e.key === 'Enter') {
+                                 e.preventDefault();
+                                 handleAddTag(bulkTagInput, true);
+                               }
+                             }}
+                             className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                             placeholder={t.admin.link.addTag}
+                           />
+                           <button 
+                             onClick={() => handleAddTag(bulkTagInput, true)}
+                             className="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                           >
+                             <Plus className="w-4 h-4" />
+                           </button>
+                        </div>
+                     </div>
+
+                     <div className="pt-4 flex justify-between items-center">
+                        {lastBulkActionData && (
+                           <button onClick={handleUndo} className="flex items-center gap-2 text-sm text-slate-500 hover:text-indigo-600 transition-colors">
+                              <Undo2 className="w-4 h-4" /> {t.admin.undo}
+                           </button>
+                        )}
+                        <button 
+                         onClick={handleBulkImport}
+                         className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-lg text-sm font-medium shadow-md shadow-indigo-200 dark:shadow-none transition-all active:scale-95 flex items-center gap-2 ml-auto"
+                       >
+                         <Upload className="w-4 h-4" />
+                         <span>{t.admin.link.bulk.import}</span>
+                       </button>
+                     </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* --- CATEGORY TAB --- */}
+            {activeTab === 'category' && (
+              <div className="space-y-10 max-w-2xl mx-auto">
+                
+                {/* 1. Existing Categories */}
+                <div>
+                   <h3 className="font-bold text-slate-800 mb-4 dark:text-slate-200 flex items-center gap-2">
+                     <ListPlus className="w-5 h-5 text-indigo-500" />
+                     {t.admin.category.existing}
+                   </h3>
+                   <div className="space-y-4">
+                      {data.categories.length === 0 ? (
+                        <p className="text-slate-400 italic">{t.admin.category.noCategories}</p>
+                      ) : (
+                        data.categories.map(cat => (
+                          <div key={cat.id} className="bg-white border border-slate-100 rounded-xl p-4 shadow-sm dark:bg-slate-800 dark:border-slate-700">
+                             <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-3">
+                                   {cat.icon ? (
+                                     <img src={cat.icon} alt="" className="w-8 h-8 rounded-lg object-contain bg-slate-50 dark:bg-slate-700" />
+                                   ) : (
+                                     <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 dark:bg-slate-700"><Folder className="w-4 h-4" /></div>
+                                   )}
+                                   <span className="font-semibold text-slate-800 dark:text-slate-200">{cat.name}</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                   <button onClick={() => handleEditCategory(cat)} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded dark:hover:bg-indigo-900/30 dark:hover:text-indigo-400"><Edit2 className="w-4 h-4" /></button>
+                                   <button onClick={() => handleDeleteCategory(cat.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded dark:hover:bg-red-900/30 dark:hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                                </div>
+                             </div>
+                             
+                             {/* SubCategories List */}
+                             <div className="pl-11 space-y-2">
+                               {cat.subCategories.length > 0 ? (
+                                 cat.subCategories.map(sub => (
+                                   <div key={sub.id} className="flex items-center justify-between text-sm group">
+                                     <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                                       <CornerDownRight className="w-3 h-3 text-slate-300" />
+                                       <span>{sub.name}</span>
+                                     </div>
+                                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                       <button onClick={() => handleEditSubCategory(cat.id, sub)} className="p-1 text-slate-400 hover:text-indigo-600"><Edit2 className="w-3 h-3" /></button>
+                                       <button onClick={() => handleDeleteSubCategory(cat.id, sub.id)} className="p-1 text-slate-400 hover:text-red-600"><Trash2 className="w-3 h-3" /></button>
+                                     </div>
+                                   </div>
+                                 ))
+                               ) : (
+                                 <p className="text-xs text-slate-300 italic pl-5">{t.app.noSubCategories}</p>
+                               )}
+                             </div>
+                          </div>
+                        ))
+                      )}
+                   </div>
+                </div>
+
+                {/* 2. New Main Category */}
+                <div className="bg-slate-50 rounded-xl p-6 border border-slate-100 dark:bg-slate-800/50 dark:border-slate-700">
+                   <div className="flex items-center gap-2 mb-4 text-slate-800 dark:text-slate-200 font-semibold">
+                      <Folder className="w-5 h-5 text-indigo-500" />
+                      <h3>{catForm.id ? t.admin.category.edit : t.admin.category.new}</h3>
                    </div>
                    
-                   <div className="flex gap-2 justify-end pt-2">
-                     {catForm.id && (
-                       <button 
-                        onClick={() => setCatForm({ id: null, name: '', icon: '' })}
-                        className="text-xs text-slate-500 hover:text-slate-800 px-3 py-2 dark:text-slate-400 dark:hover:text-slate-200"
-                       >
-                         {t.admin.category.cancel}
-                       </button>
-                     )}
-                     <button 
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-1.5">
+                         <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.category.name}</label>
+                         <input 
+                           type="text" 
+                           value={catForm.name}
+                           onChange={e => setCatForm({...catForm, name: e.target.value})}
+                           className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+                         />
+                      </div>
+                      
+                      <div className="space-y-1.5">
+                         <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.category.icon}</label>
+                         <div className="flex gap-2">
+                            <input 
+                              type="text" 
+                              value={catForm.icon}
+                              onChange={e => setCatForm({...catForm, icon: e.target.value})}
+                              placeholder="URL..."
+                              className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+                            />
+                            <label className="px-3 py-2 bg-white border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-100 dark:bg-slate-800 dark:border-slate-700">
+                               <Images className="w-4 h-4 text-slate-500" />
+                               <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, (res) => setCatForm({ ...catForm, icon: res }))} />
+                            </label>
+                         </div>
+                      </div>
+                   </div>
+
+                   <div className="flex justify-end gap-2 mt-6">
+                      {catForm.id && (
+                        <button 
+                          onClick={() => setCatForm({ id: null, name: '', icon: '' })}
+                          className="px-4 py-2 text-slate-500 hover:text-slate-700 text-sm font-medium"
+                        >
+                          {t.admin.category.cancel}
+                        </button>
+                      )}
+                      <button 
                         onClick={handleSaveCategory}
                         disabled={!catForm.name}
-                        className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                       >
                         <Save className="w-4 h-4" />
-                        {catForm.id ? t.admin.category.update : t.admin.category.create}
+                        <span>{catForm.id ? t.admin.category.update : t.admin.category.create}</span>
                       </button>
                    </div>
                 </div>
-              </div>
-              
-               {/* 3. Sub Categories Add/Edit Form */}
-              <div className="bg-slate-50 p-4 rounded-xl space-y-4 border border-slate-100 dark:bg-slate-700/50 dark:border-slate-600">
-                <h3 className="font-semibold text-slate-800 text-sm uppercase tracking-wide dark:text-slate-200">
-                  {subCatForm.id ? t.admin.category.editSub : t.admin.category.addSub}
-                </h3>
-                <div className="grid grid-cols-1 gap-3">
-                  <select 
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none bg-white text-sm dark:bg-slate-700 dark:text-white dark:border-slate-600"
-                    value={subCatForm.parentId}
-                    onChange={(e) => setSubCatForm({ ...subCatForm, parentId: e.target.value })}
-                  >
-                    <option value="">{t.admin.category.selectParent}</option>
-                    {data.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                  <div className="flex gap-2">
-                    <input 
-                      type="text" 
-                      className="flex-1 px-3 py-2 border border-slate-200 rounded-lg outline-none focus:border-indigo-500 text-sm dark:bg-slate-700 dark:text-white dark:border-slate-600"
-                      placeholder={t.admin.category.subName}
-                      value={subCatForm.name}
-                      onChange={(e) => setSubCatForm({ ...subCatForm, name: e.target.value })}
-                    />
-                    <div className="flex gap-1">
+
+                {/* 3. New Sub-Category (Styled to match New Main Category) */}
+                <div className="bg-slate-50 rounded-xl p-6 border border-slate-100 dark:bg-slate-800/50 dark:border-slate-700">
+                   <div className="flex items-center gap-2 mb-4 text-slate-800 dark:text-slate-200 font-semibold">
+                      <CornerDownRight className="w-5 h-5 text-indigo-500" />
+                      <h3>{subCatForm.id ? t.admin.category.editSub : t.admin.category.addSub}</h3>
+                   </div>
+                   
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-1.5">
+                         <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.category.selectParent}</label>
+                         <select 
+                           value={subCatForm.parentId}
+                           onChange={e => setSubCatForm({...subCatForm, parentId: e.target.value})}
+                           className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+                         >
+                           <option value="">{t.admin.link.selectCategory}</option>
+                           {data.categories.map(c => (
+                             <option key={c.id} value={c.id}>{c.name}</option>
+                           ))}
+                         </select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                         <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.category.subName}</label>
+                         <input 
+                           type="text" 
+                           value={subCatForm.name}
+                           onChange={e => setSubCatForm({...subCatForm, name: e.target.value})}
+                           className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+                         />
+                      </div>
+                   </div>
+
+                   <div className="flex justify-end gap-2 mt-6">
                       {subCatForm.id && (
                         <button 
                           onClick={() => setSubCatForm({ parentId: '', id: null, name: '' })}
-                          className="bg-slate-200 hover:bg-slate-300 text-slate-600 px-3 py-2 rounded-lg text-sm dark:bg-slate-600 dark:text-slate-300 dark:hover:bg-slate-500"
+                          className="px-4 py-2 text-slate-500 hover:text-slate-700 text-sm font-medium"
                         >
                           {t.admin.category.cancel}
                         </button>
                       )}
                       <button 
                         onClick={handleSaveSubCategory}
-                        disabled={!subCatForm.name || !subCatForm.parentId}
-                        className="bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white px-4 py-2 rounded-lg flex items-center justify-center min-w-[3rem] dark:bg-indigo-600 dark:hover:bg-indigo-700"
+                        disabled={!subCatForm.parentId || !subCatForm.name}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                       >
-                         {subCatForm.id ? <Save className="w-4 h-4" /> : <Plus className="w-5 h-5" />}
+                        <Save className="w-4 h-4" />
+                        <span>{subCatForm.id ? t.admin.category.update : t.admin.category.create}</span>
                       </button>
-                    </div>
-                  </div>
+                   </div>
                 </div>
-              </div>
 
-              <div className="border-t border-slate-100 my-4 dark:border-slate-700" />
-              
-              {/* 4. Bulk Icon Upload Section */}
-              <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-100 dark:bg-slate-700/50 dark:border-slate-600">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-slate-800 text-sm uppercase tracking-wide dark:text-slate-200">
-                     {t.admin.category.bulkIcons.title}
+                {/* 4. Bulk Icons */}
+                <div className="pt-8 border-t border-slate-100 dark:border-slate-800">
+                  <h3 className="font-bold text-slate-800 mb-4 dark:text-slate-200 flex items-center gap-2">
+                    <Images className="w-5 h-5 text-indigo-500" />
+                    {t.admin.category.bulkIcons.title}
                   </h3>
-                  {bulkIcons.length > 0 && (
-                    <button 
-                       onClick={() => { setBulkIcons([]); setSelectedBulkIconId(null); }}
-                       className="text-xs text-red-500 hover:text-red-600 font-medium"
-                    >
-                       {t.admin.category.bulkIcons.clear}
-                    </button>
-                  )}
-                </div>
-                
-                {bulkIcons.length === 0 ? (
-                  <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:bg-slate-100 transition-colors dark:border-slate-500 dark:hover:bg-slate-600">
-                    <div className="flex flex-col items-center justify-center pt-2 pb-2">
-                        <Images className="w-6 h-6 text-slate-400 mb-1" />
-                        <p className="text-xs text-slate-500 dark:text-slate-400">{t.admin.category.bulkIcons.drop}</p>
-                    </div>
-                    <input type="file" className="hidden" multiple accept="image/*" onChange={handleBulkIconUpload} />
-                  </label>
-                ) : (
-                  <div className="space-y-4">
-                     <p className="text-xs text-slate-500 dark:text-slate-400 bg-blue-50 text-blue-700 p-2 rounded border border-blue-100 dark:bg-blue-900/20 dark:text-blue-200 dark:border-blue-800">
-                       {t.admin.category.bulkIcons.instructions}
-                     </p>
+                  
+                  <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 mb-6 text-sm text-blue-800 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300">
+                    <p>{t.admin.category.bulkIcons.instructions}</p>
+                  </div>
 
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    {/* Left: Upload & Unassigned */}
+                    <div className="space-y-4">
+                       <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.category.bulkIcons.drop}</h4>
                        
-                       {/* LEFT: Unassigned Icons */}
-                       <div className="bg-white border border-slate-200 rounded-lg p-3 dark:bg-slate-800 dark:border-slate-600 flex flex-col h-64">
-                          <h4 className="text-xs font-bold text-slate-400 uppercase mb-2 dark:text-slate-500">{t.admin.category.bulkIcons.unassigned}</h4>
-                          <div className="flex-1 overflow-y-auto content-start grid grid-cols-4 gap-2">
-                            {bulkIcons.filter(i => !i.assignedCatId).map(icon => (
-                              <button
-                                key={icon.id}
-                                onClick={() => handleBulkIconClick(icon.id)}
-                                className={`aspect-square rounded-lg border-2 overflow-hidden transition-all relative ${
-                                  selectedBulkIconId === icon.id 
-                                    ? 'border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-900' 
-                                    : 'border-slate-100 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-500'
+                       <label className="block w-full h-32 border-2 border-dashed border-slate-300 rounded-xl hover:bg-slate-50 transition-colors flex flex-col items-center justify-center cursor-pointer dark:border-slate-700 dark:hover:bg-slate-800">
+                          <Upload className="w-8 h-8 text-slate-400 mb-2" />
+                          <span className="text-sm text-slate-500">Click to upload multiple icons</span>
+                          <input type="file" multiple accept="image/*" onChange={handleBulkIconUpload} className="hidden" />
+                       </label>
+
+                       <div className="grid grid-cols-4 gap-2">
+                          {bulkIcons.filter(i => !i.assignedCatId).map(icon => (
+                            <div 
+                              key={icon.id}
+                              onClick={() => handleBulkIconClick(icon.id)}
+                              className={`aspect-square rounded-lg border cursor-pointer relative group overflow-hidden ${selectedBulkIconId === icon.id ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-slate-200 dark:border-slate-700'}`}
+                            >
+                              <img src={icon.preview} className="w-full h-full object-cover" />
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); setBulkIcons(bulkIcons.filter(i => i.id !== icon.id)); }}
+                                className="absolute top-1 right-1 bg-white/80 rounded-full p-1 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                       </div>
+                    </div>
+
+                    {/* Right: Category Assignment */}
+                    <div className="space-y-4">
+                       <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.category.bulkIcons.assigned}</h4>
+                       
+                       <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                          {data.categories.map(cat => {
+                            const assignedIcon = bulkIcons.find(i => i.assignedCatId === cat.id);
+                            const hasPending = !!assignedIcon;
+
+                            return (
+                              <div 
+                                key={cat.id}
+                                onClick={() => handleAssignIconToCategory(cat.id)}
+                                className={`flex items-center justify-between p-3 rounded-lg border transition-colors cursor-pointer ${
+                                  hasPending 
+                                    ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-900/20 dark:border-indigo-800' 
+                                    : 'bg-white border-slate-200 hover:border-indigo-300 dark:bg-slate-800 dark:border-slate-700'
                                 }`}
                               >
-                                <img src={icon.preview} className="w-full h-full object-cover" />
-                                {selectedBulkIconId === icon.id && (
-                                  <div className="absolute inset-0 bg-indigo-500/20 flex items-center justify-center">
-                                    <Check className="w-4 h-4 text-white drop-shadow-md" />
+                                <span className={`text-sm font-medium ${hasPending ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-700 dark:text-slate-300'}`}>
+                                  {cat.name}
+                                </span>
+
+                                {assignedIcon ? (
+                                  <div className="flex items-center gap-2">
+                                     <img src={assignedIcon.preview} className="w-8 h-8 rounded object-cover border border-indigo-200" />
+                                     <button 
+                                       onClick={(e) => handleUnassignIcon(e, assignedIcon.id)}
+                                       className="p-1 text-slate-400 hover:text-red-500"
+                                     >
+                                       <X className="w-4 h-4" />
+                                     </button>
+                                  </div>
+                                ) : (
+                                  <div className={`w-8 h-8 rounded border border-dashed flex items-center justify-center ${selectedBulkIconId ? 'border-indigo-300 bg-indigo-50 text-indigo-400' : 'border-slate-300 text-slate-300'}`}>
+                                     <ArrowRight className="w-4 h-4" />
                                   </div>
                                 )}
-                              </button>
-                            ))}
-                            {bulkIcons.filter(i => !i.assignedCatId).length === 0 && (
-                              <div className="col-span-4 text-center py-8 text-xs text-slate-400 italic">
-                                All icons assigned
                               </div>
-                            )}
-                          </div>
+                            );
+                          })}
                        </div>
 
-                       {/* RIGHT: Categories Target */}
-                       <div className="bg-white border border-slate-200 rounded-lg p-3 dark:bg-slate-800 dark:border-slate-600 flex flex-col h-64">
-                          <h4 className="text-xs font-bold text-slate-400 uppercase mb-2 dark:text-slate-500">{t.admin.category.bulkIcons.assigned}</h4>
-                          <div className="flex-1 overflow-y-auto space-y-1">
-                             {data.categories.map(cat => {
-                               const assignedIcon = bulkIcons.find(i => i.assignedCatId === cat.id);
-                               return (
-                                 <button
-                                    key={cat.id}
-                                    onClick={() => handleAssignIconToCategory(cat.id)}
-                                    disabled={!selectedBulkIconId && !assignedIcon}
-                                    className={`w-full flex items-center justify-between p-2 rounded border transition-colors ${
-                                      selectedBulkIconId 
-                                        ? 'cursor-pointer hover:bg-indigo-50 border-indigo-100 dark:hover:bg-indigo-900/30 dark:border-indigo-800' 
-                                        : 'cursor-default border-transparent'
-                                    }`}
-                                 >
-                                    <div className="flex items-center gap-2 overflow-hidden">
-                                       <span className="text-xs font-medium text-slate-600 truncate dark:text-slate-300">{cat.name}</span>
-                                    </div>
-                                    
-                                    <div className="flex items-center gap-2">
-                                       {/* Slot */}
-                                       <div className={`w-8 h-8 rounded border flex items-center justify-center overflow-hidden shrink-0 relative ${
-                                         assignedIcon 
-                                           ? 'bg-white border-indigo-200 dark:bg-slate-700 dark:border-indigo-500' 
-                                           : 'bg-slate-50 border-slate-100 dark:bg-slate-700 dark:border-slate-600'
-                                       }`}>
-                                          {assignedIcon ? (
-                                            <>
-                                              <img src={assignedIcon.preview} className="w-full h-full object-cover" />
-                                              <div 
-                                                onClick={(e) => handleUnassignIcon(e, assignedIcon.id)}
-                                                className="absolute inset-0 bg-black/50 opacity-0 hover:opacity-100 flex items-center justify-center transition-opacity cursor-pointer"
-                                              >
-                                                <X className="w-4 h-4 text-white" />
-                                              </div>
-                                            </>
-                                          ) : (
-                                            cat.icon ? (
-                                              <img src={cat.icon} className="w-full h-full object-cover opacity-50 grayscale" title="Current Icon" />
-                                            ) : (
-                                              <div className="w-full h-full bg-slate-100 dark:bg-slate-800" />
-                                            )
-                                          )}
-                                       </div>
-                                       {selectedBulkIconId && (
-                                          <ArrowRight className="w-3 h-3 text-slate-300" />
-                                       )}
-                                    </div>
-                                 </button>
-                               );
-                             })}
-                          </div>
-                       </div>
-
-                     </div>
-
-                     <div className="flex justify-end pt-2">
-                        <button 
+                       {bulkIcons.some(i => i.assignedCatId) && (
+                         <button 
                            onClick={handleApplyBulkIcons}
-                           disabled={bulkIcons.filter(i => i.assignedCatId).length === 0}
-                           className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-medium px-4 py-2 rounded-lg transition-colors"
-                        >
+                           className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 dark:shadow-none"
+                         >
                            {t.admin.category.bulkIcons.apply}
-                        </button>
-                     </div>
+                         </button>
+                       )}
+                    </div>
                   </div>
-                )}
-              </div>
-             </div>
-          )}
+                </div>
 
-          {/* CLOUD TAB */}
-          {activeTab === 'cloud' && (
-            <div className="space-y-4">
-               <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-4 dark:bg-slate-700/30 dark:border-slate-600">
-                  <div className="flex items-start gap-3">
-                     <Cloud className="w-6 h-6 text-indigo-500 mt-1" />
-                     <div>
-                        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{t.admin.cloud.title}</h3>
-                        <p className="text-xs text-slate-500 mt-1 leading-relaxed dark:text-slate-400">
-                           {t.admin.cloud.desc}
-                        </p>
-                     </div>
-                  </div>
-               </div>
-              
-              {/* Provider Selector */}
-              <div className="flex items-center gap-4 mb-4">
-                 <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.cloud.provider}</label>
-                 <div className="flex bg-slate-100 rounded-lg p-1 dark:bg-slate-700">
-                    <button 
-                      onClick={() => setLocalCloudConfig({ ...localCloudConfig, activeProvider: 'github' })}
-                      className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${localCloudConfig.activeProvider === 'github' ? 'bg-white text-indigo-600 shadow-sm dark:bg-slate-600 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
-                    >
-                      GitHub Gist
-                    </button>
-                    <button 
-                      onClick={() => setLocalCloudConfig({ ...localCloudConfig, activeProvider: 'notion' })}
-                      className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${localCloudConfig.activeProvider === 'notion' ? 'bg-white text-indigo-600 shadow-sm dark:bg-slate-600 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
-                    >
-                      Notion
-                    </button>
+              </div>
+            )}
+
+            {/* --- CLOUD TAB --- */}
+            {activeTab === 'cloud' && (
+              <div className="space-y-8 max-w-2xl mx-auto">
+                 <div className="text-center">
+                    <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4 dark:bg-blue-900/20">
+                      <Cloud className="w-8 h-8 text-blue-500" />
+                    </div>
+                    <h3 className="text-xl font-bold text-slate-800 dark:text-white">{t.admin.cloud.title}</h3>
+                    <p className="text-slate-500 mt-2 max-w-md mx-auto dark:text-slate-400">{t.admin.cloud.desc}</p>
+                 </div>
+
+                 <div className="bg-slate-50 rounded-xl p-6 border border-slate-100 dark:bg-slate-800/50 dark:border-slate-700">
+                    <div className="flex items-center justify-between mb-6">
+                       <span className="font-semibold text-slate-700 dark:text-slate-300">{t.admin.cloud.enable}</span>
+                       <button 
+                         onClick={() => setLocalCloudConfig({ ...localCloudConfig, enabled: !localCloudConfig.enabled })}
+                         className={`w-12 h-6 rounded-full transition-colors relative ${localCloudConfig.enabled ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'}`}
+                       >
+                         <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${localCloudConfig.enabled ? 'translate-x-6' : 'translate-x-0'}`} />
+                       </button>
+                    </div>
+
+                    {localCloudConfig.enabled && (
+                      <div className="space-y-6 animate-fadeIn">
+                        
+                        {/* Provider Selector */}
+                        <div className="space-y-2">
+                          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.cloud.provider}</label>
+                          <div className="grid grid-cols-2 gap-4">
+                            <button
+                              onClick={() => setLocalCloudConfig({ ...localCloudConfig, activeProvider: 'github' })}
+                              className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-all ${
+                                localCloudConfig.activeProvider === 'github'
+                                  ? 'bg-white border-indigo-500 text-indigo-700 shadow-sm ring-1 ring-indigo-500 dark:bg-slate-800 dark:text-indigo-400'
+                                  : 'bg-slate-100 border-transparent text-slate-600 hover:bg-white hover:border-slate-300 dark:bg-slate-800 dark:text-slate-400'
+                              }`}
+                            >
+                              <span className="font-bold">GitHub Gist</span>
+                            </button>
+                            <button
+                              onClick={() => setLocalCloudConfig({ ...localCloudConfig, activeProvider: 'notion' })}
+                              className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-all ${
+                                localCloudConfig.activeProvider === 'notion'
+                                  ? 'bg-white border-indigo-500 text-indigo-700 shadow-sm ring-1 ring-indigo-500 dark:bg-slate-800 dark:text-indigo-400'
+                                  : 'bg-slate-100 border-transparent text-slate-600 hover:bg-white hover:border-slate-300 dark:bg-slate-800 dark:text-slate-400'
+                              }`}
+                            >
+                              <span className="font-bold">Notion</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {localCloudConfig.activeProvider === 'github' ? (
+                          // GitHub Config
+                          <div className="space-y-4 pt-2">
+                             <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.cloud.github.tokenLabel}</label>
+                                <input 
+                                  type="password" 
+                                  value={localCloudConfig.githubToken}
+                                  onChange={e => setLocalCloudConfig({ ...localCloudConfig, githubToken: e.target.value })}
+                                  placeholder={t.admin.cloud.github.tokenPlaceholder}
+                                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+                                />
+                                <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-600 hover:underline flex items-center gap-1">
+                                  {t.admin.cloud.github.help} <ExternalLink className="w-3 h-3" />
+                                </a>
+                                <p className="text-[10px] text-slate-400">{t.admin.cloud.github.helpText}</p>
+                             </div>
+                             
+                             <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.cloud.github.gistLabel}</label>
+                                <input 
+                                  type="text" 
+                                  value={localCloudConfig.gistId}
+                                  onChange={e => setLocalCloudConfig({ ...localCloudConfig, gistId: e.target.value })}
+                                  placeholder={t.admin.cloud.github.gistPlaceholder}
+                                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+                                />
+                             </div>
+                          </div>
+                        ) : (
+                          // Notion Config
+                          <div className="space-y-4 pt-2">
+                            <div className="bg-amber-50 border border-amber-100 text-amber-800 p-3 rounded-lg text-xs dark:bg-amber-900/30 dark:border-amber-800 dark:text-amber-200">
+                               {t.admin.cloud.providerWarning}
+                            </div>
+                            
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.cloud.notion.tokenLabel}</label>
+                                <input 
+                                  type="password" 
+                                  value={localCloudConfig.notionToken}
+                                  onChange={e => setLocalCloudConfig({ ...localCloudConfig, notionToken: e.target.value })}
+                                  placeholder={t.admin.cloud.notion.tokenPlaceholder}
+                                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.cloud.notion.pageLabel}</label>
+                                <input 
+                                  type="text" 
+                                  value={localCloudConfig.notionPageId}
+                                  onChange={e => setLocalCloudConfig({ ...localCloudConfig, notionPageId: e.target.value })}
+                                  placeholder={t.admin.cloud.notion.pagePlaceholder}
+                                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+                                />
+                                <p className="text-[10px] text-slate-400">{t.admin.cloud.notion.helpText}</p>
+                            </div>
+                             <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.cloud.notion.apiUrlLabel}</label>
+                                <input 
+                                  type="text" 
+                                  value={localCloudConfig.notionApiUrl || ''}
+                                  onChange={e => setLocalCloudConfig({ ...localCloudConfig, notionApiUrl: e.target.value })}
+                                  placeholder={t.admin.cloud.notion.apiUrlPlaceholder}
+                                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+                                />
+                             </div>
+                          </div>
+                        )}
+
+                        <div className="flex justify-end pt-2">
+                           <button 
+                             onClick={handleSaveCloudConfig}
+                             className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-800 dark:bg-indigo-600 dark:hover:bg-indigo-700"
+                           >
+                             {t.admin.cloud.saveConfig}
+                           </button>
+                        </div>
+                      </div>
+                    )}
+                 </div>
+
+                 {localCloudConfig.enabled && (
+                   <div className="grid grid-cols-2 gap-4">
+                      <button 
+                        onClick={onSyncUpload}
+                        disabled={isSyncing}
+                        className="flex flex-col items-center justify-center gap-2 p-6 bg-white border border-slate-200 rounded-xl hover:border-indigo-500 hover:text-indigo-600 transition-all group disabled:opacity-50 disabled:cursor-not-allowed dark:bg-slate-800 dark:border-slate-700 dark:hover:border-indigo-500"
+                      >
+                         <div className="w-10 h-10 bg-indigo-50 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform dark:bg-indigo-900/30">
+                           <Upload className={`w-5 h-5 text-indigo-600 dark:text-indigo-400 ${isSyncing ? 'animate-bounce' : ''}`} />
+                         </div>
+                         <span className="font-semibold text-sm">{t.admin.cloud.upload}</span>
+                      </button>
+
+                      <button 
+                        onClick={onSyncDownload}
+                        disabled={isSyncing}
+                        className="flex flex-col items-center justify-center gap-2 p-6 bg-white border border-slate-200 rounded-xl hover:border-indigo-500 hover:text-indigo-600 transition-all group disabled:opacity-50 disabled:cursor-not-allowed dark:bg-slate-800 dark:border-slate-700 dark:hover:border-indigo-500"
+                      >
+                         <div className="w-10 h-10 bg-indigo-50 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform dark:bg-indigo-900/30">
+                           <Download className={`w-5 h-5 text-indigo-600 dark:text-indigo-400 ${isSyncing ? 'animate-bounce' : ''}`} />
+                         </div>
+                         <span className="font-semibold text-sm">{t.admin.cloud.download}</span>
+                      </button>
+                   </div>
+                 )}
+              </div>
+            )}
+
+            {/* --- DATA TAB --- */}
+            {activeTab === 'data' && (
+              <div className="space-y-8 max-w-2xl mx-auto">
+                 <div className="text-center">
+                    <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-4 dark:bg-emerald-900/20">
+                      <Book className="w-8 h-8 text-emerald-500" />
+                    </div>
+                    <h3 className="text-xl font-bold text-slate-800 dark:text-white">{t.admin.tabs.data}</h3>
+                 </div>
+
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="bg-white border border-slate-100 rounded-xl p-6 shadow-sm flex flex-col dark:bg-slate-800 dark:border-slate-700">
+                       <div className="flex-1 mb-6">
+                          <h4 className="font-bold text-slate-800 mb-2 dark:text-white">{t.admin.data.exportTitle}</h4>
+                          <p className="text-sm text-slate-500 dark:text-slate-400">{t.admin.data.exportDesc}</p>
+                       </div>
+                       <button 
+                         onClick={handleExportData}
+                         className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-900 text-white rounded-lg font-medium hover:bg-slate-800 transition-colors dark:bg-indigo-600 dark:hover:bg-indigo-700"
+                       >
+                         <Download className="w-4 h-4" />
+                         {t.admin.data.exportBtn}
+                       </button>
+                    </div>
+
+                    <div className="bg-white border border-slate-100 rounded-xl p-6 shadow-sm flex flex-col dark:bg-slate-800 dark:border-slate-700">
+                       <div className="flex-1 mb-6">
+                          <h4 className="font-bold text-slate-800 mb-2 dark:text-white">{t.admin.data.importTitle}</h4>
+                          <p className="text-sm text-slate-500 dark:text-slate-400">{t.admin.data.importDesc}</p>
+                       </div>
+                       <label className="w-full flex items-center justify-center gap-2 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-lg font-medium hover:bg-slate-50 cursor-pointer transition-colors dark:bg-slate-700 dark:border-slate-600 dark:text-white dark:hover:bg-slate-600">
+                         <Upload className="w-4 h-4" />
+                         {t.admin.data.importBtn}
+                         <input type="file" accept=".html,.htm" className="hidden" onChange={handleImportData} />
+                       </label>
+                    </div>
                  </div>
               </div>
+            )}
 
-              {/* GitHub Settings */}
-              {localCloudConfig.activeProvider === 'github' && (
-                <div className="space-y-4 animate-fadeIn">
-                    <div className="space-y-1">
-                      <div className="flex justify-between">
-                         <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.cloud.github.tokenLabel}</label>
-                         <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] text-indigo-600 hover:underline dark:text-indigo-400">
-                             {t.admin.cloud.github.help} <ExternalLink className="w-2.5 h-2.5" />
-                         </a>
-                      </div>
-                      <input 
-                        type="password" 
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:bg-slate-700 dark:text-white dark:border-slate-600 font-mono text-sm"
-                        placeholder={t.admin.cloud.github.tokenPlaceholder}
-                        value={localCloudConfig.githubToken}
-                        onChange={(e) => setLocalCloudConfig({ ...localCloudConfig, githubToken: e.target.value })}
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.cloud.github.gistLabel}</label>
-                      <input 
-                        type="text" 
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:bg-slate-700 dark:text-white dark:border-slate-600 font-mono text-sm"
-                        placeholder={t.admin.cloud.github.gistPlaceholder}
-                        value={localCloudConfig.gistId}
-                        onChange={(e) => setLocalCloudConfig({ ...localCloudConfig, gistId: e.target.value })}
-                      />
-                    </div>
-                    <p className="text-[10px] text-slate-400">{t.admin.cloud.github.helpText}</p>
-                </div>
-              )}
-
-              {/* Notion Settings */}
-              {localCloudConfig.activeProvider === 'notion' && (
-                <div className="space-y-4 animate-fadeIn">
-                   <div className="space-y-1">
-                      <div className="flex justify-between">
-                         <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.cloud.notion.tokenLabel}</label>
-                         <a href="https://www.notion.so/my-integrations" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] text-indigo-600 hover:underline dark:text-indigo-400">
-                             {t.admin.cloud.notion.help} <ExternalLink className="w-2.5 h-2.5" />
-                         </a>
-                      </div>
-                      <input 
-                        type="password" 
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:bg-slate-700 dark:text-white dark:border-slate-600 font-mono text-sm"
-                        placeholder={t.admin.cloud.notion.tokenPlaceholder}
-                        value={localCloudConfig.notionToken}
-                        onChange={(e) => setLocalCloudConfig({ ...localCloudConfig, notionToken: e.target.value })}
-                      />
-                   </div>
-                   <div className="space-y-1">
-                      <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.cloud.notion.pageLabel}</label>
-                      <input 
-                        type="text" 
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:bg-slate-700 dark:text-white dark:border-slate-600 font-mono text-sm"
-                        placeholder={t.admin.cloud.notion.pagePlaceholder}
-                        value={localCloudConfig.notionPageId}
-                        onChange={(e) => setLocalCloudConfig({ ...localCloudConfig, notionPageId: e.target.value })}
-                      />
-                   </div>
-                   
-                   {/* Notion API Proxy URL */}
-                   <div className="space-y-1">
-                      <label className="text-xs font-semibold text-slate-500 uppercase dark:text-slate-400">{t.admin.cloud.notion.apiUrlLabel}</label>
-                      <input 
-                        type="text" 
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:bg-slate-700 dark:text-white dark:border-slate-600 font-mono text-sm"
-                        placeholder={t.admin.cloud.notion.apiUrlPlaceholder}
-                        value={localCloudConfig.notionApiUrl}
-                        onChange={(e) => setLocalCloudConfig({ ...localCloudConfig, notionApiUrl: e.target.value })}
-                      />
-                   </div>
-
-                   <p className="text-[10px] text-slate-400">
-                     {t.admin.cloud.notion.helpText}
-                   </p>
-                   <p className="text-[10px] text-amber-500 flex items-center gap-1">
-                      <AlertCircle className="w-3 h-3" />
-                      {t.admin.cloud.providerWarning}
-                   </p>
-                </div>
-              )}
-
-               <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-700 mt-4">
-                  <input 
-                    type="checkbox"
-                    id="enableCloud"
-                    className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 dark:bg-slate-700 dark:border-slate-500"
-                    checked={localCloudConfig.enabled}
-                    onChange={(e) => setLocalCloudConfig({ ...localCloudConfig, enabled: e.target.checked })}
-                  />
-                  <label htmlFor="enableCloud" className="text-sm font-medium text-slate-700 dark:text-slate-300">{t.admin.cloud.enable}</label>
-              </div>
-
-              <div className="pt-4 grid grid-cols-2 gap-3">
-                 <button 
-                    onClick={handleSaveCloudConfig}
-                    className="col-span-2 bg-slate-100 text-slate-600 font-medium py-2 rounded-lg hover:bg-slate-200 transition dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
-                 >
-                    {t.admin.cloud.saveConfig}
-                 </button>
-
-                 <button 
-                    onClick={onSyncUpload}
-                    disabled={
-                      isSyncing || 
-                      !localCloudConfig.enabled || 
-                      (localCloudConfig.activeProvider === 'github' && !localCloudConfig.githubToken) ||
-                      (localCloudConfig.activeProvider === 'notion' && (!localCloudConfig.notionToken || !localCloudConfig.notionPageId))
-                    }
-                    className="bg-indigo-600 text-white font-medium py-2.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition flex justify-center items-center gap-2"
-                 >
-                    {isSyncing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                    {t.admin.cloud.upload}
-                 </button>
-
-                 <button 
-                    onClick={onSyncDownload}
-                    disabled={
-                      isSyncing || 
-                      !localCloudConfig.enabled || 
-                      (localCloudConfig.activeProvider === 'github' && (!localCloudConfig.githubToken || !localCloudConfig.gistId)) ||
-                      (localCloudConfig.activeProvider === 'notion' && (!localCloudConfig.notionToken || !localCloudConfig.notionPageId))
-                    }
-                    className="bg-white border border-slate-200 text-slate-700 font-medium py-2.5 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition flex justify-center items-center gap-2 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-                 >
-                    {isSyncing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                    {t.admin.cloud.download}
-                 </button>
-              </div>
-              <p className="text-[10px] text-slate-400 text-center">{t.admin.cloud.warning}</p>
-            </div>
-          )}
-
-          {/* DATA TAB */}
-          {activeTab === 'data' && (
-             <div className="space-y-6">
-               <div className="bg-white border border-slate-200 rounded-xl p-6 dark:bg-slate-800 dark:border-slate-700">
-                  <div className="flex items-start gap-4">
-                    <div className="w-12 h-12 bg-green-50 rounded-full flex items-center justify-center shrink-0 dark:bg-green-900/20">
-                       <Download className="w-6 h-6 text-green-600 dark:text-green-400" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-slate-800 mb-1 dark:text-slate-100">{t.admin.data.exportTitle}</h3>
-                      <p className="text-sm text-slate-500 mb-4 dark:text-slate-400">{t.admin.data.exportDesc}</p>
-                      <button 
-                        onClick={handleExportData}
-                        className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
-                      >
-                         <FileText className="w-4 h-4" />
-                         {t.admin.data.exportBtn}
-                      </button>
-                    </div>
-                  </div>
-               </div>
-
-               <div className="bg-white border border-slate-200 rounded-xl p-6 dark:bg-slate-800 dark:border-slate-700">
-                  <div className="flex items-start gap-4">
-                    <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center shrink-0 dark:bg-blue-900/20">
-                       <Upload className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-slate-800 mb-1 dark:text-slate-100">{t.admin.data.importTitle}</h3>
-                      <p className="text-sm text-slate-500 mb-4 dark:text-slate-400">{t.admin.data.importDesc}</p>
-                      
-                      <label className="inline-flex cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium items-center gap-2 transition-colors">
-                         <Book className="w-4 h-4" />
-                         {t.admin.data.importBtn}
-                         <input type="file" accept=".html" className="hidden" onChange={handleImportData} />
-                      </label>
-                    </div>
-                  </div>
-               </div>
-             </div>
-          )}
-
+          </div>
         </div>
       </div>
     </div>
