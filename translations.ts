@@ -72,7 +72,8 @@ export const TRANSLATIONS = {
         },
         modes: {
           single: "Single Entry",
-          bulk: "Bulk Import"
+          bulk: "Bulk Import",
+          icons: "Bulk Icons"
         },
         bulk: {
           label: "Paste URLs (one per line)",
@@ -83,6 +84,15 @@ export const TRANSLATIONS = {
           success: "Successfully imported {count} links!",
           error: "No valid URLs found. Please check your input.",
           processing: "Processing..."
+        },
+        bulkIcons: {
+          title: "Bulk Icon Upload",
+          drop: "Drop icons here",
+          instructions: "Select an icon from the left, then click a link on the right to assign.",
+          unassigned: "Unassigned Icons",
+          assigned: "Target Links",
+          apply: "Apply Icons",
+          clear: "Clear All"
         }
       },
       category: {
@@ -214,7 +224,8 @@ export const TRANSLATIONS = {
         },
         modes: {
           single: "单条录入",
-          bulk: "批量导入"
+          bulk: "批量导入",
+          icons: "批量图标"
         },
         bulk: {
           label: "粘贴网址 (每行一个)",
@@ -225,6 +236,15 @@ export const TRANSLATIONS = {
           success: "成功导入 {count} 个链接！",
           error: "未发现有效网址，请检查输入。",
           processing: "处理中..."
+        },
+        bulkIcons: {
+          title: "批量上传图标",
+          drop: "拖拽上传图标",
+          instructions: "点击左侧图标选中，然后点击右侧链接进行关联。",
+          unassigned: "未分配图标",
+          assigned: "目标链接",
+          apply: "应用图标",
+          clear: "清空所有"
         }
       },
       category: {

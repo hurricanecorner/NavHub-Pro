@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Plus, Save, Upload, AlertCircle, Edit2, Trash2, CornerDownRight, Folder, ListPlus, FileText, Images, ArrowRight, Check, Undo2, Tag, Download, Book, Cloud, ExternalLink, RefreshCw, Settings } from 'lucide-react';
+import { X, Plus, Save, Upload, AlertCircle, Edit2, Trash2, CornerDownRight, Folder, ListPlus, FileText, Images, ArrowRight, Check, Undo2, Tag, Download, Book, Cloud, ExternalLink, RefreshCw, Settings, Grid } from 'lucide-react';
 import { AppData, Category, LinkItem, CloudConfig, SubCategory } from '../types';
 
 interface AdminModalProps {
@@ -18,12 +18,12 @@ interface AdminModalProps {
 }
 
 type Tab = 'link' | 'category' | 'cloud' | 'data';
-type LinkMode = 'single' | 'bulk';
+type LinkMode = 'single' | 'bulk' | 'icons';
 
 interface BulkIconUpload {
   id: string;
   preview: string;
-  assignedCatId: string | null;
+  assignedId: string | null; // Generic ID (can be catId or linkId)
 }
 
 const AdminModal: React.FC<AdminModalProps> = ({ 
@@ -47,6 +47,10 @@ const AdminModal: React.FC<AdminModalProps> = ({
   const [bulkUrls, setBulkUrls] = useState('');
   const [bulkDefaultTitle, setBulkDefaultTitle] = useState('');
 
+  // Link Bulk Icons State
+  const [linkBulkIcons, setLinkBulkIcons] = useState<BulkIconUpload[]>([]);
+  const [selectedLinkBulkIconId, setSelectedLinkBulkIconId] = useState<string | null>(null);
+
   // Category Form State
   const [catForm, setCatForm] = useState<{ id: string | null; name: string; icon: string }>({ 
     id: null, name: '', icon: '' 
@@ -57,9 +61,9 @@ const AdminModal: React.FC<AdminModalProps> = ({
     parentId: '', id: null, name: ''
   });
   
-  // Bulk Icon Upload State
-  const [bulkIcons, setBulkIcons] = useState<BulkIconUpload[]>([]);
-  const [selectedBulkIconId, setSelectedBulkIconId] = useState<string | null>(null);
+  // Category Bulk Icon Upload State
+  const [catBulkIcons, setCatBulkIcons] = useState<BulkIconUpload[]>([]);
+  const [selectedCatBulkIconId, setSelectedCatBulkIconId] = useState<string | null>(null);
 
   // Undo State
   const [lastBulkActionData, setLastBulkActionData] = useState<AppData | null>(null);
@@ -104,9 +108,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
         });
       }
       
-      // Links directly in category (if any, though current model forces subcat)
-      // NavHub currently requires subcategory for links, so we mainly iterate subcategories above.
-      
       html += `    </DL><p>\n`;
     });
 
@@ -146,8 +147,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
         const rootDl = doc.querySelector('dl');
         if (!rootDl) throw new Error("Invalid Bookmark file");
 
-        // Iterate direct children of root DL (Top Level Categories)
-        // Note: Structure is usually DT > H3 (Folder Name) + DL (Contents)
         const topLevelDts = Array.from(rootDl.children).filter(el => el.tagName === 'DT');
 
         topLevelDts.forEach(dt => {
@@ -159,7 +158,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
             const catId = `c-${catIdCounter++}`;
             const subCategories: SubCategory[] = [];
 
-            // Iterate children of category DL (Sub Folders or Links)
             const subLevelDts = Array.from(dl.children).filter(el => el.tagName === 'DT');
 
             subLevelDts.forEach(subDt => {
@@ -181,7 +179,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                         id: `l-${catId}-${subId}-${linkIdCounter++}`,
                         title: a.textContent || "Link",
                         url: a.href,
-                        description: "", // DD tag often follows DT for description, simplistic parsing here
+                        description: "", 
                         categoryId: catId,
                         subCategoryId: subId,
                         iconUrl: a.getAttribute('ICON') || '',
@@ -190,19 +188,14 @@ const AdminModal: React.FC<AdminModalProps> = ({
                     }
                   });
                 }
-              } else {
-                 // It is a link directly in category? 
-                 // NavHub data model requires SubCategory. 
-                 // We could create a "General" subcategory if needed, but for now skip or handle later.
               }
             });
 
-            // Ensure at least one subcategory if links need it, or valid category
             newCategories.push({
               id: catId,
               name: catName,
               subCategories: subCategories,
-              icon: '' // Cannot easily extract icon for folder from standard bookmarks
+              icon: '' 
             });
           }
         });
@@ -253,8 +246,10 @@ const AdminModal: React.FC<AdminModalProps> = ({
       setLinkErrors({});
       setBulkUrls('');
       setBulkDefaultTitle('');
-      setBulkIcons([]);
-      setSelectedBulkIconId(null);
+      setCatBulkIcons([]);
+      setSelectedCatBulkIconId(null);
+      setLinkBulkIcons([]);
+      setSelectedLinkBulkIconId(null);
       setLastBulkActionData(null); // Reset undo history on open
       setTagInput('');
       setBulkTags([]);
@@ -274,19 +269,20 @@ const AdminModal: React.FC<AdminModalProps> = ({
     }
   };
 
-  // Handle Bulk Icon Uploads
-  const handleBulkIconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // --- Category Bulk Icon Logic ---
+
+  const handleCatBulkIconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files) {
       Array.from(files).forEach((file: File) => {
         const reader = new FileReader();
         reader.onloadend = () => {
-          setBulkIcons(prev => [
+          setCatBulkIcons(prev => [
             ...prev, 
             { 
               id: Math.random().toString(36).substr(2, 9), 
               preview: reader.result as string, 
-              assignedCatId: null 
+              assignedId: null 
             }
           ]);
         };
@@ -295,15 +291,14 @@ const AdminModal: React.FC<AdminModalProps> = ({
     }
   };
 
-  const handleApplyBulkIcons = () => {
-    const assignments = bulkIcons.filter(item => item.assignedCatId);
+  const handleApplyCatBulkIcons = () => {
+    const assignments = catBulkIcons.filter(item => item.assignedId);
     if (assignments.length === 0) return;
 
-    // Save state for undo
     setLastBulkActionData({ ...data });
 
     const updatedCategories = data.categories.map(cat => {
-      const assignment = assignments.find(a => a.assignedCatId === cat.id);
+      const assignment = assignments.find(a => a.assignedId === cat.id);
       if (assignment) {
         return { ...cat, icon: assignment.preview };
       }
@@ -311,41 +306,85 @@ const AdminModal: React.FC<AdminModalProps> = ({
     });
 
     onUpdateData({ ...data, categories: updatedCategories });
-    setBulkIcons([]);
+    setCatBulkIcons([]);
     alert(t.admin.category.bulkIcons.apply + " Success!");
   };
 
-  const handleBulkIconClick = (iconId: string) => {
-    setSelectedBulkIconId(prev => prev === iconId ? null : iconId);
-  };
-
   const handleAssignIconToCategory = (catId: string) => {
-    if (!selectedBulkIconId) return;
-
-    // 1. If this category already has a pending bulk icon assigned, unassign it first
-    // 2. Assign the selected icon to this category
-    // 3. Clear the selection
-    setBulkIcons(prev => prev.map(icon => {
-      // Unassign any icon currently on this category
-      if (icon.assignedCatId === catId) {
-        return { ...icon, assignedCatId: null };
-      }
-      // Assign the selected icon
-      if (icon.id === selectedBulkIconId) {
-        return { ...icon, assignedCatId: catId };
-      }
+    if (!selectedCatBulkIconId) return;
+    setCatBulkIcons(prev => prev.map(icon => {
+      if (icon.assignedId === catId) return { ...icon, assignedId: null };
+      if (icon.id === selectedCatBulkIconId) return { ...icon, assignedId: catId };
       return icon;
     }));
-    
-    setSelectedBulkIconId(null);
+    setSelectedCatBulkIconId(null);
   };
 
-  const handleUnassignIcon = (e: React.MouseEvent, iconId: string) => {
+  const handleUnassignCatIcon = (e: React.MouseEvent, iconId: string) => {
     e.stopPropagation();
-    setBulkIcons(prev => prev.map(icon => 
-      icon.id === iconId ? { ...icon, assignedCatId: null } : icon
+    setCatBulkIcons(prev => prev.map(icon => 
+      icon.id === iconId ? { ...icon, assignedId: null } : icon
     ));
   };
+
+  // --- Link Bulk Icon Logic ---
+
+  const handleLinkBulkIconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files) {
+      Array.from(files).forEach((file: File) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setLinkBulkIcons(prev => [
+            ...prev, 
+            { 
+              id: Math.random().toString(36).substr(2, 9), 
+              preview: reader.result as string, 
+              assignedId: null 
+            }
+          ]);
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+  };
+
+  const handleApplyLinkBulkIcons = () => {
+    const assignments = linkBulkIcons.filter(item => item.assignedId);
+    if (assignments.length === 0) return;
+
+    setLastBulkActionData({ ...data });
+
+    const updatedLinks = data.links.map(link => {
+      const assignment = assignments.find(a => a.assignedId === link.id);
+      if (assignment) {
+        return { ...link, iconUrl: assignment.preview };
+      }
+      return link;
+    });
+
+    onUpdateData({ ...data, links: updatedLinks });
+    setLinkBulkIcons([]);
+    alert(t.admin.link.bulkIcons.apply + " Success!");
+  };
+
+  const handleAssignIconToLink = (linkId: string) => {
+    if (!selectedLinkBulkIconId) return;
+    setLinkBulkIcons(prev => prev.map(icon => {
+      if (icon.assignedId === linkId) return { ...icon, assignedId: null };
+      if (icon.id === selectedLinkBulkIconId) return { ...icon, assignedId: linkId };
+      return icon;
+    }));
+    setSelectedLinkBulkIconId(null);
+  };
+
+  const handleUnassignLinkIcon = (e: React.MouseEvent, iconId: string) => {
+    e.stopPropagation();
+    setLinkBulkIcons(prev => prev.map(icon => 
+      icon.id === iconId ? { ...icon, assignedId: null } : icon
+    ));
+  };
+
 
   // --- Tag Logic ---
 
@@ -468,20 +507,15 @@ const AdminModal: React.FC<AdminModalProps> = ({
         try {
           const urlObj = new URL(url);
           const hostname = urlObj.hostname;
-          // Remove www.
           const cleanHost = hostname.replace(/^www\./, '');
-          
-          // Get the domain name (e.g. "google" from "google.com")
           const domainSegment = cleanHost.split('.')[0];
           
-          // Capitalize first letter
           if (domainSegment) {
             title = domainSegment.charAt(0).toUpperCase() + domainSegment.slice(1);
           } else {
             title = "Link";
           }
         } catch (e) {
-          // If URL parsing fails, fallback to "Link" or truncated line
           title = "Link";
         }
       }
@@ -504,7 +538,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
     setBulkTags([]); // Clear tags
     setBulkDefaultTitle('');
     alert(t.admin.link.bulk.success.replace('{count}', newLinks.length));
-    // Do NOT close modal, allow Undo
   };
 
   const handleUndo = () => {
@@ -519,13 +552,11 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
   const handleEditCategory = (cat: Category) => {
     setCatForm({ id: cat.id, name: cat.name, icon: cat.icon || '' });
-    // window.scrollTo({ top: 0, behavior: 'smooth' }); // No longer needed as form is below list
   };
 
   const handleDeleteCategory = (id: string) => {
     if (window.confirm(t.admin.category.deleteConfirm)) {
       const updatedCategories = data.categories.filter(c => c.id !== id);
-      // Remove or unlink links associated with this category
       const updatedLinks = data.links.filter(l => l.categoryId !== id);
       onUpdateData({ categories: updatedCategories, links: updatedLinks });
     }
@@ -537,14 +568,12 @@ const AdminModal: React.FC<AdminModalProps> = ({
     let updatedCategories = [...data.categories];
 
     if (catForm.id) {
-      // Edit existing
       updatedCategories = updatedCategories.map(c => 
         c.id === catForm.id 
           ? { ...c, name: catForm.name, icon: catForm.icon } 
           : c
       );
     } else {
-      // Add new
       const newCat: Category = {
         id: `c-${Date.now()}`,
         name: catForm.name,
@@ -566,7 +595,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
   const handleDeleteSubCategory = (parentId: string, subId: string) => {
     if (window.confirm(t.admin.category.deleteSubConfirm)) {
-      // 1. Remove subcategory from parent category
       const updatedCategories = data.categories.map(c => {
         if (c.id === parentId) {
           return {
@@ -577,7 +605,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
         return c;
       });
 
-      // 2. Remove categoryId and subCategoryId from associated links (orphaning them from view)
       const updatedLinks = data.links.map(l => {
         if (l.categoryId === parentId && l.subCategoryId === subId) {
           return { ...l, categoryId: '', subCategoryId: '' };
@@ -598,13 +625,11 @@ const AdminModal: React.FC<AdminModalProps> = ({
     if (parentIndex === -1) return;
 
     if (subCatForm.id) {
-      // Edit existing
       const updatedSubCats = updatedCategories[parentIndex].subCategories.map(sc => 
         sc.id === subCatForm.id ? { ...sc, name: subCatForm.name } : sc
       );
       updatedCategories[parentIndex] = { ...updatedCategories[parentIndex], subCategories: updatedSubCats };
     } else {
-      // Add new
       const newSubCat: SubCategory = { id: `sc-${Date.now()}`, name: subCatForm.name };
       updatedCategories[parentIndex] = {
         ...updatedCategories[parentIndex],
@@ -736,12 +761,19 @@ const AdminModal: React.FC<AdminModalProps> = ({
                       <ListPlus className="w-4 h-4" />
                       {t.admin.link.modes.bulk}
                     </button>
+                    <button 
+                      onClick={() => setLinkMode('icons')} 
+                      className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${linkMode === 'icons' ? 'bg-white text-indigo-600 shadow-sm dark:bg-slate-700 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+                    >
+                      <Images className="w-4 h-4" />
+                      {t.admin.link.modes.icons}
+                    </button>
                   </div>
                 )}
 
                 {linkMode === 'single' ? (
                   <div className="space-y-4 animate-fadeIn">
-                     {/* Title & URL */}
+                     {/* Single Link Form - Same as before */}
                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
                           <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.title} <span className="text-red-500">*</span></label>
@@ -772,7 +804,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                         </div>
                      </div>
 
-                     {/* Category & SubCategory */}
                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
                           <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.category} <span className="text-red-500">*</span></label>
@@ -807,7 +838,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                         </div>
                      </div>
 
-                     {/* Description */}
                      <div className="space-y-1.5">
                         <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.description}</label>
                         <textarea 
@@ -818,10 +848,8 @@ const AdminModal: React.FC<AdminModalProps> = ({
                         />
                      </div>
 
-                     {/* Tags */}
                      <div className="space-y-2">
                         <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.tags}</label>
-                        
                         <div className="flex flex-wrap gap-2 mb-2 p-2 bg-slate-50 border border-slate-200 rounded-lg min-h-[42px] dark:bg-slate-800 dark:border-slate-700">
                            {linkForm.tags && linkForm.tags.length > 0 ? (
                              linkForm.tags.map(tag => (
@@ -834,7 +862,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                              <span className="text-slate-400 text-sm italic p-1">{t.admin.link.tags}</span>
                            )}
                         </div>
-
                         <div className="flex gap-2">
                            <div className="relative flex-1">
                              <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -859,8 +886,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                              <Plus className="w-4 h-4" />
                            </button>
                         </div>
-                        
-                        {/* Suggestions */}
                         {existingTags.length > 0 && (
                           <div className="mt-2">
                             <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">{t.admin.link.suggestedTags}</p>
@@ -879,7 +904,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                         )}
                      </div>
 
-                     {/* Icon */}
                      <div className="space-y-1.5">
                         <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.icon}</label>
                         <div className="flex items-center gap-4">
@@ -906,7 +930,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                         </div>
                      </div>
 
-                     {/* Submit Button */}
                      <div className="pt-4 flex justify-end">
                        <button 
                          onClick={handleSaveLink}
@@ -917,8 +940,8 @@ const AdminModal: React.FC<AdminModalProps> = ({
                        </button>
                      </div>
                   </div>
-                ) : (
-                  // BULK MODE
+                ) : linkMode === 'bulk' ? (
+                  // BULK IMPORT MODE
                   <div className="space-y-4 animate-fadeIn">
                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
@@ -965,7 +988,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                        />
                      </div>
                      
-                     {/* Bulk Default Title */}
                      <div className="space-y-1.5">
                        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.bulk.defaultTitle}</label>
                        <input 
@@ -977,7 +999,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                        />
                      </div>
 
-                     {/* Bulk Tags */}
                      <div className="space-y-2">
                         <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.tags}</label>
                         <div className="flex flex-wrap gap-2 mb-2 p-2 bg-slate-50 border border-slate-200 rounded-lg min-h-[42px] dark:bg-slate-800 dark:border-slate-700">
@@ -1024,6 +1045,115 @@ const AdminModal: React.FC<AdminModalProps> = ({
                          <Upload className="w-4 h-4" />
                          <span>{t.admin.link.bulk.import}</span>
                        </button>
+                     </div>
+                  </div>
+                ) : (
+                  // BULK ICON MODE (LINK)
+                  <div className="space-y-6 animate-fadeIn">
+                     <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm text-blue-800 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300">
+                       <p>{t.admin.link.bulkIcons.instructions}</p>
+                     </div>
+
+                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* Left: Upload & Grid */}
+                        <div className="space-y-4">
+                           <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.bulkIcons.drop}</h4>
+                           
+                           <label className="block w-full h-32 border-2 border-dashed border-slate-300 rounded-xl hover:bg-slate-50 transition-colors flex flex-col items-center justify-center cursor-pointer dark:border-slate-700 dark:hover:bg-slate-800">
+                              <Upload className="w-8 h-8 text-slate-400 mb-2" />
+                              <span className="text-sm text-slate-500">Click to upload icons</span>
+                              <input type="file" multiple accept="image/*" onChange={handleLinkBulkIconUpload} className="hidden" />
+                           </label>
+
+                           <div className="grid grid-cols-4 gap-2">
+                              {linkBulkIcons.filter(i => !i.assignedId).map(icon => (
+                                <div 
+                                  key={icon.id}
+                                  onClick={() => setSelectedLinkBulkIconId(prev => prev === icon.id ? null : icon.id)}
+                                  className={`aspect-square rounded-lg border cursor-pointer relative group overflow-hidden ${selectedLinkBulkIconId === icon.id ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-slate-200 dark:border-slate-700'}`}
+                                >
+                                  <img src={icon.preview} className="w-full h-full object-cover" />
+                                  <button 
+                                    onClick={(e) => { e.stopPropagation(); setLinkBulkIcons(prev => prev.filter(i => i.id !== icon.id)); }}
+                                    className="absolute top-1 right-1 bg-white/80 rounded-full p-1 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              ))}
+                              {linkBulkIcons.filter(i => !i.assignedId).length === 0 && (
+                                <p className="col-span-4 text-center text-xs text-slate-400 italic py-4">No icons uploaded yet</p>
+                              )}
+                           </div>
+                        </div>
+
+                        {/* Right: Link List */}
+                        <div className="space-y-4 flex flex-col h-[400px]">
+                           <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider shrink-0">{t.admin.link.bulkIcons.assigned}</h4>
+                           
+                           <div className="flex-1 overflow-y-auto pr-2 space-y-4 border rounded-xl p-3 border-slate-100 bg-slate-50 dark:bg-slate-900/50 dark:border-slate-800">
+                              {data.categories.map(cat => (
+                                <div key={cat.id}>
+                                   <div className="sticky top-0 bg-slate-50 z-10 py-1 mb-1 dark:bg-slate-900">
+                                      <span className="text-xs font-bold text-slate-500 uppercase">{cat.name}</span>
+                                   </div>
+                                   {cat.subCategories.map(sub => {
+                                      const links = data.links.filter(l => l.categoryId === cat.id && l.subCategoryId === sub.id);
+                                      if (links.length === 0) return null;
+                                      return (
+                                        <div key={sub.id} className="ml-2 mb-2">
+                                           <div className="text-[10px] font-semibold text-slate-400 mb-1 border-l-2 border-slate-200 pl-2 dark:border-slate-700">{sub.name}</div>
+                                           <div className="space-y-1">
+                                              {links.map(link => {
+                                                 const assignedIcon = linkBulkIcons.find(i => i.assignedId === link.id);
+                                                 return (
+                                                   <div 
+                                                     key={link.id}
+                                                     onClick={() => handleAssignIconToLink(link.id)}
+                                                     className={`flex items-center justify-between p-2 rounded-lg border text-sm cursor-pointer transition-colors ${
+                                                       assignedIcon 
+                                                         ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-900/20 dark:border-indigo-800' 
+                                                         : 'bg-white border-slate-200 hover:border-indigo-300 dark:bg-slate-800 dark:border-slate-700'
+                                                     }`}
+                                                   >
+                                                      <span className="truncate flex-1 mr-2">{link.title}</span>
+                                                      {assignedIcon ? (
+                                                        <div className="flex items-center gap-2">
+                                                           <img src={assignedIcon.preview} className="w-6 h-6 rounded-full object-cover border border-indigo-200" />
+                                                           <button onClick={(e) => handleUnassignLinkIcon(e, assignedIcon.id)} className="text-slate-400 hover:text-red-500"><X className="w-3 h-3" /></button>
+                                                        </div>
+                                                      ) : (
+                                                        <div className={`w-6 h-6 rounded-full border border-dashed flex items-center justify-center ${selectedLinkBulkIconId ? 'border-indigo-300 bg-indigo-50 text-indigo-400' : 'border-slate-300 text-slate-300'}`}>
+                                                           <Plus className="w-3 h-3" />
+                                                        </div>
+                                                      )}
+                                                   </div>
+                                                 );
+                                              })}
+                                           </div>
+                                        </div>
+                                      );
+                                   })}
+                                </div>
+                              ))}
+                           </div>
+
+                           <div className="shrink-0 flex justify-between items-center">
+                              {lastBulkActionData && (
+                                <button onClick={handleUndo} className="flex items-center gap-2 text-sm text-slate-500 hover:text-indigo-600">
+                                   <Undo2 className="w-4 h-4" /> {t.admin.undo}
+                                </button>
+                              )}
+                              {linkBulkIcons.some(i => i.assignedId) && (
+                                <button 
+                                  onClick={handleApplyLinkBulkIcons}
+                                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 dark:shadow-none ml-auto"
+                                >
+                                  {t.admin.link.bulkIcons.apply}
+                                </button>
+                              )}
+                           </div>
+                        </div>
                      </div>
                   </div>
                 )}
@@ -1142,7 +1272,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                    </div>
                 </div>
 
-                {/* 3. New Sub-Category (Styled to match New Main Category) */}
+                {/* 3. New Sub-Category */}
                 <div className="bg-slate-50 rounded-xl p-6 border border-slate-100 dark:bg-slate-800/50 dark:border-slate-700">
                    <div className="flex items-center gap-2 mb-4 text-slate-800 dark:text-slate-200 font-semibold">
                       <CornerDownRight className="w-5 h-5 text-indigo-500" />
@@ -1195,7 +1325,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                    </div>
                 </div>
 
-                {/* 4. Bulk Icons */}
+                {/* 4. Bulk Icons (Category) */}
                 <div className="pt-8 border-t border-slate-100 dark:border-slate-800">
                   <h3 className="font-bold text-slate-800 mb-4 dark:text-slate-200 flex items-center gap-2">
                     <Images className="w-5 h-5 text-indigo-500" />
@@ -1214,19 +1344,19 @@ const AdminModal: React.FC<AdminModalProps> = ({
                        <label className="block w-full h-32 border-2 border-dashed border-slate-300 rounded-xl hover:bg-slate-50 transition-colors flex flex-col items-center justify-center cursor-pointer dark:border-slate-700 dark:hover:bg-slate-800">
                           <Upload className="w-8 h-8 text-slate-400 mb-2" />
                           <span className="text-sm text-slate-500">Click to upload multiple icons</span>
-                          <input type="file" multiple accept="image/*" onChange={handleBulkIconUpload} className="hidden" />
+                          <input type="file" multiple accept="image/*" onChange={handleCatBulkIconUpload} className="hidden" />
                        </label>
 
                        <div className="grid grid-cols-4 gap-2">
-                          {bulkIcons.filter(i => !i.assignedCatId).map(icon => (
+                          {catBulkIcons.filter(i => !i.assignedId).map(icon => (
                             <div 
                               key={icon.id}
-                              onClick={() => handleBulkIconClick(icon.id)}
-                              className={`aspect-square rounded-lg border cursor-pointer relative group overflow-hidden ${selectedBulkIconId === icon.id ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-slate-200 dark:border-slate-700'}`}
+                              onClick={() => setSelectedCatBulkIconId(prev => prev === icon.id ? null : icon.id)}
+                              className={`aspect-square rounded-lg border cursor-pointer relative group overflow-hidden ${selectedCatBulkIconId === icon.id ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-slate-200 dark:border-slate-700'}`}
                             >
                               <img src={icon.preview} className="w-full h-full object-cover" />
                               <button 
-                                onClick={(e) => { e.stopPropagation(); setBulkIcons(bulkIcons.filter(i => i.id !== icon.id)); }}
+                                onClick={(e) => { e.stopPropagation(); setCatBulkIcons(catBulkIcons.filter(i => i.id !== icon.id)); }}
                                 className="absolute top-1 right-1 bg-white/80 rounded-full p-1 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
                               >
                                 <X className="w-3 h-3" />
@@ -1242,7 +1372,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                        
                        <div className="space-y-2 max-h-[400px] overflow-y-auto">
                           {data.categories.map(cat => {
-                            const assignedIcon = bulkIcons.find(i => i.assignedCatId === cat.id);
+                            const assignedIcon = catBulkIcons.find(i => i.assignedId === cat.id);
                             const hasPending = !!assignedIcon;
 
                             return (
@@ -1263,14 +1393,14 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                   <div className="flex items-center gap-2">
                                      <img src={assignedIcon.preview} className="w-8 h-8 rounded object-cover border border-indigo-200" />
                                      <button 
-                                       onClick={(e) => handleUnassignIcon(e, assignedIcon.id)}
+                                       onClick={(e) => handleUnassignCatIcon(e, assignedIcon.id)}
                                        className="p-1 text-slate-400 hover:text-red-500"
                                      >
                                        <X className="w-4 h-4" />
                                      </button>
                                   </div>
                                 ) : (
-                                  <div className={`w-8 h-8 rounded border border-dashed flex items-center justify-center ${selectedBulkIconId ? 'border-indigo-300 bg-indigo-50 text-indigo-400' : 'border-slate-300 text-slate-300'}`}>
+                                  <div className={`w-8 h-8 rounded border border-dashed flex items-center justify-center ${selectedCatBulkIconId ? 'border-indigo-300 bg-indigo-50 text-indigo-400' : 'border-slate-300 text-slate-300'}`}>
                                      <ArrowRight className="w-4 h-4" />
                                   </div>
                                 )}
@@ -1279,9 +1409,9 @@ const AdminModal: React.FC<AdminModalProps> = ({
                           })}
                        </div>
 
-                       {bulkIcons.some(i => i.assignedCatId) && (
+                       {catBulkIcons.some(i => i.assignedId) && (
                          <button 
-                           onClick={handleApplyBulkIcons}
+                           onClick={handleApplyCatBulkIcons}
                            className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 dark:shadow-none"
                          >
                            {t.admin.category.bulkIcons.apply}
