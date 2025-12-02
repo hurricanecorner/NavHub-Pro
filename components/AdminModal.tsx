@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Plus, Save, Upload, AlertCircle, Edit2, Trash2, CornerDownRight, Folder, ListPlus, FileText, Images, ArrowRight, Check, Undo2, Tag, Download, Book, Cloud, ExternalLink, RefreshCw, Settings, Grid } from 'lucide-react';
+import { X, Plus, Save, Upload, AlertCircle, Edit2, Trash2, CornerDownRight, Folder, ListPlus, FileText, Images, ArrowRight, Check, Undo2, Tag, Download, Book, Cloud, ExternalLink, RefreshCw, Settings, Grid, ChevronDown, ChevronUp } from 'lucide-react';
 import { AppData, Category, LinkItem, CloudConfig, SubCategory } from '../types';
 
 interface AdminModalProps {
@@ -61,6 +61,9 @@ const AdminModal: React.FC<AdminModalProps> = ({
     parentId: '', id: null, name: ''
   });
   
+  // Category UI State
+  const [isExistingCatsOpen, setIsExistingCatsOpen] = useState(true);
+
   // Category Bulk Icon Upload State
   const [catBulkIcons, setCatBulkIcons] = useState<BulkIconUpload[]>([]);
   const [selectedCatBulkIconId, setSelectedCatBulkIconId] = useState<string | null>(null);
@@ -254,6 +257,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
       setTagInput('');
       setBulkTags([]);
       setBulkTagInput('');
+      setIsExistingCatsOpen(true);
     }
   }, [isOpen, editingItem, data, cloudConfig]);
 
@@ -1166,54 +1170,65 @@ const AdminModal: React.FC<AdminModalProps> = ({
                 
                 {/* 1. Existing Categories */}
                 <div>
-                   <h3 className="font-bold text-slate-800 mb-4 dark:text-slate-200 flex items-center gap-2">
-                     <ListPlus className="w-5 h-5 text-indigo-500" />
-                     {t.admin.category.existing}
-                   </h3>
-                   <div className="space-y-4">
-                      {data.categories.length === 0 ? (
-                        <p className="text-slate-400 italic">{t.admin.category.noCategories}</p>
-                      ) : (
-                        data.categories.map(cat => (
-                          <div key={cat.id} className="bg-white border border-slate-100 rounded-xl p-4 shadow-sm dark:bg-slate-800 dark:border-slate-700">
-                             <div className="flex items-center justify-between mb-3">
-                                <div className="flex items-center gap-3">
-                                   {cat.icon ? (
-                                     <img src={cat.icon} alt="" className="w-8 h-8 rounded-lg object-contain bg-slate-50 dark:bg-slate-700" />
-                                   ) : (
-                                     <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 dark:bg-slate-700"><Folder className="w-4 h-4" /></div>
-                                   )}
-                                   <span className="font-semibold text-slate-800 dark:text-slate-200">{cat.name}</span>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                   <button onClick={() => handleEditCategory(cat)} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded dark:hover:bg-indigo-900/30 dark:hover:text-indigo-400"><Edit2 className="w-4 h-4" /></button>
-                                   <button onClick={() => handleDeleteCategory(cat.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded dark:hover:bg-red-900/30 dark:hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
-                                </div>
-                             </div>
-                             
-                             {/* SubCategories List */}
-                             <div className="pl-11 space-y-2">
-                               {cat.subCategories.length > 0 ? (
-                                 cat.subCategories.map(sub => (
-                                   <div key={sub.id} className="flex items-center justify-between text-sm group">
-                                     <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-                                       <CornerDownRight className="w-3 h-3 text-slate-300" />
-                                       <span>{sub.name}</span>
-                                     </div>
-                                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                       <button onClick={() => handleEditSubCategory(cat.id, sub)} className="p-1 text-slate-400 hover:text-indigo-600"><Edit2 className="w-3 h-3" /></button>
-                                       <button onClick={() => handleDeleteSubCategory(cat.id, sub.id)} className="p-1 text-slate-400 hover:text-red-600"><Trash2 className="w-3 h-3" /></button>
-                                     </div>
-                                   </div>
-                                 ))
-                               ) : (
-                                 <p className="text-xs text-slate-300 italic pl-5">{t.app.noSubCategories}</p>
-                               )}
-                             </div>
-                          </div>
-                        ))
-                      )}
+                   <div 
+                     className="flex items-center justify-between mb-4 cursor-pointer group"
+                     onClick={() => setIsExistingCatsOpen(!isExistingCatsOpen)}
+                   >
+                     <h3 className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                       <ListPlus className="w-5 h-5 text-indigo-500" />
+                       {t.admin.category.existing}
+                     </h3>
+                     <div className={`p-1 rounded-full text-slate-400 group-hover:bg-slate-100 group-hover:text-slate-600 dark:group-hover:bg-slate-800 dark:group-hover:text-slate-300 transition-colors`}>
+                        {isExistingCatsOpen ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                     </div>
                    </div>
+                   
+                   {isExistingCatsOpen && (
+                     <div className="space-y-4 animate-fadeIn">
+                        {data.categories.length === 0 ? (
+                          <p className="text-slate-400 italic">{t.admin.category.noCategories}</p>
+                        ) : (
+                          data.categories.map(cat => (
+                            <div key={cat.id} className="bg-white border border-slate-100 rounded-xl p-4 shadow-sm dark:bg-slate-800 dark:border-slate-700">
+                               <div className="flex items-center justify-between mb-3">
+                                  <div className="flex items-center gap-3">
+                                     {cat.icon ? (
+                                       <img src={cat.icon} alt="" className="w-8 h-8 rounded-lg object-contain bg-slate-50 dark:bg-slate-700" />
+                                     ) : (
+                                       <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 dark:bg-slate-700"><Folder className="w-4 h-4" /></div>
+                                     )}
+                                     <span className="font-semibold text-slate-800 dark:text-slate-200">{cat.name}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                     <button onClick={() => handleEditCategory(cat)} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded dark:hover:bg-indigo-900/30 dark:hover:text-indigo-400"><Edit2 className="w-4 h-4" /></button>
+                                     <button onClick={() => handleDeleteCategory(cat.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded dark:hover:bg-red-900/30 dark:hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                                  </div>
+                               </div>
+                               
+                               {/* SubCategories List */}
+                               <div className="pl-11 space-y-2">
+                                 {cat.subCategories.length > 0 ? (
+                                   cat.subCategories.map(sub => (
+                                     <div key={sub.id} className="flex items-center justify-between text-sm group">
+                                       <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                                         <CornerDownRight className="w-3 h-3 text-slate-300" />
+                                         <span>{sub.name}</span>
+                                       </div>
+                                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                         <button onClick={() => handleEditSubCategory(cat.id, sub)} className="p-1 text-slate-400 hover:text-indigo-600"><Edit2 className="w-3 h-3" /></button>
+                                         <button onClick={() => handleDeleteSubCategory(cat.id, sub.id)} className="p-1 text-slate-400 hover:text-red-600"><Trash2 className="w-3 h-3" /></button>
+                                       </div>
+                                     </div>
+                                   ))
+                                 ) : (
+                                   <p className="text-xs text-slate-300 italic pl-5">{t.app.noSubCategories}</p>
+                                 )}
+                               </div>
+                            </div>
+                          ))
+                        )}
+                     </div>
+                   )}
                 </div>
 
                 {/* 2. New Main Category */}
