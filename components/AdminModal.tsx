@@ -13,7 +13,8 @@ interface AdminModalProps {
   onSyncUpload: () => void;
   onSyncDownload: () => void;
   isSyncing: boolean;
-  editingItem: LinkItem | null; 
+  editingItem: LinkItem | null;
+  initialValues?: { categoryId: string; subCategoryId: string } | null;
   t: any;
 }
 
@@ -27,7 +28,7 @@ interface BulkIconUpload {
 }
 
 const AdminModal: React.FC<AdminModalProps> = ({ 
-  isOpen, onClose, data, onUpdateData, cloudConfig, onUpdateCloudConfig, onSyncUpload, onSyncDownload, isSyncing, editingItem, t
+  isOpen, onClose, data, onUpdateData, cloudConfig, onUpdateCloudConfig, onSyncUpload, onSyncDownload, isSyncing, editingItem, initialValues, t
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('link');
   const [linkMode, setLinkMode] = useState<LinkMode>('single');
@@ -238,6 +239,14 @@ const AdminModal: React.FC<AdminModalProps> = ({
         setLinkForm({ ...editingItem, tags: editingItem.tags || [] });
         setActiveTab('link');
         setLinkMode('single'); // Always single mode when editing
+      } else if (initialValues) {
+        setLinkForm({ 
+            title: '', url: '', description: '', iconUrl: '', tags: [],
+            categoryId: initialValues.categoryId,
+            subCategoryId: initialValues.subCategoryId
+        });
+        setActiveTab('link');
+        setLinkMode('single');
       } else {
         // Reset link form
         setLinkForm({ title: '', url: '', description: '', categoryId: data.categories[0]?.id || '', subCategoryId: '', iconUrl: '', tags: [] });
@@ -259,7 +268,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
       setBulkTagInput('');
       setIsExistingCatsOpen(true);
     }
-  }, [isOpen, editingItem, data, cloudConfig]);
+  }, [isOpen, editingItem, initialValues, data, cloudConfig]);
 
   // Handle Image Upload (Generic)
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, onSuccess: (result: string) => void) => {
@@ -755,7 +764,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
             {/* --- LINK TAB --- */}
             {activeTab === 'link' && (
               <div className="space-y-6 max-w-2xl mx-auto">
-                {!editingItem && (
+                {!editingItem && !initialValues && (
                   <div className="flex bg-slate-100 p-1 rounded-lg mb-6 dark:bg-slate-800">
                     <button 
                       onClick={() => setLinkMode('single')} 
@@ -952,6 +961,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                   </div>
                 ) : linkMode === 'bulk' ? (
                   // BULK IMPORT MODE
+                   // ... existing bulk import code ...
                   <div className="space-y-4 animate-fadeIn">
                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
@@ -986,7 +996,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                           </select>
                         </div>
                      </div>
-
+                     
                      <div className="space-y-1.5">
                        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.bulk.label}</label>
                        <textarea 
@@ -1058,7 +1068,8 @@ const AdminModal: React.FC<AdminModalProps> = ({
                      </div>
                   </div>
                 ) : (
-                  // BULK ICON MODE (LINK)
+                  // BULK ICON MODE
+                  // ... existing bulk icon code ...
                   <div className="space-y-6 animate-fadeIn">
                      <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm text-blue-800 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300">
                        <p>{t.admin.link.bulkIcons.instructions}</p>
@@ -1091,9 +1102,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                   </button>
                                 </div>
                               ))}
-                              {linkBulkIcons.filter(i => !i.assignedId).length === 0 && (
-                                <p className="col-span-4 text-center text-xs text-slate-400 italic py-4">No icons uploaded yet</p>
-                              )}
                            </div>
                         </div>
 
@@ -1169,11 +1177,11 @@ const AdminModal: React.FC<AdminModalProps> = ({
                 )}
               </div>
             )}
-
-            {/* --- CATEGORY TAB --- */}
+            
+            {/* ... Other tabs (category, cloud, data) remain unchanged ... */}
             {activeTab === 'category' && (
-              <div className="space-y-10 max-w-2xl mx-auto">
-                
+               // ... full category tab code ...
+               <div className="space-y-10 max-w-2xl mx-auto">
                 {/* 1. Existing Categories */}
                 <div>
                    <div 
@@ -1441,13 +1449,13 @@ const AdminModal: React.FC<AdminModalProps> = ({
                     </div>
                   </div>
                 </div>
-
-              </div>
+               </div>
             )}
-
-            {/* --- CLOUD TAB --- */}
+            
+            {/* ... cloud tab ... */}
             {activeTab === 'cloud' && (
-              <div className="space-y-8 max-w-2xl mx-auto">
+               <div className="space-y-8 max-w-2xl mx-auto">
+                 {/* ... cloud content ... */}
                  <div className="text-center">
                     <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4 dark:bg-blue-900/20">
                       <Cloud className="w-8 h-8 text-blue-500" />
@@ -1606,8 +1614,8 @@ const AdminModal: React.FC<AdminModalProps> = ({
                  )}
               </div>
             )}
-
-            {/* --- DATA TAB --- */}
+            
+            {/* ... data tab ... */}
             {activeTab === 'data' && (
               <div className="space-y-8 max-w-2xl mx-auto">
                  <div className="text-center">

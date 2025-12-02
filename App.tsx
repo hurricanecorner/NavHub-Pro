@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef, ReactNode, ErrorInfo, Component } from 'react';
-import { Menu, Search, Settings, Edit, Lock, RefreshCw, CheckCircle2, AlertCircle, Languages, AlertTriangle, Loader2, Moon, Sun, Laptop, GripVertical } from 'lucide-react';
+
+import React, { useState, useEffect, useRef, ReactNode, ErrorInfo } from 'react';
+import { Menu, Search, Settings, Edit, Lock, RefreshCw, CheckCircle2, AlertCircle, Languages, AlertTriangle, Loader2, Moon, Sun, Laptop, GripVertical, Plus } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { AppData, LinkItem, CloudConfig, Language, Theme } from './types';
 import { loadData, saveData, loadCloudConfig, saveCloudConfig, uploadToCloud, downloadFromCloud, loadLanguage, saveLanguage, loadTheme, saveTheme } from './services/storageUtils';
@@ -18,7 +19,7 @@ interface ErrorBoundaryState {
 }
 
 // Error Boundary Component
-class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   public state: ErrorBoundaryState = { hasError: false };
 
   static getDerivedStateFromError(_: Error): ErrorBoundaryState {
@@ -78,7 +79,8 @@ const Dashboard: React.FC = () => {
   const [isEditMode, setIsEditMode] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<LinkItem | null>(null);
-  
+  const [initialLinkData, setInitialLinkData] = useState<{ categoryId: string; subCategoryId: string } | null>(null);
+
   // Sync State
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
@@ -274,9 +276,15 @@ const Dashboard: React.FC = () => {
     setIsAdminModalOpen(true);
   };
 
+  const handleAddLinkShortcut = (categoryId: string, subCategoryId: string) => {
+    setInitialLinkData({ categoryId, subCategoryId });
+    setIsAdminModalOpen(true);
+  };
+
   const handleCloseModal = () => {
     setIsAdminModalOpen(false);
     setEditingItem(null);
+    setInitialLinkData(null);
   };
 
   const onDragEnd = (result: DropResult) => {
@@ -625,7 +633,21 @@ const Dashboard: React.FC = () => {
                                               )}
                                             </Draggable>
                                           ))}
+                                          
                                           {provided.placeholder}
+                                          
+                                          {/* ADD LINK BUTTON SHORTCUT */}
+                                          {isEditMode && (
+                                            <button
+                                              onClick={() => handleAddLinkShortcut(category.id, subCat.id)}
+                                              className="flex flex-col items-center justify-center gap-2 min-h-[120px] bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl hover:border-indigo-400 hover:bg-indigo-50 transition-all group dark:bg-slate-800/30 dark:border-slate-700 dark:hover:border-indigo-500/50"
+                                            >
+                                              <div className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center group-hover:scale-110 transition-transform dark:bg-slate-800 dark:border-slate-600">
+                                                <Plus className="w-5 h-5 text-slate-400 group-hover:text-indigo-500 dark:text-slate-500" />
+                                              </div>
+                                              <span className="text-xs font-medium text-slate-400 group-hover:text-indigo-600 dark:text-slate-500">{t.app.addLink}</span>
+                                            </button>
+                                          )}
                                         </div>
                                       )}
                                     </Droppable>
@@ -661,6 +683,7 @@ const Dashboard: React.FC = () => {
             onSyncDownload={handleSyncDownload}
             isSyncing={isSyncing}
             editingItem={editingItem}
+            initialValues={initialLinkData}
             t={t}
           />
 
