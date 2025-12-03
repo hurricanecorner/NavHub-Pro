@@ -22,7 +22,7 @@ const LinkCard: React.FC<LinkCardProps> = ({ item, isEditMode, onEdit, onDelete,
   );
 
   return (
-    <div className={`group relative bg-white rounded-xl border border-slate-100 shadow-sm transition-all duration-200 p-4 flex gap-4 items-start dark:bg-slate-800 dark:border-slate-700 ${isEditMode ? 'cursor-default' : 'hover:shadow-md hover:border-indigo-100 dark:hover:border-indigo-500/30'}`}>
+    <div className={`group relative bg-white rounded-xl border border-slate-100 shadow-sm transition-all duration-200 p-4 flex gap-4 items-start dark:bg-slate-800 dark:border-slate-700 ${isEditMode ? 'cursor-default' : 'hover:shadow-lg hover:scale-[1.02] hover:border-indigo-100 dark:hover:border-indigo-500/30'}`}>
       
       {/* Tooltip for full description on hover (only in view mode or if not interfering) */}
       {item.description && !isEditMode && (
