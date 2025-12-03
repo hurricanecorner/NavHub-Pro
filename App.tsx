@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, ReactNode, ErrorInfo, Component } from 'react';
+import React, { useState, useEffect, useRef, ReactNode, ErrorInfo } from 'react';
 import { Menu, Search, Settings, Edit, Lock, RefreshCw, CheckCircle2, AlertCircle, Languages, AlertTriangle, Loader2, Moon, Sun, Laptop, GripVertical, Plus } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { AppData, LinkItem, CloudConfig, Language, Theme } from './types';
@@ -20,7 +20,7 @@ interface ErrorBoundaryState {
 }
 
 // Error Boundary Component
-class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = { hasError: false };
@@ -110,6 +110,12 @@ const Dashboard: React.FC = () => {
     const loadedConfig = loadCloudConfig();
     const loadedLang = loadLanguage();
     const loadedTheme = loadTheme();
+    
+    // Ensure siteConfig exists (migration)
+    if (!loadedData.siteConfig) {
+      loadedData.siteConfig = { title: '', logoUrl: '', faviconUrl: '' };
+    }
+
     setData(loadedData);
     setCloudConfig(loadedConfig);
     setLang(loadedLang);
@@ -119,6 +125,25 @@ const Dashboard: React.FC = () => {
     }
     setIsLoading(false);
   }, []);
+
+  // Apply Site Settings (Title & Favicon)
+  useEffect(() => {
+    if (data.siteConfig) {
+      // Update Title
+      document.title = data.siteConfig.title || TRANSLATIONS[lang].app.title;
+
+      // Update Favicon
+      if (data.siteConfig.faviconUrl) {
+        let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+        if (!link) {
+          link = document.createElement('link');
+          link.rel = 'icon';
+          document.getElementsByTagName('head')[0].appendChild(link);
+        }
+        link.href = data.siteConfig.faviconUrl;
+      }
+    }
+  }, [data.siteConfig, lang]);
 
   // Theme Effect
   useEffect(() => {
@@ -451,6 +476,7 @@ const Dashboard: React.FC = () => {
           setIsOpen={setIsSidebarOpen}
           t={t}
           isEditMode={isEditMode}
+          siteConfig={data.siteConfig}
         />
 
         <main className="flex-1 flex flex-col h-screen overflow-hidden relative">

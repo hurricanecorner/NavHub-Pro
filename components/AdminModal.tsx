@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Plus, Save, Upload, Edit2, Trash2, CornerDownRight, Folder, ListPlus, Images, ArrowRight, Undo2, Tag, Download, Book, Cloud, ExternalLink, Settings, ChevronDown, ChevronUp, Wand2, Loader2 } from 'lucide-react';
-import { AppData, Category, LinkItem, CloudConfig, SubCategory } from '../types';
+import { X, Plus, Save, Upload, Edit2, Trash2, CornerDownRight, Folder, ListPlus, Images, ArrowRight, Undo2, Tag, Download, Book, Cloud, ExternalLink, Settings, ChevronDown, ChevronUp, Wand2, Loader2, PanelTop } from 'lucide-react';
+import { AppData, Category, LinkItem, CloudConfig, SubCategory, SiteConfig } from '../types';
 import { ToastType } from './Toast';
 
 interface AdminModalProps {
@@ -21,7 +20,7 @@ interface AdminModalProps {
   confirmAction: (title: string, message: string, onConfirm: () => void, isDangerous?: boolean) => void;
 }
 
-type Tab = 'link' | 'category' | 'cloud' | 'data';
+type Tab = 'link' | 'category' | 'cloud' | 'data' | 'settings';
 type LinkMode = 'single' | 'bulk' | 'icons';
 
 interface BulkIconUpload {
@@ -73,6 +72,9 @@ const AdminModal: React.FC<AdminModalProps> = ({
   const [catBulkIcons, setCatBulkIcons] = useState<BulkIconUpload[]>([]);
   const [selectedCatBulkIconId, setSelectedCatBulkIconId] = useState<string | null>(null);
 
+  // Site Settings State
+  const [siteForm, setSiteForm] = useState<SiteConfig>({ title: '', logoUrl: '', faviconUrl: '' });
+
   // Undo State
   const [lastBulkActionData, setLastBulkActionData] = useState<AppData | null>(null);
 
@@ -81,6 +83,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
   // Data Export/Import helpers
   const handleExportData = () => {
+    // ... (keep existing export logic)
     // Generate Netscape Bookmark HTML format
     const now = Math.floor(Date.now() / 1000);
     
@@ -134,6 +137,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
   };
 
   const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // ... (keep existing import logic)
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -298,6 +302,13 @@ const AdminModal: React.FC<AdminModalProps> = ({
       setBulkTagInput('');
       setIsExistingCatsOpen(true);
       setIsFetchingMeta(false);
+      
+      // Site Config Sync
+      setSiteForm({
+        title: data.siteConfig?.title || t.app.title,
+        logoUrl: data.siteConfig?.logoUrl || '',
+        faviconUrl: data.siteConfig?.faviconUrl || ''
+      });
     }
   }, [isOpen, editingItem, initialValues, data, cloudConfig]);
 
@@ -313,7 +324,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
     }
   };
 
-  // --- Automatic Metadata Fetching ---
+  // ... (Keep existing fetch metadata, bulk icons, tag logic, save link/category logic)
   const handleFetchMetadata = async () => {
     const url = linkForm.url?.trim();
     if (!url) return;
@@ -365,7 +376,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
   };
 
   // --- Category Bulk Icon Logic ---
-
   const handleCatBulkIconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files) {
@@ -480,14 +490,10 @@ const AdminModal: React.FC<AdminModalProps> = ({
     ));
   };
 
-
   // --- Tag Logic ---
-
   const handleAddTag = (tag: string, isBulk = false) => {
     const cleanTag = tag.trim();
     if (!cleanTag) return;
-    
-    // Case-insensitive check
     const isDuplicate = (tags: string[]) => tags.some(t => t.toLowerCase() === cleanTag.toLowerCase());
 
     if (isBulk) {
@@ -520,37 +526,29 @@ const AdminModal: React.FC<AdminModalProps> = ({
   const validateLink = (): boolean => {
     const errors: { title?: string; url?: string; categoryId?: string } = {};
     let isValid = true;
-
     if (!linkForm.title?.trim()) {
       errors.title = t.admin.link.validation.titleRequired;
       isValid = false;
     }
-
     if (!linkForm.url?.trim()) {
       errors.url = t.admin.link.validation.urlRequired;
       isValid = false;
     } 
-
     if (!linkForm.categoryId) {
       errors.categoryId = t.admin.link.validation.categoryRequired;
       isValid = false;
     }
-
     setLinkErrors(errors);
     return isValid;
   };
 
   const handleSaveLink = () => {
     if (!validateLink()) return;
-
-    // Auto-prepend https:// if missing
     let finalUrl = linkForm.url?.trim() || '';
     if (finalUrl && !/^(https?:\/\/)/i.test(finalUrl)) {
       finalUrl = `https://${finalUrl}`;
     }
-
     let updatedLinks = [...data.links];
-    
     if (editingItem) {
        updatedLinks = updatedLinks.map(l => l.id === editingItem.id ? { ...l, ...linkForm, url: finalUrl } as LinkItem : l);
     } else {
@@ -566,7 +564,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
       };
       updatedLinks.push(newLink);
     }
-
     onUpdateData({ ...data, links: updatedLinks });
     onClose();
     showToast('success', editingItem ? t.admin.link.updated : t.admin.link.created);
@@ -576,7 +573,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
     e.preventDefault();
     e.stopPropagation();
     if (!editingItem) return;
-    
     confirmAction(
       t.admin.link.delete,
       t.app.deleteLinkConfirm,
@@ -595,27 +591,19 @@ const AdminModal: React.FC<AdminModalProps> = ({
       setLinkErrors({ ...linkErrors, categoryId: t.admin.link.validation.categoryRequired });
       return;
     }
-
     const lines = bulkUrls.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-    
     if (lines.length === 0) {
       showToast('error', t.admin.link.bulk.error);
       return;
     }
-
-    // Save state for undo
     setLastBulkActionData({ ...data });
-
     const newLinks: LinkItem[] = [];
     const baseId = Date.now();
-
     lines.forEach((line, index) => {
       let url = line;
       if (!/^(https?:\/\/)/i.test(url)) {
         url = `https://${url}`;
       }
-
-      // Infer title from URL if not provided
       let title = bulkDefaultTitle;
       if (!title) {
         try {
@@ -623,7 +611,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
           const hostname = urlObj.hostname;
           const cleanHost = hostname.replace(/^www\./, '');
           const domainSegment = cleanHost.split('.')[0];
-          
           if (domainSegment) {
             title = domainSegment.charAt(0).toUpperCase() + domainSegment.slice(1);
           } else {
@@ -633,7 +620,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
           title = "Link";
         }
       }
-
       newLinks.push({
         id: `${baseId}-${index}`,
         title: title,
@@ -642,14 +628,12 @@ const AdminModal: React.FC<AdminModalProps> = ({
         categoryId: linkForm.categoryId || '',
         subCategoryId: linkForm.subCategoryId || (data.categories.find(c => c.id === linkForm.categoryId)?.subCategories[0]?.id || ''),
         iconUrl: '',
-        tags: [...bulkTags] // Copy bulk tags to each item
+        tags: [...bulkTags] 
       });
     });
-
     onUpdateData({ ...data, links: [...data.links, ...newLinks] });
-    
-    setBulkUrls(''); // Clear input on success
-    setBulkTags([]); // Clear tags
+    setBulkUrls(''); 
+    setBulkTags([]);
     setBulkDefaultTitle('');
     showToast('success', t.admin.link.bulk.success.replace('{count}', newLinks.length));
   };
@@ -662,13 +646,10 @@ const AdminModal: React.FC<AdminModalProps> = ({
     }
   };
 
-  // --- Category Logic ---
-
   const handleEditCategory = (e: React.MouseEvent, cat: Category) => {
     e.stopPropagation();
     e.preventDefault();
     setCatForm({ id: cat.id, name: cat.name, icon: cat.icon || '' });
-    // Scroll to form
     const form = document.getElementById('main-cat-form');
     if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
@@ -676,7 +657,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
   const handleDeleteCategory = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     e.preventDefault();
-    
     confirmAction(
       t.admin.category.edit,
       t.admin.category.deleteConfirm,
@@ -692,9 +672,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
   const handleSaveCategory = () => {
     if (!catForm.name) return;
-
     let updatedCategories = [...data.categories];
-
     if (catForm.id) {
       updatedCategories = updatedCategories.map(c => 
         c.id === catForm.id 
@@ -710,19 +688,15 @@ const AdminModal: React.FC<AdminModalProps> = ({
       };
       updatedCategories.push(newCat);
     }
-    
     onUpdateData({ ...data, categories: updatedCategories });
     setCatForm({ id: null, name: '', icon: '' });
     showToast('success', catForm.id ? t.admin.category.updated : t.admin.category.created);
   };
 
-  // --- SubCategory Logic ---
-
   const handleEditSubCategory = (e: React.MouseEvent, parentId: string, subCat: SubCategory) => {
     e.stopPropagation();
     e.preventDefault();
     setSubCatForm({ parentId, id: subCat.id, name: subCat.name });
-    // Scroll to form
     const form = document.getElementById('sub-cat-form');
     if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
@@ -743,14 +717,12 @@ const AdminModal: React.FC<AdminModalProps> = ({
           }
           return c;
         });
-
         const updatedLinks = data.links.map(l => {
           if (l.categoryId === parentId && l.subCategoryId === subId) {
             return { ...l, categoryId: '', subCategoryId: '' };
           }
           return l;
         });
-
         onUpdateData({ categories: updatedCategories, links: updatedLinks });
         showToast('success', t.admin.category.subDeleted);
       },
@@ -760,12 +732,9 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
   const handleSaveSubCategory = () => {
     if (!subCatForm.name || !subCatForm.parentId) return;
-
     let updatedCategories = [...data.categories];
     const parentIndex = updatedCategories.findIndex(c => c.id === subCatForm.parentId);
-    
     if (parentIndex === -1) return;
-
     if (subCatForm.id) {
       const updatedSubCats = updatedCategories[parentIndex].subCategories.map(sc => 
         sc.id === subCatForm.id ? { ...sc, name: subCatForm.name } : sc
@@ -778,15 +747,25 @@ const AdminModal: React.FC<AdminModalProps> = ({
         subCategories: [...updatedCategories[parentIndex].subCategories, newSubCat]
       };
     }
-
     onUpdateData({ ...data, categories: updatedCategories });
     setSubCatForm({ parentId: '', id: null, name: '' });
     showToast('success', subCatForm.id ? t.admin.category.subUpdated : t.admin.category.subCreated);
   };
 
-
   const handleSaveCloudConfig = () => {
     onUpdateCloudConfig(localCloudConfig);
+  };
+
+  const handleSaveSiteSettings = () => {
+    onUpdateData({
+      ...data,
+      siteConfig: {
+        title: siteForm.title,
+        logoUrl: siteForm.logoUrl,
+        faviconUrl: siteForm.faviconUrl
+      }
+    });
+    showToast('success', t.admin.settings.success);
   };
 
   if (!isOpen) return null;
@@ -837,6 +816,13 @@ const AdminModal: React.FC<AdminModalProps> = ({
                 {t.admin.tabs.categories}
               </button>
               <button 
+                onClick={() => setActiveTab('settings')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'settings' ? 'bg-white shadow-sm text-indigo-600 dark:bg-slate-700 dark:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50'}`}
+              >
+                <PanelTop className="w-4 h-4" />
+                {t.admin.tabs.settings}
+              </button>
+              <button 
                 onClick={() => setActiveTab('cloud')}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'cloud' ? 'bg-white shadow-sm text-indigo-600 dark:bg-slate-700 dark:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50'}`}
               >
@@ -871,6 +857,12 @@ const AdminModal: React.FC<AdminModalProps> = ({
                 {t.admin.tabs.categories}
               </button>
               <button 
+                onClick={() => setActiveTab('settings')}
+                className={`flex-none px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${activeTab === 'settings' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}
+              >
+                {t.admin.tabs.settings}
+              </button>
+              <button 
                 onClick={() => setActiveTab('cloud')}
                 className={`flex-none px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${activeTab === 'cloud' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}
               >
@@ -886,6 +878,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
             {/* --- LINK TAB --- */}
             {activeTab === 'link' && (
+              // ... existing link tab content ...
               <div className="space-y-6 max-w-2xl mx-auto">
                 {!editingItem && !initialValues && (
                   <div className="flex bg-slate-100 p-1 rounded-lg mb-6 dark:bg-slate-800">
@@ -912,10 +905,10 @@ const AdminModal: React.FC<AdminModalProps> = ({
                     </button>
                   </div>
                 )}
-
-                {linkMode === 'single' ? (
+                {/* ... existing link forms ... */}
+                {/* I'll omit the full repetition here for brevity, ensuring the structure matches previous code */}
+                {linkMode === 'single' && (
                   <div className="space-y-4 animate-fadeIn">
-                     {/* Single Link Form - Same as before */}
                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
                           <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.title} <span className="text-red-500">*</span></label>
@@ -957,7 +950,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                           {linkErrors.url && <p className="text-xs text-red-500">{linkErrors.url}</p>}
                         </div>
                      </div>
-
                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
                           <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.category} <span className="text-red-500">*</span></label>
@@ -991,7 +983,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                           </select>
                         </div>
                      </div>
-
                      <div className="space-y-1.5">
                         <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.description}</label>
                         <textarea 
@@ -1001,7 +992,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                           className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all resize-none dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                         />
                      </div>
-
                      <div className="space-y-2">
                         <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.tags}</label>
                         <div className="flex flex-wrap gap-2 mb-2 p-2 bg-slate-50 border border-slate-200 rounded-lg min-h-[42px] dark:bg-slate-800 dark:border-slate-700">
@@ -1026,7 +1016,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                onKeyDown={e => {
                                  if (e.key === 'Enter') {
                                    e.preventDefault();
-                                   e.stopPropagation(); // Stop propagation to prevent form issues
+                                   e.stopPropagation();
                                    handleAddTag(tagInput);
                                  }
                                }}
@@ -1060,7 +1050,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                           </div>
                         )}
                      </div>
-
                      <div className="space-y-1.5">
                         <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.icon}</label>
                         <div className="flex items-center gap-4">
@@ -1086,7 +1075,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                            </div>
                         </div>
                      </div>
-
                      <div className="pt-4 flex items-center gap-3">
                        {editingItem && (
                          <button 
@@ -1108,9 +1096,9 @@ const AdminModal: React.FC<AdminModalProps> = ({
                        </button>
                      </div>
                   </div>
-                ) : linkMode === 'bulk' ? (
-                  // BULK IMPORT MODE
-                   // ... existing bulk import code ...
+                )}
+                {linkMode === 'bulk' && (
+                  // Bulk content
                   <div className="space-y-4 animate-fadeIn">
                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
@@ -1145,7 +1133,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                           </select>
                         </div>
                      </div>
-                     
                      <div className="space-y-1.5">
                        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.bulk.label}</label>
                        <textarea 
@@ -1156,7 +1143,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                        />
                      </div>
-                     
                      <div className="space-y-1.5">
                        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.bulk.defaultTitle}</label>
                        <input 
@@ -1167,7 +1153,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-800 dark:border-slate-700 dark:text-white"
                        />
                      </div>
-
                      <div className="space-y-2">
                         <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.tags}</label>
                         <div className="flex flex-wrap gap-2 mb-2 p-2 bg-slate-50 border border-slate-200 rounded-lg min-h-[42px] dark:bg-slate-800 dark:border-slate-700">
@@ -1201,7 +1186,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                            </button>
                         </div>
                      </div>
-
                      <div className="pt-4 flex justify-between items-center">
                         {lastBulkActionData && (
                            <button onClick={handleUndo} className="flex items-center gap-2 text-sm text-slate-500 hover:text-indigo-600 transition-colors">
@@ -1217,25 +1201,21 @@ const AdminModal: React.FC<AdminModalProps> = ({
                        </button>
                      </div>
                   </div>
-                ) : (
-                  // BULK ICON MODE
-                  // ... existing bulk icon code ...
+                )}
+                {linkMode === 'icons' && (
+                  // Bulk Icons content
                   <div className="space-y-6 animate-fadeIn">
                      <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm text-blue-800 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300">
                        <p>{t.admin.link.bulkIcons.instructions}</p>
                      </div>
-
                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        {/* Left: Upload & Grid */}
                         <div className="space-y-4">
                            <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.bulkIcons.drop}</h4>
-                           
                            <label className="block w-full h-32 border-2 border-dashed border-slate-300 rounded-xl hover:bg-slate-50 transition-colors flex flex-col items-center justify-center cursor-pointer dark:border-slate-700 dark:hover:bg-slate-800">
                               <Upload className="w-8 h-8 text-slate-400 mb-2" />
                               <span className="text-sm text-slate-500">Click to upload icons</span>
                               <input type="file" multiple accept="image/*" onChange={handleLinkBulkIconUpload} className="hidden" />
                            </label>
-
                            <div className="grid grid-cols-4 gap-2">
                               {linkBulkIcons.filter(i => !i.assignedId).map(icon => (
                                 <div 
@@ -1254,11 +1234,8 @@ const AdminModal: React.FC<AdminModalProps> = ({
                               ))}
                            </div>
                         </div>
-
-                        {/* Right: Link List */}
                         <div className="space-y-4 flex flex-col h-[400px]">
                            <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider shrink-0">{t.admin.link.bulkIcons.assigned}</h4>
-                           
                            <div className="flex-1 overflow-y-auto pr-2 space-y-4 border rounded-xl p-3 border-slate-100 bg-slate-50 dark:bg-slate-900/50 dark:border-slate-800">
                               {data.categories.map(cat => (
                                 <div key={cat.id}>
@@ -1305,7 +1282,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                 </div>
                               ))}
                            </div>
-
                            <div className="shrink-0 flex justify-between items-center">
                               {lastBulkActionData && (
                                 <button onClick={handleUndo} className="flex items-center gap-2 text-sm text-slate-500 hover:text-indigo-600">
@@ -1328,9 +1304,9 @@ const AdminModal: React.FC<AdminModalProps> = ({
               </div>
             )}
             
-            {/* ... Other tabs (category, cloud, data) remain unchanged ... */}
+            {/* --- CATEGORY TAB --- */}
             {activeTab === 'category' && (
-               // ... full category tab code ...
+               // ... existing category tab content ...
                <div className="space-y-10 max-w-2xl mx-auto">
                 {/* 1. Existing Categories */}
                 <div>
@@ -1346,7 +1322,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                         {isExistingCatsOpen ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                      </div>
                    </div>
-                   
                    {isExistingCatsOpen && (
                      <div className="space-y-4 animate-fadeIn">
                         {data.categories.length === 0 ? (
@@ -1380,8 +1355,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                      </button>
                                   </div>
                                </div>
-                               
-                               {/* SubCategories List */}
                                <div className="pl-11 space-y-2">
                                  {cat.subCategories.length > 0 ? (
                                    cat.subCategories.map(sub => (
@@ -1418,14 +1391,12 @@ const AdminModal: React.FC<AdminModalProps> = ({
                      </div>
                    )}
                 </div>
-
                 {/* 2. New Main Category */}
                 <div id="main-cat-form" className="bg-slate-50 rounded-xl p-6 border border-slate-100 dark:bg-slate-800/50 dark:border-slate-700">
                    <div className="flex items-center gap-2 mb-4 text-slate-800 dark:text-slate-200 font-semibold">
                       <Folder className="w-5 h-5 text-indigo-500" />
                       <h3>{catForm.id ? t.admin.category.edit : t.admin.category.new}</h3>
                    </div>
-                   
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="space-y-1.5">
                          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.category.name}</label>
@@ -1436,7 +1407,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:bg-slate-900 dark:border-slate-700 dark:text-white"
                          />
                       </div>
-                      
                       <div className="space-y-1.5">
                          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.category.icon}</label>
                          <div className="flex gap-2">
@@ -1454,7 +1424,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                          </div>
                       </div>
                    </div>
-
                    <div className="flex justify-end gap-2 mt-6">
                       {catForm.id && (
                         <button 
@@ -1474,14 +1443,12 @@ const AdminModal: React.FC<AdminModalProps> = ({
                       </button>
                    </div>
                 </div>
-
                 {/* 3. New Sub-Category */}
                 <div id="sub-cat-form" className="bg-slate-50 rounded-xl p-6 border border-slate-100 dark:bg-slate-800/50 dark:border-slate-700">
                    <div className="flex items-center gap-2 mb-4 text-slate-800 dark:text-slate-200 font-semibold">
                       <Save className="w-5 h-5 text-indigo-500" />
                       <h3>{subCatForm.id ? t.admin.category.editSub : t.admin.category.addSub}</h3>
                    </div>
-                   
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="space-y-1.5">
                          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.category.selectParent}</label>
@@ -1496,7 +1463,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                            ))}
                          </select>
                       </div>
-
                       <div className="space-y-1.5">
                          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.category.subName}</label>
                          <input 
@@ -1507,7 +1473,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                          />
                       </div>
                    </div>
-
                    <div className="flex justify-end gap-2 mt-6">
                       {subCatForm.id && (
                         <button 
@@ -1527,29 +1492,23 @@ const AdminModal: React.FC<AdminModalProps> = ({
                       </button>
                    </div>
                 </div>
-
                 {/* 4. Bulk Icons (Category) */}
                 <div className="pt-8 border-t border-slate-100 dark:border-slate-800">
                   <h3 className="font-bold text-slate-800 mb-4 dark:text-slate-200 flex items-center gap-2">
                     <Images className="w-5 h-5 text-indigo-500" />
                     {t.admin.category.bulkIcons.title}
                   </h3>
-                  
                   <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 mb-6 text-sm text-blue-800 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300">
                     <p>{t.admin.category.bulkIcons.instructions}</p>
                   </div>
-
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    {/* Left: Upload & Unassigned */}
                     <div className="space-y-4">
                        <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.category.bulkIcons.drop}</h4>
-                       
                        <label className="block w-full h-32 border-2 border-dashed border-slate-300 rounded-xl hover:bg-slate-50 transition-colors flex flex-col items-center justify-center cursor-pointer dark:border-slate-700 dark:hover:bg-slate-800">
                           <Upload className="w-8 h-8 text-slate-400 mb-2" />
                           <span className="text-sm text-slate-500">Click to upload multiple icons</span>
                           <input type="file" multiple accept="image/*" onChange={handleCatBulkIconUpload} className="hidden" />
                        </label>
-
                        <div className="grid grid-cols-4 gap-2">
                           {catBulkIcons.filter(i => !i.assignedId).map(icon => (
                             <div 
@@ -1568,16 +1527,12 @@ const AdminModal: React.FC<AdminModalProps> = ({
                           ))}
                        </div>
                     </div>
-
-                    {/* Right: Category Assignment */}
                     <div className="space-y-4">
                        <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.category.bulkIcons.assigned}</h4>
-                       
                        <div className="space-y-2 max-h-[400px] overflow-y-auto">
                           {data.categories.map(cat => {
                             const assignedIcon = catBulkIcons.find(i => i.assignedId === cat.id);
                             const hasPending = !!assignedIcon;
-
                             return (
                               <div 
                                 key={cat.id}
@@ -1591,7 +1546,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                 <span className={`text-sm font-medium ${hasPending ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-700 dark:text-slate-300'}`}>
                                   {cat.name}
                                 </span>
-
                                 {assignedIcon ? (
                                   <div className="flex items-center gap-2">
                                      <img src={assignedIcon.preview} className="w-8 h-8 rounded object-cover border border-indigo-200" />
@@ -1611,7 +1565,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                             );
                           })}
                        </div>
-
                        {catBulkIcons.some(i => i.assignedId) && (
                          <button 
                            onClick={handleApplyCatBulkIcons}
@@ -1626,10 +1579,104 @@ const AdminModal: React.FC<AdminModalProps> = ({
                </div>
             )}
             
-            {/* ... cloud tab ... */}
+            {/* --- SETTINGS TAB --- */}
+            {activeTab === 'settings' && (
+              <div className="space-y-8 max-w-2xl mx-auto">
+                 <div className="text-center">
+                    <div className="w-16 h-16 bg-violet-50 rounded-full flex items-center justify-center mx-auto mb-4 dark:bg-violet-900/20">
+                      <PanelTop className="w-8 h-8 text-violet-500" />
+                    </div>
+                    <h3 className="text-xl font-bold text-slate-800 dark:text-white">{t.admin.settings.title}</h3>
+                    <p className="text-slate-500 mt-2 max-w-md mx-auto dark:text-slate-400">{t.admin.settings.desc}</p>
+                 </div>
+
+                 <div className="bg-white border border-slate-100 rounded-xl p-6 shadow-sm space-y-6 dark:bg-slate-800 dark:border-slate-700">
+                    {/* Site Title */}
+                    <div className="space-y-1.5">
+                       <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.settings.siteName}</label>
+                       <input 
+                         type="text" 
+                         value={siteForm.title}
+                         onChange={e => setSiteForm({ ...siteForm, title: e.target.value })}
+                         className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+                       />
+                    </div>
+
+                    {/* Logo */}
+                    <div className="space-y-1.5">
+                       <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.settings.logo}</label>
+                       <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden shrink-0 dark:bg-slate-900 dark:border-slate-700">
+                            {siteForm.logoUrl ? (
+                              <img src={siteForm.logoUrl} alt="Logo" className="w-full h-full object-contain" />
+                            ) : (
+                              <PanelTop className="w-6 h-6 text-slate-400" />
+                            )}
+                          </div>
+                          <div className="flex-1 space-y-2">
+                             <div className="flex gap-2">
+                                <input 
+                                  type="text" 
+                                  value={siteForm.logoUrl}
+                                  onChange={e => setSiteForm({ ...siteForm, logoUrl: e.target.value })}
+                                  placeholder={t.admin.settings.placeholderUrl}
+                                  className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+                                />
+                                <label className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-100 dark:bg-slate-900 dark:border-slate-700">
+                                   <Upload className="w-4 h-4 text-slate-500" />
+                                   <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, (res) => setSiteForm({ ...siteForm, logoUrl: res }))} />
+                                </label>
+                             </div>
+                          </div>
+                       </div>
+                    </div>
+
+                    {/* Favicon */}
+                    <div className="space-y-1.5">
+                       <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.settings.favicon}</label>
+                       <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden shrink-0 dark:bg-slate-900 dark:border-slate-700">
+                            {siteForm.faviconUrl ? (
+                              <img src={siteForm.faviconUrl} alt="Favicon" className="w-6 h-6 object-contain" />
+                            ) : (
+                              <div className="w-4 h-4 bg-slate-400 rounded-sm" />
+                            )}
+                          </div>
+                          <div className="flex-1 space-y-2">
+                             <div className="flex gap-2">
+                                <input 
+                                  type="text" 
+                                  value={siteForm.faviconUrl}
+                                  onChange={e => setSiteForm({ ...siteForm, faviconUrl: e.target.value })}
+                                  placeholder={t.admin.settings.placeholderUrl}
+                                  className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+                                />
+                                <label className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-100 dark:bg-slate-900 dark:border-slate-700">
+                                   <Upload className="w-4 h-4 text-slate-500" />
+                                   <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, (res) => setSiteForm({ ...siteForm, faviconUrl: res }))} />
+                                </label>
+                             </div>
+                          </div>
+                       </div>
+                    </div>
+                 </div>
+
+                 <div className="flex justify-end">
+                    <button 
+                      onClick={handleSaveSiteSettings}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-lg text-sm font-bold shadow-lg shadow-indigo-200 dark:shadow-none transition-all active:scale-95 flex items-center gap-2"
+                    >
+                      <Save className="w-4 h-4" />
+                      {t.admin.settings.save}
+                    </button>
+                 </div>
+              </div>
+            )}
+            
+            {/* --- CLOUD TAB --- */}
             {activeTab === 'cloud' && (
+              // ... existing cloud content ...
                <div className="space-y-8 max-w-2xl mx-auto">
-                 {/* ... cloud content ... */}
                  <div className="text-center">
                     <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4 dark:bg-blue-900/20">
                       <Cloud className="w-8 h-8 text-blue-500" />
@@ -1637,7 +1684,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                     <h3 className="text-xl font-bold text-slate-800 dark:text-white">{t.admin.cloud.title}</h3>
                     <p className="text-slate-500 mt-2 max-w-md mx-auto dark:text-slate-400">{t.admin.cloud.desc}</p>
                  </div>
-
                  <div className="bg-slate-50 rounded-xl p-6 border border-slate-100 dark:bg-slate-800/50 dark:border-slate-700">
                     <div className="flex items-center justify-between mb-6">
                        <span className="font-semibold text-slate-700 dark:text-slate-300">{t.admin.cloud.enable}</span>
@@ -1648,10 +1694,8 @@ const AdminModal: React.FC<AdminModalProps> = ({
                          <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${localCloudConfig.enabled ? 'translate-x-6' : 'translate-x-0'}`} />
                        </button>
                     </div>
-
                     {localCloudConfig.enabled && (
                       <div className="space-y-6 animate-fadeIn">
-                        
                         {/* Provider Selector */}
                         <div className="space-y-2">
                           <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.cloud.provider}</label>
@@ -1678,9 +1722,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                             </button>
                           </div>
                         </div>
-
                         {localCloudConfig.activeProvider === 'github' ? (
-                          // GitHub Config
                           <div className="space-y-4 pt-2">
                              <div className="space-y-1.5">
                                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.cloud.github.tokenLabel}</label>
@@ -1696,7 +1738,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                 </a>
                                 <p className="text-[10px] text-slate-400">{t.admin.cloud.github.helpText}</p>
                              </div>
-                             
                              <div className="space-y-1.5">
                                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.cloud.github.gistLabel}</label>
                                 <input 
@@ -1709,12 +1750,10 @@ const AdminModal: React.FC<AdminModalProps> = ({
                              </div>
                           </div>
                         ) : (
-                          // Notion Config
                           <div className="space-y-4 pt-2">
                             <div className="bg-amber-50 border border-amber-100 text-amber-800 p-3 rounded-lg text-xs dark:bg-amber-900/30 dark:border-amber-800 dark:text-amber-200">
                                {t.admin.cloud.providerWarning}
                             </div>
-                            
                             <div className="space-y-1.5">
                                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.cloud.notion.tokenLabel}</label>
                                 <input 
@@ -1748,7 +1787,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                              </div>
                           </div>
                         )}
-
                         <div className="flex justify-end pt-2">
                            <button 
                              onClick={handleSaveCloudConfig}
@@ -1760,7 +1798,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                       </div>
                     )}
                  </div>
-
                  {localCloudConfig.enabled && (
                    <div className="grid grid-cols-2 gap-4">
                       <button 
@@ -1773,7 +1810,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                          </div>
                          <span className="font-semibold text-sm">{t.admin.cloud.upload}</span>
                       </button>
-
                       <button 
                         onClick={onSyncDownload}
                         disabled={isSyncing}
@@ -1789,8 +1825,9 @@ const AdminModal: React.FC<AdminModalProps> = ({
               </div>
             )}
             
-            {/* ... data tab ... */}
+            {/* --- DATA TAB --- */}
             {activeTab === 'data' && (
+              // ... existing data content ...
               <div className="space-y-8 max-w-2xl mx-auto">
                  <div className="text-center">
                     <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-4 dark:bg-emerald-900/20">
@@ -1798,7 +1835,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                     </div>
                     <h3 className="text-xl font-bold text-slate-800 dark:text-white">{t.admin.tabs.data}</h3>
                  </div>
-
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="bg-white border border-slate-100 rounded-xl p-6 shadow-sm flex flex-col dark:bg-slate-800 dark:border-slate-700">
                        <div className="flex-1 mb-6">
@@ -1813,7 +1849,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                          {t.admin.data.exportBtn}
                        </button>
                     </div>
-
                     <div className="bg-white border border-slate-100 rounded-xl p-6 shadow-sm flex flex-col dark:bg-slate-800 dark:border-slate-700">
                        <div className="flex-1 mb-6">
                           <h4 className="font-bold text-slate-800 mb-2 dark:text-white">{t.admin.data.importTitle}</h4>
@@ -1828,7 +1863,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                  </div>
               </div>
             )}
-
           </div>
         </div>
       </div>

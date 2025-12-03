@@ -26,9 +26,16 @@ export interface LinkItem {
   tags?: string[];
 }
 
+export interface SiteConfig {
+  title: string;
+  logoUrl: string;
+  faviconUrl: string;
+}
+
 export interface AppData {
   categories: Category[];
   links: LinkItem[];
+  siteConfig?: SiteConfig;
 }
 
 export interface CloudConfig {

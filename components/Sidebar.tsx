@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Category, LinkItem } from '../types';
+import { Category, LinkItem, SiteConfig } from '../types';
 import { LayoutGrid, Hash, ChevronRight, Folder, GripVertical } from 'lucide-react';
 import { Droppable, Draggable } from '@hello-pangea/dnd';
 
@@ -12,6 +12,7 @@ interface SidebarProps {
   setIsOpen: (isOpen: boolean) => void;
   t: any;
   isEditMode: boolean;
+  siteConfig?: SiteConfig;
 }
 
 const CategoryIcon = ({ icon, isActive }: { icon?: string; isActive: boolean }) => {
@@ -33,7 +34,7 @@ const CategoryIcon = ({ icon, isActive }: { icon?: string; isActive: boolean }) 
   );
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, onSelectCategory, isOpen, setIsOpen, t, isEditMode }) => {
+const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, onSelectCategory, isOpen, setIsOpen, t, isEditMode, siteConfig }) => {
   
   const scrollToSection = (id: string) => {
     onSelectCategory(id);
@@ -81,9 +82,13 @@ const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, 
         ${isOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
         <div className="h-16 flex items-center px-6 border-b border-slate-100 dark:border-slate-800">
-          <div className="flex items-center gap-2 text-indigo-600 font-bold text-xl dark:text-indigo-400">
-            <LayoutGrid className="w-6 h-6" />
-            <span>{t.app.title}</span>
+          <div className="flex items-center gap-2 text-indigo-600 font-bold text-xl dark:text-indigo-400 overflow-hidden">
+            {siteConfig?.logoUrl ? (
+              <img src={siteConfig.logoUrl} alt="Logo" className="w-8 h-8 object-contain" />
+            ) : (
+              <LayoutGrid className="w-6 h-6 shrink-0" />
+            )}
+            <span className="truncate">{siteConfig?.title || t.app.title}</span>
           </div>
         </div>
 

@@ -74,4 +74,9 @@ export const DEFAULT_DATA: AppData = {
       subCategoryId: 'sc3-1',
     }
   ],
+  siteConfig: {
+    title: 'NavHub',
+    logoUrl: '',
+    faviconUrl: ''
+  }
 };

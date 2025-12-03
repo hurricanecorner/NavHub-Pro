@@ -46,7 +46,18 @@ export const TRANSLATIONS = {
         addLink: "Add Link",
         categories: "Categories",
         cloud: "Cloud Sync",
-        data: "Data Backup"
+        data: "Data Backup",
+        settings: "Site Settings"
+      },
+      settings: {
+        title: "Site Branding",
+        desc: "Customize the look and feel of your navigation site.",
+        siteName: "Site Name",
+        logo: "Logo URL (Top-Left)",
+        favicon: "Favicon URL (Browser Tab)",
+        placeholderUrl: "https://...",
+        save: "Save Settings",
+        success: "Site settings updated successfully!"
       },
       data: {
         exportTitle: "Export Bookmarks",
@@ -225,7 +236,18 @@ export const TRANSLATIONS = {
         addLink: "添加链接",
         categories: "分类管理",
         cloud: "云端同步",
-        data: "数据备份"
+        data: "数据备份",
+        settings: "网站设置"
+      },
+      settings: {
+        title: "品牌设置",
+        desc: "自定义导航站的名称、Logo和图标。",
+        siteName: "网站名称",
+        logo: "Logo 图标 (左上角)",
+        favicon: "Favicon 图标 (浏览器标签)",
+        placeholderUrl: "https://...",
+        save: "保存设置",
+        success: "网站设置更新成功！"
       },
       data: {
         exportTitle: "导出书签",
