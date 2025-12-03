@@ -48,8 +48,8 @@ const LinkCard: React.FC<LinkCardProps> = ({ item, isEditMode, onEdit, onDelete,
       {/* Content */}
       <div className="flex-1 min-w-0">
         <h3 className="font-semibold text-slate-800 truncate pr-6 mb-1 text-sm dark:text-slate-200">{item.title}</h3>
-        {/* Enforce 2-line limit */}
-        <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed dark:text-slate-400">{item.description}</p>
+        {/* Enforce 1-line limit */}
+        <p className="text-xs text-slate-500 truncate leading-relaxed dark:text-slate-400">{item.description}</p>
         
         {/* Tags */}
         {item.tags && item.tags.length > 0 && (
