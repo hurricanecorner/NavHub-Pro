@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, Plus, Save, Upload, Edit2, Trash2, CornerDownRight, Folder, ListPlus, Images, ArrowRight, Undo2, Tag, Download, Book, Cloud, ExternalLink, Settings, ChevronDown, ChevronUp, Wand2, Loader2, PanelTop } from 'lucide-react';
 import { AppData, Category, LinkItem, CloudConfig, SubCategory, SiteConfig } from '../types';
@@ -1699,30 +1700,40 @@ const AdminModal: React.FC<AdminModalProps> = ({
                         {/* Provider Selector */}
                         <div className="space-y-2">
                           <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.cloud.provider}</label>
-                          <div className="grid grid-cols-2 gap-4">
+                          <div className="grid grid-cols-3 gap-2">
                             <button
                               onClick={() => setLocalCloudConfig({ ...localCloudConfig, activeProvider: 'github' })}
-                              className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-all ${
+                              className={`flex items-center justify-center gap-2 px-2 py-3 rounded-xl border transition-all ${
                                 localCloudConfig.activeProvider === 'github'
                                   ? 'bg-white border-indigo-500 text-indigo-700 shadow-sm ring-1 ring-indigo-500 dark:bg-slate-800 dark:text-indigo-400'
                                   : 'bg-slate-100 border-transparent text-slate-600 hover:bg-white hover:border-slate-300 dark:bg-slate-800 dark:text-slate-400'
                               }`}
                             >
-                              <span className="font-bold">GitHub Gist</span>
+                              <span className="font-bold text-sm">GitHub</span>
                             </button>
                             <button
                               onClick={() => setLocalCloudConfig({ ...localCloudConfig, activeProvider: 'notion' })}
-                              className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-all ${
+                              className={`flex items-center justify-center gap-2 px-2 py-3 rounded-xl border transition-all ${
                                 localCloudConfig.activeProvider === 'notion'
                                   ? 'bg-white border-indigo-500 text-indigo-700 shadow-sm ring-1 ring-indigo-500 dark:bg-slate-800 dark:text-indigo-400'
                                   : 'bg-slate-100 border-transparent text-slate-600 hover:bg-white hover:border-slate-300 dark:bg-slate-800 dark:text-slate-400'
                               }`}
                             >
-                              <span className="font-bold">Notion</span>
+                              <span className="font-bold text-sm">Notion</span>
+                            </button>
+                            <button
+                              onClick={() => setLocalCloudConfig({ ...localCloudConfig, activeProvider: 'webdav' })}
+                              className={`flex items-center justify-center gap-2 px-2 py-3 rounded-xl border transition-all ${
+                                localCloudConfig.activeProvider === 'webdav'
+                                  ? 'bg-white border-indigo-500 text-indigo-700 shadow-sm ring-1 ring-indigo-500 dark:bg-slate-800 dark:text-indigo-400'
+                                  : 'bg-slate-100 border-transparent text-slate-600 hover:bg-white hover:border-slate-300 dark:bg-slate-800 dark:text-slate-400'
+                              }`}
+                            >
+                              <span className="font-bold text-sm">WebDAV</span>
                             </button>
                           </div>
                         </div>
-                        {localCloudConfig.activeProvider === 'github' ? (
+                        {localCloudConfig.activeProvider === 'github' && (
                           <div className="space-y-4 pt-2">
                              <div className="space-y-1.5">
                                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.cloud.github.tokenLabel}</label>
@@ -1749,7 +1760,8 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                 />
                              </div>
                           </div>
-                        ) : (
+                        )}
+                        {localCloudConfig.activeProvider === 'notion' && (
                           <div className="space-y-4 pt-2">
                             <div className="bg-amber-50 border border-amber-100 text-amber-800 p-3 rounded-lg text-xs dark:bg-amber-900/30 dark:border-amber-800 dark:text-amber-200">
                                {t.admin.cloud.providerWarning}
@@ -1783,6 +1795,42 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                   onChange={e => setLocalCloudConfig({ ...localCloudConfig, notionApiUrl: e.target.value })}
                                   placeholder={t.admin.cloud.notion.apiUrlPlaceholder}
                                   className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+                                />
+                             </div>
+                          </div>
+                        )}
+                        {localCloudConfig.activeProvider === 'webdav' && (
+                          <div className="space-y-4 pt-2">
+                             <div className="bg-amber-50 border border-amber-100 text-amber-800 p-3 rounded-lg text-xs dark:bg-amber-900/30 dark:border-amber-800 dark:text-amber-200">
+                               {t.admin.cloud.webdavWarning}
+                             </div>
+                             <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.cloud.webdav.urlLabel}</label>
+                                <input 
+                                  type="text" 
+                                  value={localCloudConfig.webdavUrl || ''}
+                                  onChange={e => setLocalCloudConfig({ ...localCloudConfig, webdavUrl: e.target.value })}
+                                  placeholder={t.admin.cloud.webdav.urlPlaceholder}
+                                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+                                />
+                                <p className="text-[10px] text-slate-400">{t.admin.cloud.webdav.helpText}</p>
+                             </div>
+                             <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.cloud.webdav.userLabel}</label>
+                                <input 
+                                  type="text" 
+                                  value={localCloudConfig.webdavUsername || ''}
+                                  onChange={e => setLocalCloudConfig({ ...localCloudConfig, webdavUsername: e.target.value })}
+                                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
+                                />
+                             </div>
+                             <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.cloud.webdav.pwdLabel}</label>
+                                <input 
+                                  type="password" 
+                                  value={localCloudConfig.webdavPassword || ''}
+                                  onChange={e => setLocalCloudConfig({ ...localCloudConfig, webdavPassword: e.target.value })}
+                                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-700 dark:text-white"
                                 />
                              </div>
                           </div>

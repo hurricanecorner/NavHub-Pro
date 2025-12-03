@@ -40,11 +40,15 @@ export interface AppData {
 
 export interface CloudConfig {
   enabled: boolean;
-  activeProvider: 'github' | 'notion';
+  activeProvider: 'github' | 'notion' | 'webdav';
   githubToken: string;
   gistId: string;
   notionToken: string;
   notionPageId: string;
   notionApiUrl?: string; // Custom API URL (Proxy)
+  // WebDAV Config
+  webdavUrl?: string;
+  webdavUsername?: string;
+  webdavPassword?: string;
   lastSync?: number;
 }

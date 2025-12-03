@@ -181,6 +181,13 @@ export const TRANSLATIONS = {
           help: "Setup Guide",
           helpText: "Create an Integration in Notion. Share a page with it. Copy the Page ID from the URL."
         },
+        webdav: {
+          urlLabel: "Server URL (e.g., Nutstore)",
+          urlPlaceholder: "https://dav.jianguoyun.com/dav/",
+          userLabel: "Username (Email)",
+          pwdLabel: "App Password",
+          helpText: "Common: https://dav.jianguoyun.com/dav/. Use App Password for Nutstore."
+        },
         enable: "Enable Cloud Sync",
         saveConfig: "Save Configuration",
         upload: "Upload to Cloud",
@@ -188,7 +195,8 @@ export const TRANSLATIONS = {
         uploadSuccess: "Data uploaded successfully!",
         downloadSuccess: "Data downloaded successfully!",
         warning: "Downloading will overwrite your current local data.",
-        providerWarning: "Note: Notion API requires a proxy (e.g., Cloudflare Worker) to work in the browser due to CORS."
+        providerWarning: "Note: Notion API requires a proxy (e.g., Cloudflare Worker) to work in the browser due to CORS.",
+        webdavWarning: "Note: Most WebDAV servers (like Nutstore) block browser requests (CORS). You may need a proxy or browser extension."
       }
     }
   },
@@ -371,6 +379,13 @@ export const TRANSLATIONS = {
           help: "配置指南",
           helpText: "在 Notion 创建 Integration，将页面分享给它，从 URL 复制 Page ID。"
         },
+        webdav: {
+          urlLabel: "服务器地址 (如坚果云)",
+          urlPlaceholder: "https://dav.jianguoyun.com/dav/",
+          userLabel: "账户 (邮箱)",
+          pwdLabel: "应用密码",
+          helpText: "常用：https://dav.jianguoyun.com/dav/。坚果云请务必使用应用密码。"
+        },
         enable: "启用同步功能",
         saveConfig: "保存配置",
         upload: "上传到云端",
@@ -378,7 +393,8 @@ export const TRANSLATIONS = {
         uploadSuccess: "上传成功！",
         downloadSuccess: "数据下载成功！",
         warning: "下载将覆盖当前的本地数据。",
-        providerWarning: "注意：由于浏览器跨域(CORS)限制，您必须配置反向代理(如 Cloudflare Worker)才能使用 Notion。"
+        providerWarning: "注意：由于浏览器跨域(CORS)限制，您必须配置反向代理(如 Cloudflare Worker)才能使用 Notion。",
+        webdavWarning: "注意：坚果云等 WebDAV 服务通常拦截浏览器请求(CORS)，您可能需要使用代理或浏览器插件。"
       }
     }
   }

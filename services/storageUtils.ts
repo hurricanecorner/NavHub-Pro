@@ -33,6 +33,9 @@ export const loadCloudConfig = (): CloudConfig => {
       notionToken: parsed?.notionToken || '',
       notionPageId: parsed?.notionPageId || '',
       notionApiUrl: parsed?.notionApiUrl || '',
+      webdavUrl: parsed?.webdavUrl || '',
+      webdavUsername: parsed?.webdavUsername || '',
+      webdavPassword: parsed?.webdavPassword || '',
       lastSync: parsed?.lastSync
     };
   } catch {
@@ -43,7 +46,10 @@ export const loadCloudConfig = (): CloudConfig => {
       gistId: '',
       notionToken: '',
       notionPageId: '',
-      notionApiUrl: ''
+      notionApiUrl: '',
+      webdavUrl: '',
+      webdavUsername: '',
+      webdavPassword: ''
     };
   }
 };
@@ -344,11 +350,105 @@ const downloadFromNotion = async (config: CloudConfig): Promise<SyncResult> => {
   }
 };
 
+// --- WebDAV Sync Logic (Nutstore / Jianguoyun) ---
+const WEBDAV_FILENAME = 'navhub-data.json';
+
+const getWebDAVUrl = (baseUrl: string) => {
+    let url = baseUrl.trim();
+    // Remove trailing slash
+    url = url.replace(/\/+$/, '');
+    return `${url}/${WEBDAV_FILENAME}`;
+};
+
+const uploadToWebDAV = async (data: AppData, config: CloudConfig): Promise<SyncResult> => {
+    if (!config.webdavUrl || !config.webdavUsername || !config.webdavPassword) {
+        return { success: false, message: 'Missing WebDAV credentials.' };
+    }
+
+    const fileUrl = getWebDAVUrl(config.webdavUrl);
+    const authHeader = 'Basic ' + btoa(`${config.webdavUsername}:${config.webdavPassword}`);
+
+    try {
+        const response = await fetch(fileUrl, {
+            method: 'PUT',
+            headers: {
+                'Authorization': authHeader,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data, null, 2)
+        });
+
+        if (!response.ok) {
+            if (response.status === 0) {
+                 throw new Error("Connection failed. Likely a CORS issue. Please use a proxy.");
+            }
+            throw new Error(`WebDAV Error: ${response.status} ${response.statusText}`);
+        }
+
+        return {
+            success: true,
+            message: 'Data uploaded successfully to WebDAV.',
+            timestamp: Date.now()
+        };
+
+    } catch (error: any) {
+        console.error("WebDAV Upload Error:", error);
+        return { success: false, message: error.message || 'WebDAV sync failed.' };
+    }
+};
+
+const downloadFromWebDAV = async (config: CloudConfig): Promise<SyncResult> => {
+    if (!config.webdavUrl || !config.webdavUsername || !config.webdavPassword) {
+        return { success: false, message: 'Missing WebDAV credentials.' };
+    }
+
+    const fileUrl = getWebDAVUrl(config.webdavUrl);
+    const authHeader = 'Basic ' + btoa(`${config.webdavUsername}:${config.webdavPassword}`);
+
+    try {
+        const response = await fetch(fileUrl, {
+            method: 'GET',
+            headers: {
+                'Authorization': authHeader
+            }
+        });
+
+        if (!response.ok) {
+            if (response.status === 0) {
+                 throw new Error("Connection failed. Likely a CORS issue. Please use a proxy.");
+            }
+            throw new Error(`WebDAV Error: ${response.status} ${response.statusText}`);
+        }
+
+        const parsedData = await response.json();
+
+        // Basic validation
+        if (!Array.isArray(parsedData.categories) || !Array.isArray(parsedData.links)) {
+            throw new Error('Invalid data format in WebDAV file.');
+        }
+
+        return {
+            success: true,
+            message: 'Data downloaded successfully from WebDAV.',
+            data: parsedData,
+            timestamp: Date.now()
+        };
+
+    } catch (error: any) {
+        console.error("WebDAV Download Error:", error);
+        return { success: false, message: error.message || 'WebDAV download failed.' };
+    }
+};
+
+
 // --- Main Exported Functions ---
 
 export const uploadToCloud = async (data: AppData, config: CloudConfig): Promise<SyncResult> => {
   if (config.activeProvider === 'notion') {
     return uploadToNotion(data, config);
+  }
+  if (config.activeProvider === 'webdav') {
+    return uploadToWebDAV(data, config);
   }
   return uploadToGitHub(data, config);
 };
@@ -356,6 +456,9 @@ export const uploadToCloud = async (data: AppData, config: CloudConfig): Promise
 export const downloadFromCloud = async (config: CloudConfig): Promise<SyncResult> => {
   if (config.activeProvider === 'notion') {
     return downloadFromNotion(config);
+  }
+  if (config.activeProvider === 'webdav') {
+    return downloadFromWebDAV(config);
   }
   return downloadFromGitHub(config);
 };
