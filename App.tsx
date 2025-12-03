@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useRef, ReactNode, ErrorInfo } from 'react';
+import React, { useState, useEffect, useRef, ReactNode, ErrorInfo, Component } from 'react';
 import { Menu, Search, Settings, Edit, Lock, RefreshCw, CheckCircle2, AlertCircle, Languages, AlertTriangle, Loader2, Moon, Sun, Laptop, GripVertical, Plus } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { AppData, LinkItem, CloudConfig, Language, Theme } from './types';
@@ -8,6 +7,8 @@ import { TRANSLATIONS } from './translations';
 import Sidebar from './components/Sidebar';
 import LinkCard from './components/LinkCard';
 import AdminModal from './components/AdminModal';
+import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
+import { ConfirmDialog } from './components/ConfirmDialog';
 
 // Error Boundary Component Interface
 interface ErrorBoundaryProps {
@@ -19,8 +20,11 @@ interface ErrorBoundaryState {
 }
 
 // Error Boundary Component
-class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { hasError: false };
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
 
   static getDerivedStateFromError(_: Error): ErrorBoundaryState {
     return { hasError: true };
@@ -85,8 +89,16 @@ const Dashboard: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
 
-  // Scroll to Top State
-  const [showScrollTop, setShowScrollTop] = useState(false);
+  // Toasts & Dialogs
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    isDangerous: boolean;
+  }>({ isOpen: false, title: '', message: '', onConfirm: () => {}, isDangerous: false });
+
   const mainContentRef = useRef<HTMLDivElement>(null);
 
   // Translation Helper
@@ -145,17 +157,26 @@ const Dashboard: React.FC = () => {
     };
   }, [searchInputValue]);
 
-  const handleScroll = () => {
-    if (mainContentRef.current) {
-      const { scrollTop, scrollHeight } = mainContentRef.current;
-      setShowScrollTop(scrollTop > scrollHeight / 2);
-    }
+  const showToast = (type: ToastType, message: string) => {
+    const id = Date.now().toString();
+    setToasts(prev => [...prev, { id, type, message }]);
   };
 
-  const scrollToTop = () => {
-    if (mainContentRef.current) {
-      mainContentRef.current.scrollTo({ top: 0, behavior: 'smooth' });
-    }
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
+  const confirmAction = (title: string, message: string, onConfirm: () => void, isDangerous: boolean = false) => {
+    setConfirmState({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => {
+        onConfirm();
+        setConfirmState(prev => ({ ...prev, isOpen: false }));
+      },
+      isDangerous
+    });
   };
 
   const handleUpdateData = (newData: AppData) => {
@@ -169,6 +190,7 @@ const Dashboard: React.FC = () => {
   const handleUpdateCloudConfig = (newConfig: CloudConfig) => {
     setCloudConfig(newConfig);
     saveCloudConfig(newConfig);
+    showToast('success', t.admin.cloud.saveConfig + " Success");
   };
 
   const handleToggleLanguage = () => {
@@ -184,17 +206,17 @@ const Dashboard: React.FC = () => {
 
   const handleSyncUpload = async () => {
     if (!cloudConfig.enabled) {
-      alert("Please enable cloud sync first.");
+      showToast('error', "Please enable cloud sync first.");
       return;
     }
 
     if (cloudConfig.activeProvider === 'github' && !cloudConfig.githubToken) {
-      alert("Please configure GitHub Token.");
+      showToast('error', "Please configure GitHub Token.");
       return;
     }
 
     if (cloudConfig.activeProvider === 'notion' && (!cloudConfig.notionToken || !cloudConfig.notionPageId)) {
-      alert("Please configure Notion Token and Page ID.");
+      showToast('error', "Please configure Notion Token and Page ID.");
       return;
     }
 
@@ -207,7 +229,7 @@ const Dashboard: React.FC = () => {
     
     if (result.success) {
       setSyncStatus('synced');
-      alert(t.admin.cloud.uploadSuccess);
+      showToast('success', t.admin.cloud.uploadSuccess);
       
       // Update config with new Gist ID if created (GitHub only)
       if (cloudConfig.activeProvider === 'github' && result.newGistId && result.newGistId !== cloudConfig.gistId) {
@@ -221,54 +243,63 @@ const Dashboard: React.FC = () => {
       }, 5000);
     } else {
       setSyncStatus('error');
-      alert(result.message);
+      showToast('error', result.message);
     }
   };
 
   const handleSyncDownload = async () => {
      if (!cloudConfig.enabled) {
-       alert("Please enable cloud sync first.");
+       showToast('error', "Please enable cloud sync first.");
        return;
      }
 
      if (cloudConfig.activeProvider === 'github' && (!cloudConfig.githubToken || !cloudConfig.gistId)) {
-       alert("Please configure GitHub Token and Gist ID.");
+       showToast('error', "Please configure GitHub Token and Gist ID.");
        return;
      }
 
      if (cloudConfig.activeProvider === 'notion' && (!cloudConfig.notionToken || !cloudConfig.notionPageId)) {
-       alert("Please configure Notion Token and Page ID.");
+       showToast('error', "Please configure Notion Token and Page ID.");
        return;
      }
 
-     if (!window.confirm(t.admin.cloud.warning)) {
-       return;
-     }
+     confirmAction(
+       t.admin.cloud.download,
+       t.admin.cloud.warning,
+       async () => {
+         setIsSyncing(true);
+         setSyncStatus('syncing');
+         
+         const result = await downloadFromCloud(cloudConfig);
+         
+         setIsSyncing(false);
 
-     setIsSyncing(true);
-     setSyncStatus('syncing');
-     
-     const result = await downloadFromCloud(cloudConfig);
-     
-     setIsSyncing(false);
-
-     if (result.success && result.data) {
-       setData(result.data);
-       saveData(result.data);
-       setSyncStatus('synced');
-       alert(t.admin.cloud.downloadSuccess);
-       setIsAdminModalOpen(false); 
-     } else {
-       setSyncStatus('error');
-       alert(result.message);
-     }
+         if (result.success && result.data) {
+           setData(result.data);
+           saveData(result.data);
+           setSyncStatus('synced');
+           showToast('success', t.admin.cloud.downloadSuccess);
+           setIsAdminModalOpen(false); 
+         } else {
+           setSyncStatus('error');
+           showToast('error', result.message);
+         }
+       },
+       true
+     );
   };
 
   const handleDeleteLink = (id: string) => {
-    if (window.confirm(t.app.deleteLinkConfirm)) {
-      const updatedLinks = data.links.filter(l => l.id !== id);
-      handleUpdateData({ ...data, links: updatedLinks });
-    }
+    confirmAction(
+      t.admin.link.delete,
+      t.app.deleteLinkConfirm,
+      () => {
+        const updatedLinks = data.links.filter(l => l.id !== id);
+        handleUpdateData({ ...data, links: updatedLinks });
+        showToast('success', "Link deleted.");
+      },
+      true
+    );
   };
 
   const handleEditLink = (item: LinkItem) => {
@@ -529,7 +560,6 @@ const Dashboard: React.FC = () => {
 
           <div 
             ref={mainContentRef}
-            onScroll={handleScroll}
             className="flex-1 overflow-y-auto p-4 lg:p-8 space-y-12 pb-24 scroll-smooth"
           >
             
@@ -685,6 +715,19 @@ const Dashboard: React.FC = () => {
             editingItem={editingItem}
             initialValues={initialLinkData}
             t={t}
+            showToast={showToast}
+            confirmAction={confirmAction}
+          />
+          
+          <ToastContainer toasts={toasts} removeToast={removeToast} />
+          
+          <ConfirmDialog 
+            isOpen={confirmState.isOpen}
+            title={confirmState.title}
+            message={confirmState.message}
+            onConfirm={confirmState.onConfirm}
+            onCancel={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
+            isDangerous={confirmState.isDangerous}
           />
 
         </main>

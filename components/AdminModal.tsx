@@ -1,9 +1,7 @@
-
-
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, Plus, Save, Upload, AlertCircle, Edit2, Trash2, CornerDownRight, Folder, ListPlus, FileText, Images, ArrowRight, Check, Undo2, Tag, Download, Book, Cloud, ExternalLink, RefreshCw, Settings, Grid, ChevronDown, ChevronUp } from 'lucide-react';
 import { AppData, Category, LinkItem, CloudConfig, SubCategory } from '../types';
+import { ToastType } from './Toast';
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -18,6 +16,8 @@ interface AdminModalProps {
   editingItem: LinkItem | null;
   initialValues?: { categoryId: string; subCategoryId: string } | null;
   t: any;
+  showToast: (type: ToastType, message: string) => void;
+  confirmAction: (title: string, message: string, onConfirm: () => void, isDangerous?: boolean) => void;
 }
 
 type Tab = 'link' | 'category' | 'cloud' | 'data';
@@ -30,7 +30,7 @@ interface BulkIconUpload {
 }
 
 const AdminModal: React.FC<AdminModalProps> = ({ 
-  isOpen, onClose, data, onUpdateData, cloudConfig, onUpdateCloudConfig, onSyncUpload, onSyncDownload, isSyncing, editingItem, initialValues, t
+  isOpen, onClose, data, onUpdateData, cloudConfig, onUpdateCloudConfig, onSyncUpload, onSyncDownload, isSyncing, editingItem, initialValues, t, showToast, confirmAction
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('link');
   const [linkMode, setLinkMode] = useState<LinkMode>('single');
@@ -128,6 +128,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    showToast('success', "Export successful!");
   };
 
   const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -213,18 +214,23 @@ const AdminModal: React.FC<AdminModalProps> = ({
         });
 
         if (newCategories.length > 0) {
-            if (window.confirm(t.admin.data.confirm)) {
-              onUpdateData({ categories: newCategories, links: newLinks });
-              alert(t.admin.data.success);
-              onClose();
-            }
+            confirmAction(
+              t.admin.data.importTitle,
+              t.admin.data.confirm,
+              () => {
+                 onUpdateData({ categories: newCategories, links: newLinks });
+                 showToast('success', t.admin.data.success);
+                 onClose();
+              },
+              true
+            );
         } else {
-            alert("No folders found in bookmark file.");
+            showToast('info', "No folders found in bookmark file.");
         }
 
       } catch (error) {
         console.error("Import Error", error);
-        alert(t.admin.data.error);
+        showToast('error', t.admin.data.error);
       }
     };
     reader.readAsText(file);
@@ -342,7 +348,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
     onUpdateData({ ...data, categories: updatedCategories });
     setCatBulkIcons([]);
-    alert(t.admin.category.bulkIcons.apply + " Success!");
+    showToast('success', t.admin.category.bulkIcons.apply + " Success!");
   };
 
   const handleAssignIconToCategory = (catId: string) => {
@@ -400,7 +406,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
     onUpdateData({ ...data, links: updatedLinks });
     setLinkBulkIcons([]);
-    alert(t.admin.link.bulkIcons.apply + " Success!");
+    showToast('success', t.admin.link.bulkIcons.apply + " Success!");
   };
 
   const handleAssignIconToLink = (linkId: string) => {
@@ -432,7 +438,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
     if (isBulk) {
       if (isDuplicate(bulkTags)) {
-        alert(t.admin.link.validation.tagExists || "Tag already exists!");
+        showToast('error', t.admin.link.validation.tagExists || "Tag already exists!");
         return;
       }
       setBulkTags([...bulkTags, cleanTag]);
@@ -440,7 +446,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
     } else {
       const currentTags = linkForm.tags || [];
       if (isDuplicate(currentTags)) {
-        alert(t.admin.link.validation.tagExists || "Tag already exists!");
+        showToast('error', t.admin.link.validation.tagExists || "Tag already exists!");
         return;
       }
       setLinkForm({ ...linkForm, tags: [...currentTags, cleanTag] });
@@ -509,15 +515,25 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
     onUpdateData({ ...data, links: updatedLinks });
     onClose();
+    showToast('success', editingItem ? 'Link updated' : 'Link created');
   };
 
-  const handleDeleteLink = () => {
+  const handleDeleteLink = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
     if (!editingItem) return;
-    if (window.confirm(t.app.deleteLinkConfirm)) {
-      const updatedLinks = data.links.filter(l => l.id !== editingItem.id);
-      onUpdateData({ ...data, links: updatedLinks });
-      onClose();
-    }
+    
+    confirmAction(
+      t.admin.link.delete,
+      t.app.deleteLinkConfirm,
+      () => {
+        const updatedLinks = data.links.filter(l => l.id !== editingItem.id);
+        onUpdateData({ ...data, links: updatedLinks });
+        onClose();
+        showToast('success', 'Link deleted');
+      },
+      true
+    );
   };
 
   const handleBulkImport = () => {
@@ -529,7 +545,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
     const lines = bulkUrls.split('\n').map(line => line.trim()).filter(line => line.length > 0);
     
     if (lines.length === 0) {
-      alert(t.admin.link.bulk.error);
+      showToast('error', t.admin.link.bulk.error);
       return;
     }
 
@@ -581,14 +597,14 @@ const AdminModal: React.FC<AdminModalProps> = ({
     setBulkUrls(''); // Clear input on success
     setBulkTags([]); // Clear tags
     setBulkDefaultTitle('');
-    alert(t.admin.link.bulk.success.replace('{count}', newLinks.length));
+    showToast('success', t.admin.link.bulk.success.replace('{count}', newLinks.length));
   };
 
   const handleUndo = () => {
     if (lastBulkActionData) {
       onUpdateData(lastBulkActionData);
       setLastBulkActionData(null);
-      alert(t.admin.undoSuccess);
+      showToast('info', t.admin.undoSuccess);
     }
   };
 
@@ -606,11 +622,18 @@ const AdminModal: React.FC<AdminModalProps> = ({
   const handleDeleteCategory = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     e.preventDefault();
-    if (window.confirm(t.admin.category.deleteConfirm)) {
-      const updatedCategories = data.categories.filter(c => c.id !== id);
-      const updatedLinks = data.links.filter(l => l.categoryId !== id);
-      onUpdateData({ categories: updatedCategories, links: updatedLinks });
-    }
+    
+    confirmAction(
+      t.admin.category.edit,
+      t.admin.category.deleteConfirm,
+      () => {
+         const updatedCategories = data.categories.filter(c => c.id !== id);
+         const updatedLinks = data.links.filter(l => l.categoryId !== id);
+         onUpdateData({ categories: updatedCategories, links: updatedLinks });
+         showToast('success', 'Category deleted');
+      },
+      true
+    );
   };
 
   const handleSaveCategory = () => {
@@ -636,6 +659,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
     
     onUpdateData({ ...data, categories: updatedCategories });
     setCatForm({ id: null, name: '', icon: '' });
+    showToast('success', catForm.id ? 'Category updated' : 'Category created');
   };
 
   // --- SubCategory Logic ---
@@ -652,26 +676,32 @@ const AdminModal: React.FC<AdminModalProps> = ({
   const handleDeleteSubCategory = (e: React.MouseEvent, parentId: string, subId: string) => {
     e.stopPropagation();
     e.preventDefault();
-    if (window.confirm(t.admin.category.deleteSubConfirm)) {
-      const updatedCategories = data.categories.map(c => {
-        if (c.id === parentId) {
-          return {
-            ...c,
-            subCategories: c.subCategories.filter(sc => sc.id !== subId)
-          };
-        }
-        return c;
-      });
+    confirmAction(
+      t.admin.category.editSub,
+      t.admin.category.deleteSubConfirm,
+      () => {
+         const updatedCategories = data.categories.map(c => {
+          if (c.id === parentId) {
+            return {
+              ...c,
+              subCategories: c.subCategories.filter(sc => sc.id !== subId)
+            };
+          }
+          return c;
+        });
 
-      const updatedLinks = data.links.map(l => {
-        if (l.categoryId === parentId && l.subCategoryId === subId) {
-          return { ...l, categoryId: '', subCategoryId: '' };
-        }
-        return l;
-      });
+        const updatedLinks = data.links.map(l => {
+          if (l.categoryId === parentId && l.subCategoryId === subId) {
+            return { ...l, categoryId: '', subCategoryId: '' };
+          }
+          return l;
+        });
 
-      onUpdateData({ categories: updatedCategories, links: updatedLinks });
-    }
+        onUpdateData({ categories: updatedCategories, links: updatedLinks });
+        showToast('success', 'Sub-category deleted');
+      },
+      true
+    );
   };
 
   const handleSaveSubCategory = () => {
@@ -697,12 +727,12 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
     onUpdateData({ ...data, categories: updatedCategories });
     setSubCatForm({ parentId: '', id: null, name: '' });
+    showToast('success', subCatForm.id ? 'Sub-category updated' : 'Sub-category created');
   };
 
 
   const handleSaveCloudConfig = () => {
     onUpdateCloudConfig(localCloudConfig);
-    alert(t.admin.cloud.saveConfig + " Success");
   };
 
   if (!isOpen) return null;
