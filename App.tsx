@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, ReactNode, ErrorInfo } from 'react';
+import React, { useState, useEffect, useRef, ReactNode, ErrorInfo, Component } from 'react';
 import { Menu, Search, Settings, Edit, Lock, RefreshCw, CheckCircle2, AlertCircle, Languages, AlertTriangle, Loader2, Moon, Sun, Laptop, GripVertical, Plus } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { AppData, LinkItem, CloudConfig, Language, Theme } from './types';
@@ -20,7 +20,7 @@ interface ErrorBoundaryState {
 }
 
 // Error Boundary Component
-class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = { hasError: false };
@@ -190,7 +190,7 @@ const Dashboard: React.FC = () => {
   const handleUpdateCloudConfig = (newConfig: CloudConfig) => {
     setCloudConfig(newConfig);
     saveCloudConfig(newConfig);
-    showToast('success', t.admin.cloud.saveConfig + " Success");
+    showToast('success', t.app.configSaved);
   };
 
   const handleToggleLanguage = () => {
@@ -206,17 +206,17 @@ const Dashboard: React.FC = () => {
 
   const handleSyncUpload = async () => {
     if (!cloudConfig.enabled) {
-      showToast('error', "Please enable cloud sync first.");
+      showToast('error', t.app.enableSyncFirst);
       return;
     }
 
     if (cloudConfig.activeProvider === 'github' && !cloudConfig.githubToken) {
-      showToast('error', "Please configure GitHub Token.");
+      showToast('error', t.app.missingGithubToken);
       return;
     }
 
     if (cloudConfig.activeProvider === 'notion' && (!cloudConfig.notionToken || !cloudConfig.notionPageId)) {
-      showToast('error', "Please configure Notion Token and Page ID.");
+      showToast('error', t.app.missingNotionConfig);
       return;
     }
 
@@ -249,17 +249,17 @@ const Dashboard: React.FC = () => {
 
   const handleSyncDownload = async () => {
      if (!cloudConfig.enabled) {
-       showToast('error', "Please enable cloud sync first.");
+       showToast('error', t.app.enableSyncFirst);
        return;
      }
 
      if (cloudConfig.activeProvider === 'github' && (!cloudConfig.githubToken || !cloudConfig.gistId)) {
-       showToast('error', "Please configure GitHub Token and Gist ID.");
+       showToast('error', t.app.missingGithubConfig);
        return;
      }
 
      if (cloudConfig.activeProvider === 'notion' && (!cloudConfig.notionToken || !cloudConfig.notionPageId)) {
-       showToast('error', "Please configure Notion Token and Page ID.");
+       showToast('error', t.app.missingNotionConfig);
        return;
      }
 
@@ -296,7 +296,7 @@ const Dashboard: React.FC = () => {
       () => {
         const updatedLinks = data.links.filter(l => l.id !== id);
         handleUpdateData({ ...data, links: updatedLinks });
-        showToast('success', "Link deleted.");
+        showToast('success', t.app.linkDeleted);
       },
       true
     );

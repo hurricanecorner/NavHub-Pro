@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Plus, Save, Upload, AlertCircle, Edit2, Trash2, CornerDownRight, Folder, ListPlus, FileText, Images, ArrowRight, Check, Undo2, Tag, Download, Book, Cloud, ExternalLink, RefreshCw, Settings, Grid, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Plus, Save, Upload, Edit2, Trash2, CornerDownRight, Folder, ListPlus, Images, ArrowRight, Undo2, Tag, Download, Book, Cloud, ExternalLink, Settings, ChevronDown, ChevronUp, Wand2, Loader2 } from 'lucide-react';
 import { AppData, Category, LinkItem, CloudConfig, SubCategory } from '../types';
 import { ToastType } from './Toast';
 
@@ -40,6 +41,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
     title: '', url: '', description: '', categoryId: '', subCategoryId: '', iconUrl: '', tags: []
   });
   const [linkErrors, setLinkErrors] = useState<{ title?: string; url?: string; categoryId?: string }>({});
+  const [isFetchingMeta, setIsFetchingMeta] = useState(false);
   
   // Tag Inputs
   const [tagInput, setTagInput] = useState('');
@@ -128,7 +130,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showToast('success', "Export successful!");
+    showToast('success', t.app.success);
   };
 
   const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -244,20 +246,20 @@ const AdminModal: React.FC<AdminModalProps> = ({
         link.tags.forEach(t => tags.add(t));
       }
     });
-    return Array.from(tags).sort();
+    return Array.from(tags).sort((a, b) => a.localeCompare(b));
   }, [data.links]);
 
   // Filter suggestions based on input and already selected tags
   const suggestedTags = useMemo(() => {
-    const currentTags = new Set(linkForm.tags || []);
-    const availableTags = allExistingTags.filter(t => !currentTags.has(t));
+    const currentTags = new Set((linkForm.tags || []).map(t => t.toLowerCase()));
+    const availableTags = allExistingTags.filter(t => !currentTags.has(t.toLowerCase()));
 
     if (!tagInput.trim()) {
       return availableTags.slice(0, 8); // Show top 8 if empty
     }
     
     return availableTags
-      .filter(t => t.toLowerCase().includes(tagInput.toLowerCase()))
+      .filter(t => t.toLowerCase().includes(tagInput.toLowerCase().trim()))
       .slice(0, 8);
   }, [allExistingTags, tagInput, linkForm.tags]);
 
@@ -295,6 +297,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
       setBulkTags([]);
       setBulkTagInput('');
       setIsExistingCatsOpen(true);
+      setIsFetchingMeta(false);
     }
   }, [isOpen, editingItem, initialValues, data, cloudConfig]);
 
@@ -307,6 +310,57 @@ const AdminModal: React.FC<AdminModalProps> = ({
         onSuccess(reader.result as string);
       };
       reader.readAsDataURL(file);
+    }
+  };
+
+  // --- Automatic Metadata Fetching ---
+  const handleFetchMetadata = async () => {
+    const url = linkForm.url?.trim();
+    if (!url) return;
+
+    // Ensure protocol
+    let targetUrl = url;
+    if (!/^https?:\/\//i.test(url)) {
+      targetUrl = `https://${url}`;
+      setLinkForm(prev => ({ ...prev, url: targetUrl }));
+    }
+
+    setIsFetchingMeta(true);
+
+    try {
+      // Use Microlink API to fetch metadata (free tier)
+      const response = await fetch(`https://api.microlink.io?url=${encodeURIComponent(targetUrl)}`);
+      const data = await response.json();
+
+      if (data.status === 'success') {
+        const { title, description, logo, image } = data.data;
+        
+        setLinkForm(prev => ({
+          ...prev,
+          title: title || prev.title,
+          description: description || prev.description,
+          iconUrl: logo?.url || image?.url || prev.iconUrl
+        }));
+        showToast('success', t.admin.link.meta.success);
+      } else {
+         // Fallback if API fails: Try to infer from domain
+         throw new Error("API failed");
+      }
+    } catch (e) {
+      // Fallback: Infer title from Domain
+      try {
+         const urlObj = new URL(targetUrl);
+         const hostname = urlObj.hostname.replace(/^www\./, '');
+         const title = hostname.split('.')[0];
+         if (title && !linkForm.title) {
+             setLinkForm(prev => ({ 
+                 ...prev, 
+                 title: title.charAt(0).toUpperCase() + title.slice(1) 
+             }));
+         }
+      } catch (err) {}
+    } finally {
+      setIsFetchingMeta(false);
     }
   };
 
@@ -348,7 +402,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
     onUpdateData({ ...data, categories: updatedCategories });
     setCatBulkIcons([]);
-    showToast('success', t.admin.category.bulkIcons.apply + " Success!");
+    showToast('success', t.admin.category.bulkIcons.success);
   };
 
   const handleAssignIconToCategory = (catId: string) => {
@@ -406,7 +460,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
     onUpdateData({ ...data, links: updatedLinks });
     setLinkBulkIcons([]);
-    showToast('success', t.admin.link.bulkIcons.apply + " Success!");
+    showToast('success', t.admin.link.bulkIcons.success);
   };
 
   const handleAssignIconToLink = (linkId: string) => {
@@ -515,7 +569,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
     onUpdateData({ ...data, links: updatedLinks });
     onClose();
-    showToast('success', editingItem ? 'Link updated' : 'Link created');
+    showToast('success', editingItem ? t.admin.link.updated : t.admin.link.created);
   };
 
   const handleDeleteLink = (e: React.MouseEvent) => {
@@ -530,7 +584,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
         const updatedLinks = data.links.filter(l => l.id !== editingItem.id);
         onUpdateData({ ...data, links: updatedLinks });
         onClose();
-        showToast('success', 'Link deleted');
+        showToast('success', t.app.linkDeleted);
       },
       true
     );
@@ -630,7 +684,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
          const updatedCategories = data.categories.filter(c => c.id !== id);
          const updatedLinks = data.links.filter(l => l.categoryId !== id);
          onUpdateData({ categories: updatedCategories, links: updatedLinks });
-         showToast('success', 'Category deleted');
+         showToast('success', t.admin.category.deleted);
       },
       true
     );
@@ -659,7 +713,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
     
     onUpdateData({ ...data, categories: updatedCategories });
     setCatForm({ id: null, name: '', icon: '' });
-    showToast('success', catForm.id ? 'Category updated' : 'Category created');
+    showToast('success', catForm.id ? t.admin.category.updated : t.admin.category.created);
   };
 
   // --- SubCategory Logic ---
@@ -698,7 +752,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
         });
 
         onUpdateData({ categories: updatedCategories, links: updatedLinks });
-        showToast('success', 'Sub-category deleted');
+        showToast('success', t.admin.category.subDeleted);
       },
       true
     );
@@ -727,7 +781,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
     onUpdateData({ ...data, categories: updatedCategories });
     setSubCatForm({ parentId: '', id: null, name: '' });
-    showToast('success', subCatForm.id ? 'Sub-category updated' : 'Sub-category created');
+    showToast('success', subCatForm.id ? t.admin.category.subUpdated : t.admin.category.subCreated);
   };
 
 
@@ -878,16 +932,28 @@ const AdminModal: React.FC<AdminModalProps> = ({
                         </div>
                         <div className="space-y-1.5">
                           <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.admin.link.url} <span className="text-red-500">*</span></label>
-                          <input 
-                            type="text" 
-                            value={linkForm.url} 
-                            onChange={(e) => {
-                              setLinkForm({ ...linkForm, url: e.target.value });
-                              setLinkErrors({ ...linkErrors, url: '' });
-                            }}
-                            placeholder="https://"
-                            className={`w-full px-3 py-2 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:bg-slate-800 dark:border-slate-700 dark:text-white ${linkErrors.url ? 'border-red-500 bg-red-50 dark:bg-red-900/20' : 'border-slate-200'}`}
-                          />
+                          <div className="relative">
+                            <input 
+                              type="text" 
+                              value={linkForm.url} 
+                              onChange={(e) => {
+                                setLinkForm({ ...linkForm, url: e.target.value });
+                                setLinkErrors({ ...linkErrors, url: '' });
+                              }}
+                              onBlur={handleFetchMetadata}
+                              placeholder="https://"
+                              className={`w-full pl-3 pr-10 py-2 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:bg-slate-800 dark:border-slate-700 dark:text-white ${linkErrors.url ? 'border-red-500 bg-red-50 dark:bg-red-900/20' : 'border-slate-200'}`}
+                            />
+                            <button 
+                              type="button"
+                              onClick={handleFetchMetadata}
+                              disabled={isFetchingMeta || !linkForm.url}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-indigo-600 rounded-md transition-colors disabled:opacity-50"
+                              title={t.admin.link.meta.fetch}
+                            >
+                              {isFetchingMeta ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                            </button>
+                          </div>
                           {linkErrors.url && <p className="text-xs text-red-500">{linkErrors.url}</p>}
                         </div>
                      </div>
@@ -943,7 +1009,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                              linkForm.tags.map(tag => (
                                <span key={tag} className="inline-flex items-center gap-1 px-2 py-1 rounded bg-indigo-100 text-indigo-700 text-xs font-medium dark:bg-indigo-900/50 dark:text-indigo-300">
                                  {tag}
-                                 <button onClick={() => handleRemoveTag(tag)} className="hover:text-indigo-900 dark:hover:text-indigo-100"><X className="w-3 h-3" /></button>
+                                 <button type="button" onClick={() => handleRemoveTag(tag)} className="hover:text-indigo-900 dark:hover:text-indigo-100"><X className="w-3 h-3" /></button>
                                </span>
                              ))
                            ) : (
@@ -960,6 +1026,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                onKeyDown={e => {
                                  if (e.key === 'Enter') {
                                    e.preventDefault();
+                                   e.stopPropagation(); // Stop propagation to prevent form issues
                                    handleAddTag(tagInput);
                                  }
                                }}
@@ -968,6 +1035,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                              />
                            </div>
                            <button 
+                             type="button"
                              onClick={() => handleAddTag(tagInput)}
                              className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
                            >
@@ -981,6 +1049,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                               {suggestedTags.map(tag => (
                                 <button 
                                   key={tag}
+                                  type="button"
                                   onClick={() => handleAddTag(tag)}
                                   className="text-xs px-2 py-0.5 bg-slate-100 text-slate-500 rounded hover:bg-indigo-50 hover:text-indigo-600 transition-colors dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-indigo-900/30"
                                 >
@@ -1117,6 +1186,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                              onKeyDown={e => {
                                if (e.key === 'Enter') {
                                  e.preventDefault();
+                                 e.stopPropagation();
                                  handleAddTag(bulkTagInput, true);
                                }
                              }}

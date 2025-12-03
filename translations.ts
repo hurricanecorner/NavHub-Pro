@@ -26,6 +26,16 @@ export const TRANSLATIONS = {
       deleteLinkConfirm: "Are you sure you want to delete this link?",
       noSubCategories: "No sub-categories defined.",
       visit: "Visit",
+      // Toast Messages
+      success: "Success",
+      saved: "Saved successfully",
+      deleted: "Deleted successfully",
+      configSaved: "Configuration saved successfully",
+      enableSyncFirst: "Please enable cloud sync first.",
+      missingGithubToken: "Please configure GitHub Token.",
+      missingNotionConfig: "Please configure Notion Token and Page ID.",
+      missingGithubConfig: "Please configure GitHub Token and Gist ID.",
+      linkDeleted: "Link deleted.",
     },
     admin: {
       title: "Admin Dashboard",
@@ -71,6 +81,12 @@ export const TRANSLATIONS = {
           categoryRequired: "Category is required",
           tagExists: "Tag already exists in this list!"
         },
+        meta: {
+          fetch: "Auto-fill details",
+          fetching: "Fetching metadata...",
+          success: "Metadata fetched!",
+          error: "Could not fetch metadata."
+        },
         modes: {
           single: "Single Entry",
           bulk: "Bulk Import",
@@ -93,8 +109,11 @@ export const TRANSLATIONS = {
           unassigned: "Unassigned Icons",
           assigned: "Target Links",
           apply: "Apply Icons",
-          clear: "Clear All"
-        }
+          clear: "Clear All",
+          success: "Icons applied successfully!"
+        },
+        created: "Link created successfully.",
+        updated: "Link updated successfully.",
       },
       category: {
         new: "New Main Category",
@@ -112,6 +131,12 @@ export const TRANSLATIONS = {
         subName: "Sub-Category Name",
         deleteConfirm: "Delete category? All links inside will be hidden/deleted.",
         deleteSubConfirm: "Delete sub-category? Links associated with it will be hidden.",
+        created: "Category created successfully.",
+        updated: "Category updated successfully.",
+        deleted: "Category deleted.",
+        subCreated: "Sub-category created successfully.",
+        subUpdated: "Sub-category updated successfully.",
+        subDeleted: "Sub-category deleted.",
         bulkIcons: {
           title: "Bulk Icon Upload",
           drop: "Drop icons here",
@@ -119,7 +144,8 @@ export const TRANSLATIONS = {
           unassigned: "Unassigned Icons",
           assigned: "Target Categories",
           apply: "Apply Changes",
-          clear: "Clear All"
+          clear: "Clear All",
+          success: "Icons applied successfully!"
         }
       },
       cloud: {
@@ -179,6 +205,16 @@ export const TRANSLATIONS = {
       deleteLinkConfirm: "确定要删除此链接吗？",
       noSubCategories: "暂无子分类。",
       visit: "访问",
+      // Toast Messages
+      success: "操作成功",
+      saved: "保存成功",
+      deleted: "删除成功",
+      configSaved: "配置已保存",
+      enableSyncFirst: "请先启用云同步功能。",
+      missingGithubToken: "请配置 GitHub Token。",
+      missingNotionConfig: "请配置 Notion Token 和 Page ID。",
+      missingGithubConfig: "请配置 GitHub Token 和 Gist ID。",
+      linkDeleted: "链接已删除。",
     },
     admin: {
       title: "后台管理",
@@ -224,6 +260,12 @@ export const TRANSLATIONS = {
           categoryRequired: "请选择分类",
           tagExists: "该标签已存在！"
         },
+        meta: {
+          fetch: "自动获取详情",
+          fetching: "正在获取元数据...",
+          success: "元数据获取成功！",
+          error: "无法获取元数据"
+        },
         modes: {
           single: "单条录入",
           bulk: "批量导入",
@@ -246,8 +288,11 @@ export const TRANSLATIONS = {
           unassigned: "未分配图标",
           assigned: "目标链接",
           apply: "应用图标",
-          clear: "清空所有"
-        }
+          clear: "清空所有",
+          success: "图标应用成功！"
+        },
+        created: "链接创建成功。",
+        updated: "链接更新成功。",
       },
       category: {
         new: "新建主分类",
@@ -265,6 +310,12 @@ export const TRANSLATIONS = {
         subName: "子分类名称",
         deleteConfirm: "确定删除该分类吗？其下的所有链接也将被删除。",
         deleteSubConfirm: "确定删除该子分类吗？相关联的链接将被隐藏。",
+        created: "分类创建成功。",
+        updated: "分类更新成功。",
+        deleted: "分类已删除。",
+        subCreated: "子分类创建成功。",
+        subUpdated: "子分类更新成功。",
+        subDeleted: "子分类已删除。",
         bulkIcons: {
           title: "批量上传图标",
           drop: "拖拽上传图标",
@@ -272,7 +323,8 @@ export const TRANSLATIONS = {
           unassigned: "未分配图标",
           assigned: "目标分类",
           apply: "应用图标",
-          clear: "清空所有"
+          clear: "清空所有",
+          success: "图标应用成功！"
         }
       },
       cloud: {
