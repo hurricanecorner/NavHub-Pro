@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect, useRef, ReactNode, ErrorInfo, Component } from 'react';
-import { Menu, Search, Settings, Edit, Lock, RefreshCw, CheckCircle2, AlertCircle, Languages, AlertTriangle, Loader2, Moon, Sun, Laptop, GripVertical, Plus } from 'lucide-react';
+import React, { useState, useEffect, useRef, ReactNode, ErrorInfo } from 'react';
+import { Menu, Search, Settings, Edit, Lock, RefreshCw, CheckCircle2, AlertCircle, Languages, AlertTriangle, Loader2, Moon, Sun, Laptop, GripVertical, Plus, Hash } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { AppData, LinkItem, CloudConfig, Language, Theme } from './types';
 import { loadData, saveData, loadCloudConfig, saveCloudConfig, uploadToCloud, downloadFromCloud, loadLanguage, saveLanguage, loadTheme, saveTheme } from './services/storageUtils';
@@ -21,11 +21,8 @@ interface ErrorBoundaryState {
 }
 
 // Error Boundary Component
-class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-    this.state = { hasError: false };
-  }
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { hasError: false };
 
   static getDerivedStateFromError(_: Error): ErrorBoundaryState {
     return { hasError: true };
@@ -438,7 +435,7 @@ const Dashboard: React.FC = () => {
         <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
           
           <header className="h-16 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-4 lg:px-8 z-30 sticky top-0 dark:bg-slate-800/80 dark:border-slate-700 transition-colors">
-            {/* Header Content Omitted for Brevity (Same as before) */}
+            {/* Header Content */}
             <div className="flex items-center gap-4 flex-1">
               <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-lg dark:text-slate-400 dark:hover:bg-slate-700"><Menu className="w-5 h-5" /></button>
               <div className="relative max-w-md w-full hidden sm:block"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="text" placeholder={t.app.searchPlaceholder} value={searchInputValue} onChange={(e) => setSearchInputValue(e.target.value)} className="w-full pl-10 pr-10 py-2 bg-slate-100/50 border-none rounded-full text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:bg-slate-700/50 dark:text-white dark:placeholder-slate-400" />{isSearching && <div className="absolute right-3 top-1/2 -translate-y-1/2"><Loader2 className="w-4 h-4 text-indigo-500 animate-spin" /></div>}</div>
@@ -449,7 +446,6 @@ const Dashboard: React.FC = () => {
                   {syncStatus === 'syncing' && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}{syncStatus === 'synced' && <CheckCircle2 className="w-3.5 h-3.5" />}{syncStatus === 'error' && <AlertCircle className="w-3.5 h-3.5" />}<span className="capitalize">{t.app.sync[syncStatus]}</span>
                 </div>
               )}
-              {/* Theme Toggle Omitted */}
               <div className="relative group z-50">
                  <button className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors dark:text-slate-500 dark:hover:text-slate-300 dark:hover:bg-slate-700">{theme === 'light' && <Sun className="w-5 h-5" />}{theme === 'dark' && <Moon className="w-5 h-5" />}{theme === 'system' && <Laptop className="w-5 h-5" />}</button>
                  <div className="absolute right-0 top-full pt-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 transform origin-top-right w-36">
@@ -471,7 +467,7 @@ const Dashboard: React.FC = () => {
             className="flex-1 overflow-y-auto p-4 lg:p-8 space-y-12 pb-24 scroll-smooth"
           >
             {searchInputValue ? (
-              // Search Results (Omitted)
+              // Search Results
               <div>
                  <div className="flex items-center gap-3 mb-6"><h2 className="text-xl font-bold text-slate-800 dark:text-white">{t.app.searchResults}</h2>{isSearching && <Loader2 className="w-5 h-5 text-indigo-500 animate-spin" />}</div>
                  {filteredLinks.length === 0 ? <p className="text-slate-500 dark:text-slate-400">{isSearching ? t.app.sync.syncing : t.app.noResults}</p> : <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">{filteredLinks.map(link => <LinkCard key={link.id} item={link} isEditMode={isEditMode} onEdit={handleEditLink} onDelete={handleDeleteLink} t={t} />)}</div>}
@@ -490,28 +486,37 @@ const Dashboard: React.FC = () => {
 
                   {/* General Links Droppable Area */}
                   {(generalLinks.length > 0 || isEditMode) && (
-                     <Droppable droppableId={`links__${category.id}__GENERAL`} type="LINK" direction="horizontal">
-                        {(provided) => (
-                          <div ref={provided.innerRef} {...provided.droppableProps} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
-                             {generalLinks.map((link, linkIndex) => (
-                               <Draggable key={link.id} draggableId={link.id} index={linkIndex} isDragDisabled={!isEditMode}>
-                                 {(provided, snapshot) => (
-                                   <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} style={{ ...provided.draggableProps.style }} className={snapshot.isDragging ? "opacity-90 scale-105 z-50" : ""}>
-                                     <LinkCard item={link} isEditMode={isEditMode} onEdit={handleEditLink} onDelete={handleDeleteLink} t={t} />
-                                   </div>
-                                 )}
-                               </Draggable>
-                             ))}
-                             {provided.placeholder}
-                             {/* Add Link Shortcut for General Category */}
-                             {isEditMode && (
-                                <button onClick={() => handleAddLinkShortcut(category.id, '')} className="flex flex-col items-center justify-center gap-2 min-h-[120px] bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl hover:border-indigo-400 hover:bg-indigo-50 transition-all group dark:bg-slate-800/30 dark:border-slate-700 dark:hover:border-indigo-500/50">
-                                  <div className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center group-hover:scale-110 transition-transform dark:bg-slate-800 dark:border-slate-600"><Plus className="w-5 h-5 text-slate-400 group-hover:text-indigo-500 dark:text-slate-500" /></div><span className="text-xs font-medium text-slate-400 group-hover:text-indigo-600 dark:text-slate-500">{t.app.addLink}</span>
-                                </button>
-                             )}
-                          </div>
-                        )}
-                     </Droppable>
+                     <div className="pl-0 lg:pl-4 bg-white/50 rounded-xl p-2 border border-transparent hover:border-slate-100 transition-colors mb-8 dark:bg-slate-800/30 dark:hover:border-slate-700">
+                       {/* Optional Label for General links in Edit Mode for clarity */}
+                       {isEditMode && (
+                         <div className="flex items-center gap-2 mb-2 px-1 opacity-60">
+                            <Hash className="w-4 h-4 text-slate-400" />
+                            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider dark:text-slate-400">General</span>
+                         </div>
+                       )}
+                       <Droppable droppableId={`links__${category.id}__GENERAL`} type="LINK" direction="horizontal">
+                          {(provided) => (
+                            <div ref={provided.innerRef} {...provided.droppableProps} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                               {generalLinks.map((link, linkIndex) => (
+                                 <Draggable key={link.id} draggableId={link.id} index={linkIndex} isDragDisabled={!isEditMode}>
+                                   {(provided, snapshot) => (
+                                     <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} style={{ ...provided.draggableProps.style }} className={snapshot.isDragging ? "opacity-90 scale-105 z-50" : ""}>
+                                       <LinkCard item={link} isEditMode={isEditMode} onEdit={handleEditLink} onDelete={handleDeleteLink} t={t} />
+                                     </div>
+                                   )}
+                                 </Draggable>
+                               ))}
+                               {provided.placeholder}
+                               {/* Add Link Shortcut for General Category */}
+                               {isEditMode && (
+                                  <button onClick={() => handleAddLinkShortcut(category.id, '')} className="flex flex-col items-center justify-center gap-2 min-h-[120px] bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl hover:border-indigo-400 hover:bg-indigo-50 transition-all group dark:bg-slate-800/30 dark:border-slate-700 dark:hover:border-indigo-500/50">
+                                    <div className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center group-hover:scale-110 transition-transform dark:bg-slate-800 dark:border-slate-600"><Plus className="w-5 h-5 text-slate-400 group-hover:text-indigo-500 dark:text-slate-500" /></div><span className="text-xs font-medium text-slate-400 group-hover:text-indigo-600 dark:text-slate-500">{t.app.addLink}</span>
+                                  </button>
+                               )}
+                            </div>
+                          )}
+                       </Droppable>
+                     </div>
                   )}
 
                   <Droppable droppableId={`cat-${category.id}`} type="SUBCAT">
