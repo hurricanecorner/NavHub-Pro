@@ -1,5 +1,6 @@
 
-import React, { useState, useEffect, useRef, ReactNode, ErrorInfo } from 'react';
+
+import React, { Component, useState, useEffect, useRef, ReactNode, ErrorInfo } from 'react';
 import { Menu, Search, Settings, Edit, Lock, RefreshCw, CheckCircle2, AlertCircle, Languages, AlertTriangle, Loader2, Moon, Sun, Laptop, GripVertical, Plus, Hash } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { AppData, LinkItem, CloudConfig, Language, Theme } from './types';
@@ -21,7 +22,7 @@ interface ErrorBoundaryState {
 }
 
 // Error Boundary Component
-class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   state: ErrorBoundaryState = { hasError: false };
 
   static getDerivedStateFromError(_: Error): ErrorBoundaryState {

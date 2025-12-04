@@ -86,6 +86,8 @@ export const TRANSLATIONS = {
         create: "Create Link",
         update: "Update Link",
         delete: "Delete Link",
+        duplicate: "Duplicate",
+        duplicated: "Link duplicated successfully.",
         validation: {
           titleRequired: "Title is required",
           urlRequired: "URL is required",
@@ -285,6 +287,8 @@ export const TRANSLATIONS = {
         create: "创建链接",
         update: "更新链接",
         delete: "删除链接",
+        duplicate: "创建副本",
+        duplicated: "副本创建成功",
         validation: {
           titleRequired: "标题不能为空",
           urlRequired: "链接地址不能为空",

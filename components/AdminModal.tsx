@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Plus, Save, Upload, Edit2, Trash2, CornerDownRight, Folder, ListPlus, Images, ArrowRight, Undo2, Tag, Download, Book, Cloud, ExternalLink, Settings, ChevronDown, ChevronUp, Wand2, Loader2, PanelTop } from 'lucide-react';
+import { X, Plus, Save, Upload, Edit2, Trash2, CornerDownRight, Folder, ListPlus, Images, ArrowRight, Undo2, Tag, Download, Book, Cloud, ExternalLink, Settings, ChevronDown, ChevronUp, Wand2, Loader2, PanelTop, Copy } from 'lucide-react';
 import { AppData, Category, LinkItem, CloudConfig, SubCategory, SiteConfig } from '../types';
 import { ToastType } from './Toast';
 
@@ -596,6 +596,32 @@ const AdminModal: React.FC<AdminModalProps> = ({
     showToast('success', editingItem ? t.admin.link.updated : t.admin.link.created);
   };
 
+  const handleDuplicateLink = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!validateLink()) return;
+
+    let finalUrl = linkForm.url?.trim() || '';
+    if (finalUrl && !/^(https?:\/\/)/i.test(finalUrl)) {
+      finalUrl = `https://${finalUrl}`;
+    }
+
+    const newLink: LinkItem = {
+      id: (Date.now() + Math.random()).toString(), // Ensure unique ID
+      title: linkForm.title || '',
+      url: finalUrl,
+      description: linkForm.description || '',
+      categoryId: linkForm.categoryId || '',
+      subCategoryId: linkForm.subCategoryId || '',
+      iconUrl: linkForm.iconUrl,
+      tags: linkForm.tags || [],
+    };
+
+    onUpdateData({ ...data, links: [...data.links, newLink] });
+    onClose();
+    showToast('success', t.admin.link.duplicated);
+  };
+
   const handleDeleteLink = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1000,6 +1026,11 @@ const AdminModal: React.FC<AdminModalProps> = ({
                          <button type="button" onClick={handleDeleteLink} className="bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40">
                            <Trash2 className="w-4 h-4" /><span>{t.admin.link.delete}</span>
                          </button>
+                       )}
+                       {editingItem && (
+                          <button type="button" onClick={handleDuplicateLink} className="bg-slate-50 text-slate-600 hover:bg-slate-100 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
+                            <Copy className="w-4 h-4" /><span>{t.admin.link.duplicate}</span>
+                          </button>
                        )}
                        <button type="button" onClick={handleSaveLink} className={`ml-auto bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-lg text-sm font-medium shadow-md shadow-indigo-200 dark:shadow-none transition-all active:scale-95 flex items-center gap-2`}>
                          <Save className="w-4 h-4" /><span>{editingItem ? t.admin.link.update : t.admin.link.create}</span>
