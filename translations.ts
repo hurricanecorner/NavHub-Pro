@@ -18,7 +18,8 @@ export const TRANSLATIONS = {
       theme: {
         light: "Light",
         dark: "Dark",
-        system: "System"
+        system: "System",
+        custom: "Custom BG"
       },
       searchResults: "Search Results",
       noResults: "No results found.",
@@ -55,6 +56,7 @@ export const TRANSLATIONS = {
         siteName: "Site Name",
         logo: "Logo URL (Top-Left)",
         favicon: "Favicon URL (Browser Tab)",
+        background: "Background Image (For Custom Theme)",
         placeholderUrl: "https://...",
         save: "Save Settings",
         success: "Site settings updated successfully!"
@@ -81,7 +83,7 @@ export const TRANSLATIONS = {
         addTag: "Add",
         suggestedTags: "Suggested Tags",
         icon: "Icon",
-        uploadOrPaste: "Or paste image URL...",
+        uploadOrPaste: "Click to upload image",
         selectCategory: "-- Select --",
         create: "Create Link",
         update: "Update Link",
@@ -219,7 +221,8 @@ export const TRANSLATIONS = {
       theme: {
         light: "亮色模式",
         dark: "暗色模式",
-        system: "跟随系统"
+        system: "跟随系统",
+        custom: "自定义背景"
       },
       searchResults: "搜索结果",
       noResults: "未找到结果。",
@@ -256,6 +259,7 @@ export const TRANSLATIONS = {
         siteName: "网站名称",
         logo: "Logo 图标 (左上角)",
         favicon: "Favicon 图标 (浏览器标签)",
+        background: "背景图片 (仅自定义背景模式)",
         placeholderUrl: "https://...",
         save: "保存设置",
         success: "网站设置更新成功！"
@@ -282,7 +286,7 @@ export const TRANSLATIONS = {
         addTag: "添加",
         suggestedTags: "常用标签",
         icon: "图标",
-        uploadOrPaste: "或粘贴图片链接...",
+        uploadOrPaste: "点击上传图片",
         selectCategory: "-- 请选择 --",
         create: "创建链接",
         update: "更新链接",

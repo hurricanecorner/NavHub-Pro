@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Category, LinkItem, SiteConfig } from '../types';
 import { LayoutGrid, Hash, ChevronRight, Folder, GripVertical } from 'lucide-react';
@@ -77,11 +78,12 @@ const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, 
       )}
 
       <aside className={`
-        fixed top-0 left-0 z-50 h-screen w-64 bg-white border-r border-slate-200 shadow-sm transition-transform duration-300 ease-in-out
-        lg:translate-x-0 lg:static dark:bg-slate-900 dark:border-slate-800
+        fixed top-0 left-0 z-50 h-screen w-64 border-r border-slate-200 shadow-sm transition-transform duration-300 ease-in-out
+        bg-white lg:translate-x-0 lg:static 
+        dark:bg-slate-900/80 dark:backdrop-blur-md dark:border-slate-800/50
         ${isOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
-        <div className="h-16 flex items-center px-6 border-b border-slate-100 dark:border-slate-800">
+        <div className="h-16 flex items-center px-6 border-b border-slate-100 dark:border-slate-800/50">
           <div className="flex items-center gap-2 text-indigo-600 font-bold text-xl dark:text-indigo-400 overflow-hidden">
             {siteConfig?.logoUrl ? (
               <img src={siteConfig.logoUrl} alt="Logo" className="w-8 h-8 object-contain" />
@@ -115,8 +117,8 @@ const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, 
                               className={`
                                 flex-1 flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-colors group
                                 ${isActive 
-                                  ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/20 dark:text-indigo-300' 
-                                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200'}
+                                  ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-300' 
+                                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50 dark:hover:text-slate-200'}
                               `}
                             >
                               <div className="flex items-center gap-3 overflow-hidden">
@@ -150,7 +152,7 @@ const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, 
                                               )}
                                               <button
                                                 onClick={(e) => scrollToSubSection(e, category.id, subCat.id)}
-                                                className="flex-1 flex items-center justify-between px-3 py-2 rounded-md text-xs text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors group/sub dark:text-slate-500 dark:hover:text-slate-300 dark:hover:bg-slate-800"
+                                                className="flex-1 flex items-center justify-between px-3 py-2 rounded-md text-xs text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors group/sub dark:text-slate-500 dark:hover:text-slate-300 dark:hover:bg-slate-800/50"
                                               >
                                                 <div className="flex items-center gap-2 truncate">
                                                   <ChevronRight className="w-3 h-3 text-slate-300 group-hover/sub:text-slate-400 dark:text-slate-600 dark:group-hover/sub:text-slate-500" />

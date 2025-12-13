@@ -1,7 +1,7 @@
 
 export type Language = 'en' | 'zh';
 
-export type Theme = 'light' | 'dark' | 'system';
+export type Theme = 'light' | 'dark' | 'system' | 'custom';
 
 export interface SubCategory {
   id: string;
@@ -30,6 +30,7 @@ export interface SiteConfig {
   title: string;
   logoUrl: string;
   faviconUrl: string;
+  backgroundUrl?: string;
 }
 
 export interface AppData {

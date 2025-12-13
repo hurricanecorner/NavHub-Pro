@@ -1,7 +1,7 @@
 
 
 import React, { Component, useState, useEffect, useRef, ReactNode, ErrorInfo } from 'react';
-import { Menu, Search, Settings, Edit, Lock, RefreshCw, CheckCircle2, AlertCircle, Languages, AlertTriangle, Loader2, Moon, Sun, Laptop, GripVertical, Plus, Hash } from 'lucide-react';
+import { Menu, Search, Settings, Edit, Lock, RefreshCw, CheckCircle2, AlertCircle, Languages, AlertTriangle, Loader2, Moon, Sun, Laptop, GripVertical, Plus, Hash, Image as ImageIcon } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { AppData, LinkItem, CloudConfig, Language, Theme } from './types';
 import { loadData, saveData, loadCloudConfig, saveCloudConfig, uploadToCloud, downloadFromCloud, loadLanguage, saveLanguage, loadTheme, saveTheme } from './services/storageUtils';
@@ -22,7 +22,7 @@ interface ErrorBoundaryState {
 }
 
 // Error Boundary Component
-class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   state: ErrorBoundaryState = { hasError: false };
 
   static getDerivedStateFromError(_: Error): ErrorBoundaryState {
@@ -143,8 +143,12 @@ const Dashboard: React.FC = () => {
   // Theme Effect
   useEffect(() => {
     const root = window.document.documentElement;
-    root.classList.remove('light', 'dark');
-    if (theme === 'system') {
+    root.classList.remove('light', 'dark', 'theme-custom');
+    
+    // When theme is 'custom', we behave like 'dark' mode for text colors, but handle backgrounds separately
+    if (theme === 'custom') {
+        root.classList.add('dark', 'theme-custom');
+    } else if (theme === 'system') {
       const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
       root.classList.add(systemTheme);
     } else {
@@ -419,8 +423,11 @@ const Dashboard: React.FC = () => {
 
   return (
     <DragDropContext onDragEnd={onDragEnd}>
-      <div className="flex h-screen bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100 transition-colors">
+      <div className={`flex h-screen bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100 transition-colors ${theme === 'custom' ? 'bg-cover bg-center bg-fixed' : ''}`} style={theme === 'custom' && data.siteConfig?.backgroundUrl ? { backgroundImage: `url(${data.siteConfig.backgroundUrl})` } : {}}>
         
+        {/* Custom Theme Overlay */}
+        {theme === 'custom' && <div className="absolute inset-0 bg-black/40 pointer-events-none fixed z-0" />}
+
         <Sidebar 
           categories={data.categories}
           links={data.links}
@@ -433,9 +440,9 @@ const Dashboard: React.FC = () => {
           siteConfig={data.siteConfig}
         />
 
-        <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
+        <main className="flex-1 flex flex-col h-screen overflow-hidden relative z-10">
           
-          <header className="h-16 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-4 lg:px-8 z-30 sticky top-0 dark:bg-slate-800/80 dark:border-slate-700 transition-colors">
+          <header className={`h-16 border-b flex items-center justify-between px-4 lg:px-8 z-30 sticky top-0 transition-colors ${theme === 'custom' ? 'bg-black/60 backdrop-blur-md border-white/10' : 'bg-white/80 backdrop-blur-md border-slate-200 dark:bg-slate-800/80 dark:border-slate-700'}`}>
             {/* Header Content */}
             <div className="flex items-center gap-4 flex-1">
               <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-lg dark:text-slate-400 dark:hover:bg-slate-700"><Menu className="w-5 h-5" /></button>
@@ -448,12 +455,13 @@ const Dashboard: React.FC = () => {
                 </div>
               )}
               <div className="relative group z-50">
-                 <button className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors dark:text-slate-500 dark:hover:text-slate-300 dark:hover:bg-slate-700">{theme === 'light' && <Sun className="w-5 h-5" />}{theme === 'dark' && <Moon className="w-5 h-5" />}{theme === 'system' && <Laptop className="w-5 h-5" />}</button>
+                 <button className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors dark:text-slate-500 dark:hover:text-slate-300 dark:hover:bg-slate-700">{theme === 'light' && <Sun className="w-5 h-5" />}{theme === 'dark' && <Moon className="w-5 h-5" />}{theme === 'system' && <Laptop className="w-5 h-5" />}{theme === 'custom' && <ImageIcon className="w-5 h-5" />}</button>
                  <div className="absolute right-0 top-full pt-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 transform origin-top-right w-36">
                     <div className="bg-white rounded-lg shadow-xl border border-slate-100 py-1 overflow-hidden dark:bg-slate-800 dark:border-slate-700">
                       <button onClick={() => handleThemeChange('light')} className={`w-full flex items-center gap-2 px-4 py-2 text-sm transition-colors ${theme === 'light' ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400' : 'text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-700'}`}><Sun className="w-4 h-4" />{t.app.theme.light}</button>
                       <button onClick={() => handleThemeChange('dark')} className={`w-full flex items-center gap-2 px-4 py-2 text-sm transition-colors ${theme === 'dark' ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400' : 'text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-700'}`}><Moon className="w-4 h-4" />{t.app.theme.dark}</button>
                       <button onClick={() => handleThemeChange('system')} className={`w-full flex items-center gap-2 px-4 py-2 text-sm transition-colors ${theme === 'system' ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400' : 'text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-700'}`}><Laptop className="w-4 h-4" />{t.app.theme.system}</button>
+                      <button onClick={() => handleThemeChange('custom')} className={`w-full flex items-center gap-2 px-4 py-2 text-sm transition-colors ${theme === 'custom' ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400' : 'text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-700'}`}><ImageIcon className="w-4 h-4" />{t.app.theme.custom}</button>
                     </div>
                  </div>
               </div>
@@ -481,13 +489,13 @@ const Dashboard: React.FC = () => {
                 return (
                 <section key={category.id} id={`category-${category.id}`} className="scroll-mt-24">
                   <div className="flex items-center gap-3 mb-6">
-                    <h2 className="text-2xl font-bold text-slate-800 dark:text-white">{category.name}</h2>
-                    <div className="h-px bg-slate-200 flex-1 dark:bg-slate-700" />
+                    <h2 className="text-2xl font-bold text-slate-800 dark:text-white drop-shadow-sm">{category.name}</h2>
+                    <div className={`h-px flex-1 ${theme === 'custom' ? 'bg-white/20' : 'bg-slate-200 dark:bg-slate-700'}`} />
                   </div>
 
                   {/* General Links Droppable Area */}
                   {(generalLinks.length > 0 || isEditMode) && (
-                     <div className="pl-0 lg:pl-4 bg-white/50 rounded-xl p-2 border border-transparent hover:border-slate-100 transition-colors mb-8 dark:bg-slate-800/30 dark:hover:border-slate-700">
+                     <div className={`pl-0 lg:pl-4 rounded-xl p-2 border transition-colors mb-8 ${theme === 'custom' ? 'bg-black/20 border-white/5 hover:border-white/10' : 'bg-white/50 border-transparent hover:border-slate-100 dark:bg-slate-800/30 dark:hover:border-slate-700'}`}>
                        {/* Optional Label for General links in Edit Mode for clarity */}
                        {isEditMode && (
                          <div className="flex items-center gap-2 mb-2 px-1 opacity-60">
@@ -510,8 +518,8 @@ const Dashboard: React.FC = () => {
                                {provided.placeholder}
                                {/* Add Link Shortcut for General Category */}
                                {isEditMode && (
-                                  <button onClick={() => handleAddLinkShortcut(category.id, '')} className="flex flex-col items-center justify-center gap-2 min-h-[120px] bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl hover:border-indigo-400 hover:bg-indigo-50 transition-all group dark:bg-slate-800/30 dark:border-slate-700 dark:hover:border-indigo-500/50">
-                                    <div className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center group-hover:scale-110 transition-transform dark:bg-slate-800 dark:border-slate-600"><Plus className="w-5 h-5 text-slate-400 group-hover:text-indigo-500 dark:text-slate-500" /></div><span className="text-xs font-medium text-slate-400 group-hover:text-indigo-600 dark:text-slate-500">{t.app.addLink}</span>
+                                  <button onClick={() => handleAddLinkShortcut(category.id, '')} className={`flex flex-col items-center justify-center gap-2 min-h-[120px] border-2 border-dashed rounded-xl transition-all group ${theme === 'custom' ? 'bg-black/20 border-white/20 hover:bg-white/10 hover:border-white/40' : 'bg-slate-50 border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 dark:bg-slate-800/30 dark:border-slate-700 dark:hover:border-indigo-500/50'}`}>
+                                    <div className="w-10 h-10 rounded-full bg-white/10 border border-white/20 flex items-center justify-center group-hover:scale-110 transition-transform"><Plus className="w-5 h-5 text-slate-400 group-hover:text-indigo-500" /></div><span className="text-xs font-medium text-slate-400 group-hover:text-indigo-600 dark:text-slate-500">{t.app.addLink}</span>
                                   </button>
                                )}
                             </div>
@@ -535,7 +543,7 @@ const Dashboard: React.FC = () => {
                             return (
                               <Draggable key={subCat.id} draggableId={subCat.id} index={index} isDragDisabled={!isEditMode}>
                                 {(provided) => (
-                                  <div ref={provided.innerRef} {...provided.draggableProps} id={`subcat-${subCat.id}`} className="pl-0 lg:pl-4 bg-white/50 rounded-xl p-2 border border-transparent hover:border-slate-100 transition-colors scroll-mt-24 dark:bg-slate-800/30 dark:hover:border-slate-700">
+                                  <div ref={provided.innerRef} {...provided.draggableProps} id={`subcat-${subCat.id}`} className={`pl-0 lg:pl-4 rounded-xl p-2 border transition-colors scroll-mt-24 ${theme === 'custom' ? 'bg-black/20 border-white/5 hover:border-white/10' : 'bg-white/50 border-transparent hover:border-slate-100 dark:bg-slate-800/30 dark:hover:border-slate-700'}`}>
                                     <div className="flex items-center gap-2 mb-4 group">
                                       <div {...provided.dragHandleProps} className={`cursor-grab p-1 rounded hover:bg-slate-200 text-slate-400 dark:hover:bg-slate-700 dark:text-slate-500 ${isEditMode ? 'opacity-100' : 'opacity-0 hidden'}`}><GripVertical className="w-4 h-4" /></div>
                                       <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider dark:text-slate-400">{subCat.name}</h3>
@@ -553,8 +561,8 @@ const Dashboard: React.FC = () => {
                                           ))}
                                           {provided.placeholder}
                                           {isEditMode && (
-                                            <button onClick={() => handleAddLinkShortcut(category.id, subCat.id)} className="flex flex-col items-center justify-center gap-2 min-h-[120px] bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl hover:border-indigo-400 hover:bg-indigo-50 transition-all group dark:bg-slate-800/30 dark:border-slate-700 dark:hover:border-indigo-500/50">
-                                              <div className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center group-hover:scale-110 transition-transform dark:bg-slate-800 dark:border-slate-600"><Plus className="w-5 h-5 text-slate-400 group-hover:text-indigo-500 dark:text-slate-500" /></div><span className="text-xs font-medium text-slate-400 group-hover:text-indigo-600 dark:text-slate-500">{t.app.addLink}</span>
+                                            <button onClick={() => handleAddLinkShortcut(category.id, subCat.id)} className={`flex flex-col items-center justify-center gap-2 min-h-[120px] border-2 border-dashed rounded-xl transition-all group ${theme === 'custom' ? 'bg-black/20 border-white/20 hover:bg-white/10 hover:border-white/40' : 'bg-slate-50 border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 dark:bg-slate-800/30 dark:border-slate-700 dark:hover:border-indigo-500/50'}`}>
+                                              <div className="w-10 h-10 rounded-full bg-white/10 border border-white/20 flex items-center justify-center group-hover:scale-110 transition-transform"><Plus className="w-5 h-5 text-slate-400 group-hover:text-indigo-500" /></div><span className="text-xs font-medium text-slate-400 group-hover:text-indigo-600 dark:text-slate-500">{t.app.addLink}</span>
                                             </button>
                                           )}
                                         </div>
@@ -567,7 +575,7 @@ const Dashboard: React.FC = () => {
                           })
                         ) : (
                           isEditMode && category.subCategories.length === 0 && generalLinks.length === 0 && (
-                             <div className="p-8 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-slate-400 dark:border-slate-700">
+                             <div className={`p-8 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-slate-400 ${theme === 'custom' ? 'border-white/20' : 'border-slate-200 dark:border-slate-700'}`}>
                                 <p className="text-sm">{t.app.noSubCategories}</p>
                              </div>
                           )

@@ -69,7 +69,7 @@ export const saveLanguage = (lang: Language) => {
 
 export const loadTheme = (): Theme => {
   const stored = localStorage.getItem(THEME_KEY);
-  return (stored === 'light' || stored === 'dark' || stored === 'system') ? (stored as Theme) : 'system';
+  return (stored === 'light' || stored === 'dark' || stored === 'system' || stored === 'custom') ? (stored as Theme) : 'system';
 };
 
 export const saveTheme = (theme: Theme) => {
