@@ -1,4 +1,5 @@
 
+
 import { Language } from './types';
 
 export const TRANSLATIONS = {
@@ -222,7 +223,7 @@ export const TRANSLATIONS = {
         light: "亮色模式",
         dark: "暗色模式",
         system: "跟随系统",
-        custom: "自定义背景"
+        custom: "自选背景"
       },
       searchResults: "搜索结果",
       noResults: "未找到结果。",
@@ -259,7 +260,7 @@ export const TRANSLATIONS = {
         siteName: "网站名称",
         logo: "Logo 图标 (左上角)",
         favicon: "Favicon 图标 (浏览器标签)",
-        background: "背景图片 (仅自定义背景模式)",
+        background: "背景图片 (仅自选背景模式)",
         placeholderUrl: "https://...",
         save: "保存设置",
         success: "网站设置更新成功！"

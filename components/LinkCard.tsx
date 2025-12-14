@@ -1,4 +1,5 @@
 
+
 import React, { useState } from 'react';
 import { LinkItem } from '../types';
 import { ExternalLink, Edit2, Trash2, Globe } from 'lucide-react';
@@ -50,7 +51,7 @@ const LinkCard: React.FC<LinkCardProps> = ({ item, isEditMode, onEdit, onDelete,
 
       {/* Content */}
       <div className="flex-1 min-w-0">
-        <h3 className="font-semibold text-slate-800 truncate pr-6 mb-1 text-sm dark:text-slate-100 shadow-sm">{item.title}</h3>
+        <h3 className="font-semibold text-slate-800 truncate pr-6 mb-1 text-sm dark:text-slate-100">{item.title}</h3>
         {/* Enforce 1-line limit */}
         <p className="text-xs text-slate-500 truncate leading-relaxed dark:text-slate-400">{item.description}</p>
         
