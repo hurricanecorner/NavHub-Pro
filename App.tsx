@@ -22,8 +22,11 @@ interface ErrorBoundaryState {
 }
 
 // Error Boundary Component
-class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { hasError: false };
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
 
   static getDerivedStateFromError(_: Error): ErrorBoundaryState {
     return { hasError: true };
@@ -438,6 +441,7 @@ const Dashboard: React.FC = () => {
           t={t}
           isEditMode={isEditMode}
           siteConfig={data.siteConfig}
+          theme={theme}
         />
 
         <main className="flex-1 flex flex-col h-screen overflow-hidden relative z-10">

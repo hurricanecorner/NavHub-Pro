@@ -1,6 +1,7 @@
 
+
 import React, { useState } from 'react';
-import { Category, LinkItem, SiteConfig } from '../types';
+import { Category, LinkItem, SiteConfig, Theme } from '../types';
 import { LayoutGrid, Hash, ChevronRight, Folder, GripVertical } from 'lucide-react';
 import { Droppable, Draggable } from '@hello-pangea/dnd';
 
@@ -14,10 +15,12 @@ interface SidebarProps {
   t: any;
   isEditMode: boolean;
   siteConfig?: SiteConfig;
+  theme?: Theme;
 }
 
-const CategoryIcon = ({ icon, isActive }: { icon?: string; isActive: boolean }) => {
+const CategoryIcon = ({ icon, isActive, theme }: { icon?: string; isActive: boolean; theme?: Theme }) => {
   const [error, setError] = useState(false);
+  const isCustom = theme === 'custom';
 
   if (icon && !error) {
     return (
@@ -31,12 +34,18 @@ const CategoryIcon = ({ icon, isActive }: { icon?: string; isActive: boolean }) 
   }
 
   return (
-    <Folder className={`w-5 h-5 shrink-0 ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'}`} />
+    <Folder className={`w-5 h-5 shrink-0 ${
+      isCustom 
+        ? (isActive ? 'text-white' : 'text-slate-400')
+        : (isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500')
+    }`} />
   );
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, onSelectCategory, isOpen, setIsOpen, t, isEditMode, siteConfig }) => {
+const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, onSelectCategory, isOpen, setIsOpen, t, isEditMode, siteConfig, theme }) => {
   
+  const isCustom = theme === 'custom';
+
   const scrollToSection = (id: string) => {
     onSelectCategory(id);
     const element = document.getElementById(`category-${id}`);
@@ -78,13 +87,16 @@ const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, 
       )}
 
       <aside className={`
-        fixed top-0 left-0 z-50 h-screen w-64 border-r border-slate-200 shadow-sm transition-transform duration-300 ease-in-out
-        bg-white lg:translate-x-0 lg:static 
-        dark:bg-slate-900/80 dark:backdrop-blur-md dark:border-slate-800/50
+        fixed top-0 left-0 z-50 h-screen w-64 shadow-sm transition-transform duration-300 ease-in-out
+        lg:translate-x-0 lg:static 
         ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+        ${isCustom 
+          ? 'bg-black/40 backdrop-blur-xl border-r border-white/5 text-slate-100' 
+          : 'bg-white dark:bg-slate-900/80 dark:backdrop-blur-md border-r border-slate-200 dark:border-slate-800/50'
+        }
       `}>
-        <div className="h-16 flex items-center px-6 border-b border-slate-100 dark:border-slate-800/50">
-          <div className="flex items-center gap-2 text-indigo-600 font-bold text-xl dark:text-indigo-400 overflow-hidden">
+        <div className={`h-16 flex items-center px-6 ${isCustom ? 'border-b border-white/5' : 'border-b border-slate-100 dark:border-slate-800/50'}`}>
+          <div className={`flex items-center gap-2 font-bold text-xl overflow-hidden ${isCustom ? 'text-white' : 'text-indigo-600 dark:text-indigo-400'}`}>
             {siteConfig?.logoUrl ? (
               <img src={siteConfig.logoUrl} alt="Logo" className="w-8 h-8 object-contain" />
             ) : (
@@ -115,19 +127,26 @@ const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, 
                             <button
                               onClick={() => scrollToSection(category.id)}
                               className={`
-                                flex-1 flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-colors group
-                                ${isActive 
-                                  ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-300' 
-                                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50 dark:hover:text-slate-200'}
+                                flex-1 flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-all group
+                                ${isCustom 
+                                  ? (isActive 
+                                      ? 'bg-white/20 text-white shadow-sm border border-white/10 backdrop-blur-sm' 
+                                      : 'text-slate-300 hover:bg-white/10 hover:text-white border border-transparent')
+                                  : (isActive 
+                                      ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-300' 
+                                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50 dark:hover:text-slate-200')
+                                }
                               `}
                             >
                               <div className="flex items-center gap-3 overflow-hidden">
-                                <CategoryIcon icon={category.icon} isActive={isActive} />
+                                <CategoryIcon icon={category.icon} isActive={isActive} theme={theme} />
                                 <span className="truncate">{category.name}</span>
                               </div>
                               
                               <span className={`text-xs font-semibold px-2 py-0.5 rounded-full transition-colors ${
-                                isActive ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200' : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-500 dark:group-hover:bg-slate-700'
+                                isCustom 
+                                  ? (isActive ? 'bg-white/20 text-white' : 'bg-white/5 text-slate-400 group-hover:bg-white/10 group-hover:text-white')
+                                  : (isActive ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200' : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-500 dark:group-hover:bg-slate-700')
                               }`}>
                                 {catCount}
                               </span>
@@ -152,13 +171,19 @@ const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, 
                                               )}
                                               <button
                                                 onClick={(e) => scrollToSubSection(e, category.id, subCat.id)}
-                                                className="flex-1 flex items-center justify-between px-3 py-2 rounded-md text-xs text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors group/sub dark:text-slate-500 dark:hover:text-slate-300 dark:hover:bg-slate-800/50"
+                                                className={`
+                                                  flex-1 flex items-center justify-between px-3 py-2 rounded-md text-xs transition-colors group/sub
+                                                  ${isCustom 
+                                                    ? 'text-slate-400 hover:text-white hover:bg-white/10' 
+                                                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 dark:text-slate-500 dark:hover:text-slate-300 dark:hover:bg-slate-800/50'
+                                                  }
+                                                `}
                                               >
                                                 <div className="flex items-center gap-2 truncate">
-                                                  <ChevronRight className="w-3 h-3 text-slate-300 group-hover/sub:text-slate-400 dark:text-slate-600 dark:group-hover/sub:text-slate-500" />
+                                                  <ChevronRight className={`w-3 h-3 ${isCustom ? 'text-slate-500 group-hover/sub:text-slate-300' : 'text-slate-300 group-hover/sub:text-slate-400 dark:text-slate-600 dark:group-hover/sub:text-slate-500'}`} />
                                                   <span className="truncate">{subCat.name}</span>
                                                 </div>
-                                                <span className="text-[10px] font-medium text-slate-400 group-hover/sub:text-slate-600 dark:group-hover/sub:text-slate-400">
+                                                <span className={`text-[10px] font-medium ${isCustom ? 'text-slate-500 group-hover/sub:text-slate-300' : 'text-slate-400 group-hover/sub:text-slate-600 dark:group-hover/sub:text-slate-400'}`}>
                                                   {subCount}
                                                 </span>
                                               </button>
