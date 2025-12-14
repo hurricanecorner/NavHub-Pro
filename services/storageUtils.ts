@@ -104,7 +104,10 @@ const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncR
   const isUpdate = safeGistId.length > 0;
 
   const jsonStr = JSON.stringify(data, null, 2);
-  const files: Record<string, { content: string | null }> = {};
+  
+  // Use 'any' type to allow assigning null directly to the file key for deletion
+  // GitHub API requires key: null to delete, NOT key: {content: null}
+  const files: Record<string, any> = {};
 
   // Check if chunking is needed
   if (jsonStr.length > MAX_CHUNK_SIZE) {
@@ -130,9 +133,10 @@ const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncR
     
     // 3. Cleanup Strategy (ONLY IF UPDATING)
     // CRITICAL: Ensure we only add null content if isUpdate is true
+    // FIX: Set value to null directly to delete file in Gist
     if (isUpdate) {
         for (let j = 1; j <= 10; j++) {
-           files[`navhub-data.part${totalChunks + j}`] = { content: null };
+           files[`navhub-data.part${totalChunks + j}`] = null;
         }
     }
 
@@ -141,9 +145,10 @@ const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncR
     files[GIST_FILENAME] = { content: jsonStr };
     
     // Cleanup Strategy (ONLY IF UPDATING)
+    // FIX: Set value to null directly to delete file in Gist
     if (isUpdate) {
         for (let j = 1; j <= 20; j++) {
-           files[`navhub-data.part${j}`] = { content: null };
+           files[`navhub-data.part${j}`] = null;
         }
     }
   }
@@ -187,6 +192,10 @@ const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncR
       try {
         const errBody = await response.json();
         if (errBody.message) errorMsg = errBody.message;
+        // Check for field validation errors
+        if (errBody.errors && Array.isArray(errBody.errors)) {
+             errorMsg += ` (${errBody.errors[0].field}: ${errBody.errors[0].code})`;
+        }
       } catch (e) {
         // ignore json parse error
       }

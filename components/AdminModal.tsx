@@ -1,6 +1,5 @@
 
 
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Plus, Save, Upload, Edit2, Trash2, Folder, ListPlus, Images, ArrowRight, Undo2, Tag, Download, Book, Cloud, ExternalLink, Settings, ChevronDown, ChevronUp, Wand2, Loader2, PanelTop, Copy, CheckCircle2, AlertTriangle, Image as ImageIcon } from 'lucide-react';
 import { AppData, Category, LinkItem, CloudConfig, SubCategory, SiteConfig } from '../types';
@@ -165,7 +164,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
 
   // --- HELPER: Image Handling ---
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, onSuccess: (result: string) => void) => {
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, onSuccess: (result: string) => void, maxWidth = 192) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
@@ -174,8 +173,8 @@ const AdminModal: React.FC<AdminModalProps> = ({
         
         try {
             // Attempt compression
-            // Max dimension 192px is sufficient for icons displayed at 40px-64px
-            const compressedBase64 = await compressImage(originalBase64, 192, 0.85);
+            // Allow larger size for background if specified
+            const compressedBase64 = await compressImage(originalBase64, maxWidth, 0.85);
             
             // Compare sizes to ensure we actually saved space
             // Base64 length * 0.75 is approx byte size
@@ -184,7 +183,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
             if (compressedSizeKB < originalSizeKB) {
                 // If savings are significant, use compressed
-                showToast('success', `Icon optimized: ${originalSizeKB}KB -> ${compressedSizeKB}KB`);
+                showToast('success', `Optimized: ${originalSizeKB}KB -> ${compressedSizeKB}KB`);
                 onSuccess(compressedBase64);
             } else {
                 // If original was already tiny, keep it
@@ -1070,7 +1069,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                           <input type="text" value={siteForm.backgroundUrl || ''} onChange={e => setSiteForm({...siteForm, backgroundUrl: e.target.value})} className="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:bg-slate-800 dark:border-slate-700 dark:text-white" placeholder="https://..." />
                                           <label className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg cursor-pointer hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 whitespace-nowrap">
                                               <Upload className="w-4 h-4 inline mr-2" /> {t.admin.settings.upload}
-                                              <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, (url) => setSiteForm({...siteForm, backgroundUrl: url}))} />
+                                              <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, (url) => setSiteForm({...siteForm, backgroundUrl: url}), 1600)} />
                                           </label>
                                        </div>
                                        {siteForm.backgroundUrl && (
