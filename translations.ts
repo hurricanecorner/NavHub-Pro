@@ -59,6 +59,7 @@ export const TRANSLATIONS = {
         favicon: "Favicon URL (Browser Tab)",
         background: "Background Image (For Custom Theme)",
         placeholderUrl: "https://...",
+        upload: "Upload",
         save: "Save Settings",
         success: "Site settings updated successfully!"
       },
@@ -81,6 +82,7 @@ export const TRANSLATIONS = {
         general: "General / No Sub-category",
         description: "Description",
         tags: "Tags",
+        tagsPlaceholder: "Type and press Enter",
         addTag: "Add",
         suggestedTags: "Suggested Tags",
         icon: "Icon",
@@ -184,6 +186,8 @@ export const TRANSLATIONS = {
           pagePlaceholder: "32-character Page ID",
           apiUrlLabel: "Notion API URL (Proxy)",
           apiUrlPlaceholder: "https://your-worker.workers.dev/v1",
+          publishBtn: "Publish Links to Notion Page (Append)",
+          publishHelp: "This will append all links as a readable list to the end of the configured Notion Page.",
           help: "Setup Guide",
           helpText: "Create an Integration in Notion. Share a page with it. Copy the Page ID from the URL."
         },
@@ -210,7 +214,7 @@ export const TRANSLATIONS = {
     app: {
       title: "导航站",
       searchPlaceholder: "搜索资源...",
-      admin: "管理后台",
+      admin: "后台管理",
       toggleEdit: "切换编辑模式",
       toggleLang: "切换语言",
       sync: {
@@ -262,6 +266,7 @@ export const TRANSLATIONS = {
         favicon: "Favicon 图标 (浏览器标签)",
         background: "背景图片 (仅自选背景模式)",
         placeholderUrl: "https://...",
+        upload: "上传",
         save: "保存设置",
         success: "网站设置更新成功！"
       },
@@ -284,6 +289,7 @@ export const TRANSLATIONS = {
         general: "通用 / 无子分类",
         description: "描述",
         tags: "标签",
+        tagsPlaceholder: "输入并按回车",
         addTag: "添加",
         suggestedTags: "常用标签",
         icon: "图标",
@@ -387,6 +393,8 @@ export const TRANSLATIONS = {
           pagePlaceholder: "32位 Page ID",
           apiUrlLabel: "Notion API 地址 (代理)",
           apiUrlPlaceholder: "https://your-worker.workers.dev/v1",
+          publishBtn: "发布链接到 Notion 页面 (追加)",
+          publishHelp: "这将把所有链接作为可读列表追加到配置的 Notion 页面末尾。",
           help: "配置指南",
           helpText: "在 Notion 创建 Integration，将页面分享给它，从 URL 复制 Page ID。"
         },

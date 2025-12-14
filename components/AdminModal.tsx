@@ -1,8 +1,11 @@
 
+
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Plus, Save, Upload, Edit2, Trash2, Folder, ListPlus, Images, ArrowRight, Undo2, Tag, Download, Book, Cloud, ExternalLink, Settings, ChevronDown, ChevronUp, Wand2, Loader2, PanelTop, Copy, CheckCircle2, AlertTriangle, Image as ImageIcon } from 'lucide-react';
 import { AppData, Category, LinkItem, CloudConfig, SubCategory, SiteConfig } from '../types';
 import { ToastType } from './Toast';
+import { publishToNotion } from '../services/storageUtils';
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -114,6 +117,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
   // --- CLOUD TAB STATE ---
   const [localCloudConfig, setLocalCloudConfig] = useState<CloudConfig>(cloudConfig);
+  const [isPublishingNotion, setIsPublishingNotion] = useState(false);
 
 
   // --- INITIALIZATION ---
@@ -138,6 +142,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
       // Reset Cloud
       setLocalCloudConfig(cloudConfig);
+      setIsPublishingNotion(false);
 
       // Reset Settings
       setSiteForm({
@@ -592,6 +597,26 @@ const AdminModal: React.FC<AdminModalProps> = ({
       showToast('success', t.admin.settings.success);
   };
 
+  // --- Notion Publish Handler ---
+  const handlePublishToNotion = async () => {
+      if (!localCloudConfig.notionToken || !localCloudConfig.notionPageId) {
+          showToast('error', t.app.missingNotionConfig);
+          return;
+      }
+      
+      confirmAction("Publish to Notion?", "This will append all your links as a readable list to the end of your Notion page. Continue?", async () => {
+          setIsPublishingNotion(true);
+          const result = await publishToNotion(data, localCloudConfig);
+          setIsPublishingNotion(false);
+          
+          if (result.success) {
+              showToast('success', "Published successfully!");
+          } else {
+              showToast('error', result.message);
+          }
+      });
+  };
+
   // --- RENDER HELPERS ---
   const renderSidebar = () => (
       <div className="w-16 sm:w-64 bg-slate-50 border-r border-slate-200 flex flex-col shrink-0 dark:bg-slate-800/50 dark:border-slate-700">
@@ -723,7 +748,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                    <div className="md:col-span-2">
                                        <label className="block text-sm font-medium text-slate-700 mb-1 dark:text-slate-300">{t.admin.link.tags}</label>
                                        <div className="flex gap-2 mb-2">
-                                           <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddTag()} className="flex-1 px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-800 dark:border-slate-700 dark:text-white" placeholder="Type and press Enter" />
+                                           <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddTag()} className="flex-1 px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-800 dark:border-slate-700 dark:text-white" placeholder={t.admin.link.tagsPlaceholder} />
                                            <button onClick={handleAddTag} className="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300">{t.admin.link.addTag}</button>
                                        </div>
                                        <div className="flex flex-wrap gap-2">
@@ -966,6 +991,18 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                             <input type="text" value={localCloudConfig.notionApiUrl || ''} onChange={e => setLocalCloudConfig({...localCloudConfig, notionApiUrl: e.target.value})} className="w-full px-3 py-2 border rounded-lg dark:bg-slate-800 dark:border-slate-700 dark:text-white" placeholder={t.admin.cloud.notion.apiUrlPlaceholder} />
                                             <p className="text-xs text-amber-500 mt-1">{t.admin.cloud.providerWarning}</p>
                                         </div>
+                                        {/* New Publish Button */}
+                                        <div className="pt-2">
+                                            <button 
+                                                onClick={handlePublishToNotion} 
+                                                disabled={isPublishingNotion}
+                                                className="w-full py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 border border-slate-200 flex items-center justify-center gap-2 transition-colors dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
+                                            >
+                                                {isPublishingNotion ? <Loader2 className="w-4 h-4 animate-spin" /> : <Book className="w-4 h-4" />}
+                                                {t.admin.cloud.notion.publishBtn}
+                                            </button>
+                                            <p className="text-[10px] text-slate-400 mt-1 text-center">{t.admin.cloud.notion.publishHelp}</p>
+                                        </div>
                                     </div>
                                 )}
 
@@ -1032,7 +1069,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                        <div className="flex gap-3">
                                           <input type="text" value={siteForm.backgroundUrl || ''} onChange={e => setSiteForm({...siteForm, backgroundUrl: e.target.value})} className="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none dark:bg-slate-800 dark:border-slate-700 dark:text-white" placeholder="https://..." />
                                           <label className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg cursor-pointer hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 whitespace-nowrap">
-                                              <Upload className="w-4 h-4 inline mr-2" /> Upload
+                                              <Upload className="w-4 h-4 inline mr-2" /> {t.admin.settings.upload}
                                               <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, (url) => setSiteForm({...siteForm, backgroundUrl: url}))} />
                                           </label>
                                        </div>

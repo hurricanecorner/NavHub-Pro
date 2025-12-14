@@ -21,7 +21,7 @@ interface ErrorBoundaryState {
 
 // Error Boundary Component
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { hasError: false };
+  public state: ErrorBoundaryState = { hasError: false };
 
   static getDerivedStateFromError(_: Error): ErrorBoundaryState {
     return { hasError: true };
@@ -526,9 +526,7 @@ const Dashboard: React.FC = () => {
                                {generalLinks.map((link, linkIndex) => (
                                  <Draggable key={link.id} draggableId={link.id} index={linkIndex} isDragDisabled={!isEditMode}>
                                    {(provided, snapshot) => (
-                                     <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} style={{ ...provided.draggableProps.style }} className={snapshot.isDragging ? "opacity-90 scale-105 z-50" : ""}>
-                                       <LinkCard item={link} isEditMode={isEditMode} onEdit={handleEditLink} onDelete={handleDeleteLink} t={t} />
-                                     </div>
+                                     <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} style={{ ...provided.draggableProps.style }} className={snapshot.isDragging ? "opacity-90 scale-105 z-50" : ""}><LinkCard item={link} isEditMode={isEditMode} onEdit={handleEditLink} onDelete={handleDeleteLink} t={t} /></div>
                                    )}
                                  </Draggable>
                                ))}

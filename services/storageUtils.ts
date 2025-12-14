@@ -1,5 +1,6 @@
 
-import { AppData, CloudConfig, Language, Theme } from '../types';
+
+import { AppData, CloudConfig, Language, Theme, LinkItem } from '../types';
 import { DEFAULT_DATA } from '../constants';
 
 const STORAGE_KEY = 'navhub_data_v1';
@@ -91,8 +92,9 @@ interface SyncResult {
 const GIST_FILENAME = 'navhub-data.json';
 const GITHUB_API_BASE = 'https://api.github.com';
 // GitHub truncates at 1MB (bytes). 
-// To be safe with UTF-8 characters (which can be 3-4 bytes), we limit chunk size to ~300k chars.
-const MAX_CHUNK_SIZE = 300000; 
+// Chinese characters are 3 bytes. 1MB = ~333k chinese chars.
+// To be safe and avoid truncation/multiple requests overhead, we use 100k chars.
+const MAX_CHUNK_SIZE = 100000; 
 
 const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncResult> => {
   if (!config.githubToken) {
@@ -229,6 +231,23 @@ const downloadFromGitHub = async (config: CloudConfig): Promise<SyncResult> => {
        } catch (e) {
          // Parse error, maybe just partial string? unlikely if not truncated
        }
+    } else if (mainFile.truncated) {
+        // Main file is truncated, fetch via raw_url to check if it's manifest or data
+        const rawRes = await fetch(mainFile.raw_url, { headers: { 'Authorization': `token ${config.githubToken}` } });
+        if (rawRes.ok) {
+            const rawText = await rawRes.text();
+            try {
+                const parsed = JSON.parse(rawText);
+                if (parsed.split === true && parsed.total > 0) {
+                   isManifest = true;
+                   manifest = parsed;
+                } else {
+                   finalData = parsed;
+                }
+            } catch (e) {
+                // If parse fails here, it might be corrupt
+            }
+        }
     }
 
     // If it is a manifest, reconstruct from parts
@@ -240,28 +259,29 @@ const downloadFromGitHub = async (config: CloudConfig): Promise<SyncResult> => {
           if (!partFile) {
              throw new Error(`Missing chunk file: ${partKey}`);
           }
+          
+          let partContent = partFile.content;
+
+          // FIX: Handle truncated chunk files by fetching raw_url
           if (partFile.truncated) {
-             throw new Error(`Chunk ${partKey} is too large (truncated). Upload failed.`);
+             const rawResponse = await fetch(partFile.raw_url, {
+                 headers: { 'Authorization': `token ${config.githubToken}` }
+             });
+             if (rawResponse.ok) {
+                 partContent = await rawResponse.text();
+             } else {
+                 throw new Error(`Chunk ${partKey} is too large and raw fetch failed.`);
+             }
           }
-          fullStr += partFile.content;
+          
+          fullStr += partContent;
        }
        finalData = JSON.parse(fullStr);
     } 
-    // Fallback: If not manifest and is truncated, try raw_url (Legacy Path)
-    else if (mainFile.truncated) {
-       try {
-          const rawResponse = await fetch(mainFile.raw_url, {
-             headers: { 'Authorization': `token ${config.githubToken}` }
-          });
-          if (rawResponse.ok) {
-             const rawText = await rawResponse.text();
-             finalData = JSON.parse(rawText);
-          } else {
-             throw new Error("CORS/Network Error on Raw URL");
-          }
-       } catch (e) {
-          throw new Error("Cannot download large file due to browser CORS limits. Please re-upload data from the source device to fix this.");
-       }
+    // Fallback: If not manifest and is truncated (and we haven't already fetched it above)
+    else if (!finalData && mainFile.truncated) {
+       // We already tried fetching raw above, if finalData is still null here, it means it failed or wasn't JSON
+        throw new Error("Cannot download large file. Raw fetch failed or invalid JSON.");
     }
 
     if (!finalData) {
@@ -441,6 +461,109 @@ const downloadFromNotion = async (config: CloudConfig): Promise<SyncResult> => {
     return { success: false, message: error.message || 'Notion download failed.' };
   }
 };
+
+// --- Notion: Publish as Readable Blocks ---
+export const publishToNotion = async (data: AppData, config: CloudConfig): Promise<SyncResult> => {
+  if (!config.notionToken || !config.notionPageId) {
+    return { success: false, message: 'Missing Notion Token or Page ID' };
+  }
+
+  const apiBase = getNotionApiBase(config);
+  const blocks: any[] = [];
+
+  // Generate Blocks
+  data.categories.forEach(cat => {
+    // Category Heading
+    blocks.push({
+      object: 'block',
+      type: 'heading_2',
+      heading_2: {
+        rich_text: [{ type: 'text', text: { content: cat.name } }]
+      }
+    });
+
+    // Helper for links
+    const createLinkBlock = (link: LinkItem) => ({
+      object: 'block',
+      type: 'bulleted_list_item',
+      bulleted_list_item: {
+        rich_text: [
+          {
+            type: 'text',
+            text: { content: link.title, link: { url: link.url } },
+            annotations: { bold: true }
+          },
+          ...(link.description ? [
+            { type: 'text', text: { content: ` - ${link.description}` } }
+          ] : [])
+        ]
+      }
+    });
+
+    // General Links
+    const generalLinks = data.links.filter(l => l.categoryId === cat.id && !l.subCategoryId);
+    generalLinks.forEach(l => blocks.push(createLinkBlock(l)));
+
+    // SubCategories
+    cat.subCategories.forEach(sub => {
+       blocks.push({
+        object: 'block',
+        type: 'heading_3',
+        heading_3: {
+          rich_text: [{ type: 'text', text: { content: sub.name } }]
+        }
+      });
+      const subLinks = data.links.filter(l => l.categoryId === cat.id && l.subCategoryId === sub.id);
+      subLinks.forEach(l => blocks.push(createLinkBlock(l)));
+    });
+    
+    // Add spacer
+    blocks.push({ object: 'block', type: 'paragraph', paragraph: { rich_text: [] } });
+  });
+
+  // Chunking (Notion allows max 100 blocks per request)
+  const chunkSize = 100;
+  
+  try {
+    // Validation check: ensure we can access the page first
+    const testUrl = `${apiBase}/blocks/${config.notionPageId}`;
+    const testRes = await fetch(testUrl, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${config.notionToken}`,
+            'Notion-Version': NOTION_VERSION,
+        }
+    });
+    
+    if (!testRes.ok) {
+         throw new Error(`Notion Connection Failed: ${testRes.statusText}. Check ID/Token/Proxy.`);
+    }
+
+    for (let i = 0; i < blocks.length; i += chunkSize) {
+       const chunk = blocks.slice(i, i + chunkSize);
+       const res = await fetch(`${apiBase}/blocks/${config.notionPageId}/children`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${config.notionToken}`,
+          'Notion-Version': NOTION_VERSION,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ children: chunk })
+      });
+      
+      if (!res.ok) {
+         throw new Error(`Notion API Error: ${res.statusText}`);
+      }
+    }
+
+    return { success: true, message: 'Links published to Notion successfully!' };
+
+  } catch (error: any) {
+    console.error("Notion Publish Error:", error);
+    return { success: false, message: error.message || 'Failed to publish to Notion.' };
+  }
+};
+
 
 // --- WebDAV Sync Logic (Nutstore / Jianguoyun) ---
 const WEBDAV_FILENAME = 'navhub-data.json';
