@@ -91,12 +91,9 @@ interface SyncResult {
 
 const GIST_FILENAME = 'navhub-data.json';
 const GITHUB_API_BASE = 'https://api.github.com';
-// GitHub truncates at 1MB (bytes). 
-// Chinese characters can be 3-4 bytes. Base64 images are dense.
-// We reduce chunk size to 50,000 characters.
-// This ensures chunks are ~150KB-200KB, well below the 1MB limit.
-// This prevents "truncated: true" responses, avoiding the need to fetch raw_url (which fails due to CORS).
-const MAX_CHUNK_SIZE = 50000; 
+// Extreme safety margin. 15,000 chars is ~45KB. 
+// This creates more files but guarantees we never hit the 1MB limit or CORS issues.
+const MAX_CHUNK_SIZE = 15000; 
 
 const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncResult> => {
   if (!config.githubToken) {
@@ -127,14 +124,23 @@ const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncR
       const chunkContent = jsonStr.substring(start, end);
       files[`navhub-data.part${i + 1}`] = { content: chunkContent };
     }
+    
+    // 3. Cleanup Strategy: 
+    // If the previous upload had MORE chunks than this one (e.g. 10 vs 5), 
+    // we should try to delete the extra ones to keep the Gist clean.
+    // Since we don't know exactly how many there were without fetching, 
+    // we aggressively try to delete the next 10 potential parts.
+    for (let j = 1; j <= 10; j++) {
+       files[`navhub-data.part${totalChunks + j}`] = { content: null };
+    }
+
   } else {
     // Normal Upload
     files[GIST_FILENAME] = { content: jsonStr };
-    // We attempt to delete potential old chunk files to keep Gist clean
-    // blind delete of first few parts just in case
-    files[`navhub-data.part1`] = { content: null };
-    files[`navhub-data.part2`] = { content: null };
-    files[`navhub-data.part3`] = { content: null };
+    // Blind cleanup of first 20 parts just in case we switched from chunked to non-chunked
+    for (let j = 1; j <= 20; j++) {
+       files[`navhub-data.part${j}`] = { content: null };
+    }
   }
 
   const payload = {
@@ -235,8 +241,8 @@ const downloadFromGitHub = async (config: CloudConfig): Promise<SyncResult> => {
          // Parse error, maybe just partial string? unlikely if not truncated
        }
     } else if (mainFile.truncated) {
-        // Main file is truncated. This is bad because CORS usually blocks raw fetch with Auth.
-        // We try anyway as a last resort, but users should re-upload with smaller chunks.
+        // Main file is truncated.
+        // We try raw_url fetch as a last resort.
         try {
            const rawRes = await fetch(mainFile.raw_url, { headers: { 'Authorization': `token ${config.githubToken}` } });
            if (rawRes.ok) {
@@ -249,10 +255,10 @@ const downloadFromGitHub = async (config: CloudConfig): Promise<SyncResult> => {
                   finalData = parsed;
               }
            } else {
-              throw new Error("Main file truncated and raw download failed (CORS). Please re-upload from source.");
+              throw new Error("CORS blocked raw fetch.");
            }
         } catch (e) {
-           throw new Error("Main file is too large (truncated). Please Re-Upload from Client A to fix.");
+           throw new Error("The main data file is too large (truncated). Please create a NEW Gist on Client A to fix this.");
         }
     }
 
@@ -263,26 +269,15 @@ const downloadFromGitHub = async (config: CloudConfig): Promise<SyncResult> => {
           const partKey = `navhub-data.part${i}`;
           const partFile = files[partKey];
           if (!partFile) {
-             throw new Error(`Missing chunk file: ${partKey}`);
+             throw new Error(`Missing chunk file: ${partKey}. The Gist might be corrupted.`);
           }
           
           let partContent = partFile.content;
 
           if (partFile.truncated) {
-             // If a PART is truncated, we are in trouble due to CORS. 
-             // Attempt raw fetch, but likely will fail if browser enforces CORS on raw.githubusercontent.com
-             try {
-                const rawResponse = await fetch(partFile.raw_url, {
-                    headers: { 'Authorization': `token ${config.githubToken}` }
-                });
-                if (rawResponse.ok) {
-                    partContent = await rawResponse.text();
-                } else {
-                     throw new Error("CORS blocked raw fetch.");
-                }
-             } catch (e) {
-                 throw new Error(`Chunk ${partKey} is too large. Please Re-Upload from Client A.`);
-             }
+             // If a PART is truncated, it means Client A uploaded a chunk > 1MB.
+             // This happens if Client A was running old code or cached logic.
+             throw new Error(`Chunk ${partKey} is too large. Please Clear Gist ID and Re-Upload from Client A.`);
           }
           
           fullStr += partContent;
