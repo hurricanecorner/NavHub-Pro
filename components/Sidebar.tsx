@@ -127,14 +127,14 @@ const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, 
                             <button
                               onClick={() => scrollToSection(category.id)}
                               className={`
-                                flex-1 flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-all group
+                                flex-1 flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-all group border
                                 ${isCustom 
                                   ? (isActive 
-                                      ? 'bg-white/20 text-white shadow-sm border border-white/10 backdrop-blur-sm' 
-                                      : 'text-slate-300 hover:bg-white/10 hover:text-white border border-transparent')
+                                      ? 'bg-white/20 text-white shadow-sm border-white/10 backdrop-blur-sm' 
+                                      : 'text-slate-300 hover:bg-white/10 hover:text-white border-transparent')
                                   : (isActive 
-                                      ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-300' 
-                                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50 dark:hover:text-slate-200')
+                                      ? 'bg-indigo-50 text-indigo-600 border-transparent dark:bg-indigo-900/40 dark:text-indigo-300' 
+                                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 border-transparent dark:text-slate-400 dark:hover:bg-slate-800/50 dark:hover:text-slate-200')
                                 }
                               `}
                             >
