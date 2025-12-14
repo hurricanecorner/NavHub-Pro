@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Plus, Save, Upload, Edit2, Trash2, Folder, ListPlus, Images, ArrowRight, Undo2, Tag, Download, Book, Cloud, ExternalLink, Settings, ChevronDown, ChevronUp, Wand2, Loader2, PanelTop, Copy, CheckCircle2, AlertTriangle, Image as ImageIcon } from 'lucide-react';
 import { AppData, Category, LinkItem, CloudConfig, SubCategory, SiteConfig } from '../types';
@@ -31,6 +30,50 @@ interface BulkIconUpload {
   preview: string;
   assignedId: string | null;
 }
+
+// --- Image Compression Helper ---
+const compressImage = (base64Str: string, maxWidth = 192, quality = 0.85): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.src = base64Str;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+
+      // Calculate new dimensions (maintain aspect ratio)
+      if (width > height) {
+        if (width > maxWidth) {
+          height *= maxWidth / width;
+          width = maxWidth;
+        }
+      } else {
+        if (height > maxWidth) {
+          width *= maxWidth / height;
+          height = maxWidth;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(base64Str);
+        return;
+      }
+
+      // Draw image to canvas
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // Compress to WebP (better than PNG for icons, supports transparency)
+      // Fallback to image/png if webp isn't supported automatically by browser logic usually, 
+      // but modern browsers support webp.
+      const compressed = canvas.toDataURL('image/webp', quality);
+      resolve(compressed);
+    };
+    img.onerror = (err) => reject(err);
+  });
+};
 
 const AdminModal: React.FC<AdminModalProps> = ({ 
   isOpen, onClose, data, onUpdateData, cloudConfig, onUpdateCloudConfig, onSyncUpload, onSyncDownload, isSyncing, editingItem, initialValues, t, showToast, confirmAction
@@ -120,12 +163,32 @@ const AdminModal: React.FC<AdminModalProps> = ({
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, onSuccess: (result: string) => void) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 500000) { // 500KB limit warning
-         showToast('info', "Image is large. It might slow down the app.");
-      }
       const reader = new FileReader();
-      reader.onloadend = () => {
-        onSuccess(reader.result as string);
+      reader.onloadend = async () => {
+        const originalBase64 = reader.result as string;
+        
+        try {
+            // Attempt compression
+            // Max dimension 192px is sufficient for icons displayed at 40px-64px
+            const compressedBase64 = await compressImage(originalBase64, 192, 0.85);
+            
+            // Compare sizes to ensure we actually saved space
+            // Base64 length * 0.75 is approx byte size
+            const originalSizeKB = Math.round((originalBase64.length * 0.75) / 1024);
+            const compressedSizeKB = Math.round((compressedBase64.length * 0.75) / 1024);
+
+            if (compressedSizeKB < originalSizeKB) {
+                // If savings are significant, use compressed
+                showToast('success', `Icon optimized: ${originalSizeKB}KB -> ${compressedSizeKB}KB`);
+                onSuccess(compressedBase64);
+            } else {
+                // If original was already tiny, keep it
+                onSuccess(originalBase64);
+            }
+        } catch (error) {
+            console.error("Compression failed, using original", error);
+            onSuccess(originalBase64);
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -262,12 +325,21 @@ const AdminModal: React.FC<AdminModalProps> = ({
     if (files) {
       Array.from(files).forEach((file: File) => {
         const reader = new FileReader();
-        reader.onloadend = () => {
-          setLinkBulkIcons(prev => [
+        reader.onloadend = async () => {
+            const originalBase64 = reader.result as string;
+            // Compress bulk icons too
+            let preview = originalBase64;
+            try {
+                preview = await compressImage(originalBase64, 192, 0.85);
+            } catch (e) {
+                console.error("Bulk icon compression failed", e);
+            }
+
+            setLinkBulkIcons(prev => [
             ...prev, 
             { 
               id: Math.random().toString(36).substr(2, 9), 
-              preview: reader.result as string, 
+              preview: preview, 
               assignedId: null 
             }
           ]);
