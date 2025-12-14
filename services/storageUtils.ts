@@ -90,20 +90,52 @@ interface SyncResult {
 
 const GIST_FILENAME = 'navhub-data.json';
 const GITHUB_API_BASE = 'https://api.github.com';
+// GitHub truncates at 1MB (bytes). 
+// To be safe with UTF-8 characters (which can be 3-4 bytes), we limit chunk size to ~300k chars.
+const MAX_CHUNK_SIZE = 300000; 
 
 const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncResult> => {
   if (!config.githubToken) {
     return { success: false, message: 'Missing GitHub Token' };
   }
 
+  const jsonStr = JSON.stringify(data, null, 2);
+  const files: Record<string, { content: string | null }> = {};
+
+  // Check if chunking is needed
+  if (jsonStr.length > MAX_CHUNK_SIZE) {
+    const totalChunks = Math.ceil(jsonStr.length / MAX_CHUNK_SIZE);
+    
+    // 1. Create Manifest File
+    files[GIST_FILENAME] = {
+      content: JSON.stringify({
+        split: true,
+        total: totalChunks,
+        timestamp: Date.now(),
+        size: jsonStr.length
+      })
+    };
+
+    // 2. Create Chunks
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * MAX_CHUNK_SIZE;
+      const end = start + MAX_CHUNK_SIZE;
+      const chunkContent = jsonStr.substring(start, end);
+      files[`navhub-data.part${i + 1}`] = { content: chunkContent };
+    }
+  } else {
+    // Normal Upload
+    files[GIST_FILENAME] = { content: jsonStr };
+    // We attempt to delete potential old chunk files to keep Gist clean, 
+    // but without fetching first we don't know if they exist. 
+    // Gist ignores "filename": null if file doesn't exist, so we can try blindly deleting a few common ones if we wanted,
+    // but it's safer to just leave them. The download logic prioritizes the manifest.
+  }
+
   const payload = {
     description: "NavHub Pro Backup Data",
     public: false,
-    files: {
-      [GIST_FILENAME]: {
-        content: JSON.stringify(data, null, 2)
-      }
-    }
+    files: files
   };
 
   try {
@@ -168,42 +200,83 @@ const downloadFromGitHub = async (config: CloudConfig): Promise<SyncResult> => {
     }
 
     const json = await response.json();
-    const file = json.files[GIST_FILENAME];
+    const files = json.files;
+    const mainFile = files[GIST_FILENAME];
 
-    if (!file) {
+    if (!mainFile) {
       throw new Error('NavHub data file not found in this Gist.');
     }
 
-    let content = file.content;
+    let content = mainFile.content;
+    let finalData: AppData | null = null;
 
-    // Fix for "Unterminated string in JSON": Handle truncated Gist content
-    if (file.truncated || !content) {
-        // Fetch raw content using the raw_url provided by GitHub API
-        const rawResponse = await fetch(file.raw_url, {
-            headers: { 'Authorization': `token ${config.githubToken}` }
-        });
-        
-        if (!rawResponse.ok) {
-            throw new Error("Failed to fetch raw gist content (Truncated).");
-        }
-        content = await rawResponse.text();
+    // Logic to handle "Legacy Truncated" files (failed raw_url fetch) 
+    // vs "New Chunked" files.
+    
+    // Attempt to parse main file to check if it's a manifest
+    let isManifest = false;
+    let manifest: any = {};
+    
+    if (content && !mainFile.truncated) {
+       try {
+         const parsed = JSON.parse(content);
+         if (parsed.split === true && parsed.total > 0) {
+            isManifest = true;
+            manifest = parsed;
+         } else {
+            finalData = parsed;
+         }
+       } catch (e) {
+         // Parse error, maybe just partial string? unlikely if not truncated
+       }
     }
 
-    if (!content) {
-        throw new Error('Gist content is empty.');
+    // If it is a manifest, reconstruct from parts
+    if (isManifest) {
+       let fullStr = '';
+       for (let i = 1; i <= manifest.total; i++) {
+          const partKey = `navhub-data.part${i}`;
+          const partFile = files[partKey];
+          if (!partFile) {
+             throw new Error(`Missing chunk file: ${partKey}`);
+          }
+          if (partFile.truncated) {
+             throw new Error(`Chunk ${partKey} is too large (truncated). Upload failed.`);
+          }
+          fullStr += partFile.content;
+       }
+       finalData = JSON.parse(fullStr);
+    } 
+    // Fallback: If not manifest and is truncated, try raw_url (Legacy Path)
+    else if (mainFile.truncated) {
+       try {
+          const rawResponse = await fetch(mainFile.raw_url, {
+             headers: { 'Authorization': `token ${config.githubToken}` }
+          });
+          if (rawResponse.ok) {
+             const rawText = await rawResponse.text();
+             finalData = JSON.parse(rawText);
+          } else {
+             throw new Error("CORS/Network Error on Raw URL");
+          }
+       } catch (e) {
+          throw new Error("Cannot download large file due to browser CORS limits. Please re-upload data from the source device to fix this.");
+       }
     }
 
-    const parsedData = JSON.parse(content);
+    if (!finalData) {
+       throw new Error("Failed to process Gist data.");
+    }
     
     // Basic validation
-    if (!Array.isArray(parsedData.categories) || !Array.isArray(parsedData.links)) {
+    if (!Array.isArray(finalData.categories) || !Array.isArray(finalData.links)) {
       throw new Error('Invalid data format in Gist.');
     }
 
     return { 
       success: true, 
       message: 'Data downloaded successfully from GitHub.',
-      data: parsedData,
+      data: finalData,
       timestamp: Date.parse(json.updated_at)
     };
 
