@@ -87,6 +87,19 @@ interface SyncResult {
   timestamp?: number;
 }
 
+// --- Helper: Prepare Data for Upload (Strip Background) ---
+const prepareDataForUpload = (data: AppData): AppData => {
+    // Create a deep copy to avoid mutating the original object in the UI
+    const cleanData = JSON.parse(JSON.stringify(data));
+    
+    // Strip background image to reduce size dramatically
+    if (cleanData.siteConfig) {
+        cleanData.siteConfig.backgroundUrl = ''; 
+    }
+    
+    return cleanData;
+};
+
 // --- GitHub Gist Sync Logic ---
 
 const GIST_FILENAME = 'navhub-data.json';
@@ -99,11 +112,14 @@ const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncR
     return { success: false, message: 'Missing GitHub Token' };
   }
 
+  // 1. Prepare lightweight data (No Background)
+  const dataToUpload = prepareDataForUpload(data);
+
   // Robustly determine if we are updating or creating
   const safeGistId = config.gistId?.trim() || '';
   const isUpdate = safeGistId.length > 0;
 
-  const jsonStr = JSON.stringify(data, null, 2);
+  const jsonStr = JSON.stringify(dataToUpload, null, 2);
   
   // Use 'any' type to allow assigning null directly to the file key for deletion
   // GitHub API requires key: null to delete, NOT key: {content: null}
@@ -132,8 +148,6 @@ const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncR
     }
     
     // 3. Cleanup Strategy (ONLY IF UPDATING)
-    // CRITICAL: Ensure we only add null content if isUpdate is true
-    // FIX: Set value to null directly to delete file in Gist
     if (isUpdate) {
         for (let j = 1; j <= 10; j++) {
            files[`navhub-data.part${totalChunks + j}`] = null;
@@ -145,7 +159,6 @@ const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncR
     files[GIST_FILENAME] = { content: jsonStr };
     
     // Cleanup Strategy (ONLY IF UPDATING)
-    // FIX: Set value to null directly to delete file in Gist
     if (isUpdate) {
         for (let j = 1; j <= 20; j++) {
            files[`navhub-data.part${j}`] = null;
@@ -360,8 +373,11 @@ const uploadToNotion = async (data: AppData, config: CloudConfig): Promise<SyncR
     return { success: false, message: 'Missing Notion Token or Page ID' };
   }
 
+  // 1. Prepare lightweight data
+  const dataToUpload = prepareDataForUpload(data);
+
   const apiBase = getNotionApiBase(config);
-  const jsonString = JSON.stringify(data, null, 2);
+  const jsonString = JSON.stringify(dataToUpload, null, 2);
   const chunks = chunkText(jsonString);
   const richTextObjects = chunks.map(chunk => ({
     type: "text",
@@ -607,6 +623,9 @@ const uploadToWebDAV = async (data: AppData, config: CloudConfig): Promise<SyncR
         return { success: false, message: 'Missing WebDAV credentials.' };
     }
 
+    // 1. Prepare lightweight data
+    const dataToUpload = prepareDataForUpload(data);
+
     const fileUrl = getWebDAVUrl(config.webdavUrl);
     const authHeader = 'Basic ' + btoa(`${config.webdavUsername}:${config.webdavPassword}`);
 
@@ -617,7 +636,7 @@ const uploadToWebDAV = async (data: AppData, config: CloudConfig): Promise<SyncR
                 'Authorization': authHeader,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(data, null, 2)
+            body: JSON.stringify(dataToUpload, null, 2)
         });
 
         if (!response.ok) {

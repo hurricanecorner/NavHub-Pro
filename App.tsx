@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, ReactNode, ErrorInfo, Component } from 'react';
+import React, { useState, useEffect, useRef, ReactNode, ErrorInfo } from 'react';
 import { Menu, Search, Settings, Edit, Lock, RefreshCw, CheckCircle2, AlertCircle, Languages, AlertTriangle, Loader2, Moon, Sun, Laptop, GripVertical, Plus, Hash, Image as ImageIcon } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { AppData, LinkItem, CloudConfig, Language, Theme } from './types';
@@ -20,7 +20,7 @@ interface ErrorBoundaryState {
 }
 
 // Error Boundary Component
-class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = { hasError: false };
@@ -268,8 +268,17 @@ const Dashboard: React.FC = () => {
          const result = await downloadFromCloud(configToUse);
          setIsSyncing(false);
          if (result.success && result.data) {
-           setData(result.data);
-           saveData(result.data);
+           // PRESERVE LOCAL BACKGROUND IMAGE Logic
+           const newData = result.data;
+           const currentBackground = data.siteConfig?.backgroundUrl;
+           
+           // If cloud data has no background (because we stripped it), AND we have a local one, keep local.
+           if (currentBackground && newData.siteConfig && !newData.siteConfig.backgroundUrl) {
+              newData.siteConfig.backgroundUrl = currentBackground;
+           }
+
+           setData(newData);
+           saveData(newData);
            setSyncStatus('synced');
            showToast('success', t.admin.cloud.downloadSuccess);
            setIsAdminModalOpen(false); 
