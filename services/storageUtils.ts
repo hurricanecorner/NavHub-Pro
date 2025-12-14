@@ -92,7 +92,6 @@ interface SyncResult {
 const GIST_FILENAME = 'navhub-data.json';
 const GITHUB_API_BASE = 'https://api.github.com';
 // Extreme safety margin. 15,000 chars is ~45KB. 
-// This creates more files but guarantees we never hit the 1MB limit or CORS issues.
 const MAX_CHUNK_SIZE = 15000; 
 
 const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncResult> => {
@@ -125,21 +124,25 @@ const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncR
       files[`navhub-data.part${i + 1}`] = { content: chunkContent };
     }
     
-    // 3. Cleanup Strategy: 
-    // If the previous upload had MORE chunks than this one (e.g. 10 vs 5), 
-    // we should try to delete the extra ones to keep the Gist clean.
-    // Since we don't know exactly how many there were without fetching, 
-    // we aggressively try to delete the next 10 potential parts.
-    for (let j = 1; j <= 10; j++) {
-       files[`navhub-data.part${totalChunks + j}`] = { content: null };
+    // 3. Cleanup Strategy (ONLY IF UPDATING)
+    // If we are updating an existing Gist, we try to delete extra parts.
+    // We cannot do this for a new Gist (POST) as it causes 422 error.
+    if (config.gistId) {
+        for (let j = 1; j <= 10; j++) {
+           files[`navhub-data.part${totalChunks + j}`] = { content: null };
+        }
     }
 
   } else {
     // Normal Upload
     files[GIST_FILENAME] = { content: jsonStr };
+    
+    // Cleanup Strategy (ONLY IF UPDATING)
     // Blind cleanup of first 20 parts just in case we switched from chunked to non-chunked
-    for (let j = 1; j <= 20; j++) {
-       files[`navhub-data.part${j}`] = { content: null };
+    if (config.gistId) {
+        for (let j = 1; j <= 20; j++) {
+           files[`navhub-data.part${j}`] = { content: null };
+        }
     }
   }
 
@@ -176,7 +179,17 @@ const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncR
       if (response.status === 401) {
         return { success: false, message: 'Invalid GitHub Token.' };
       }
-      throw new Error(`GitHub API Error: ${response.statusText}`);
+      
+      // Attempt to get more detailed error message
+      let errorMsg = response.statusText;
+      try {
+        const errBody = await response.json();
+        if (errBody.message) errorMsg = errBody.message;
+      } catch (e) {
+        // ignore json parse error
+      }
+      
+      throw new Error(`GitHub API Error (${response.status}): ${errorMsg}`);
     }
 
     const resJson = await response.json();
