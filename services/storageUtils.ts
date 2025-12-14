@@ -104,8 +104,9 @@ const prepareDataForUpload = (data: AppData): AppData => {
 
 const GIST_FILENAME = 'navhub-data.json';
 const GITHUB_API_BASE = 'https://api.github.com';
-// Extreme safety margin. 15,000 chars is ~45KB. 
-const MAX_CHUNK_SIZE = 15000; 
+// Safety margin. 100,000 chars is ~100KB. GitHub supports up to 1MB easily.
+// Increasing this reduces the chance of chunking logic triggering unnecessarily.
+const MAX_CHUNK_SIZE = 100000; 
 
 const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncResult> => {
   if (!config.githubToken) {
@@ -149,7 +150,8 @@ const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncR
     
     // 3. Cleanup Strategy (ONLY IF UPDATING)
     if (isUpdate) {
-        for (let j = 1; j <= 10; j++) {
+        // Only try to clean up a reasonable amount of potential old chunks
+        for (let j = 1; j <= 5; j++) {
            files[`navhub-data.part${totalChunks + j}`] = null;
         }
     }
@@ -160,17 +162,41 @@ const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncR
     
     // Cleanup Strategy (ONLY IF UPDATING)
     if (isUpdate) {
-        for (let j = 1; j <= 20; j++) {
+        // Since we stripped the background, data is likely small. 
+        // We clean up potential old parts.
+        for (let j = 1; j <= 10; j++) {
            files[`navhub-data.part${j}`] = null;
         }
     }
   }
 
-  const payload = {
+  // --- CRITICAL FIX FOR 422 ERROR (CREATE MODE) ---
+  // If we are creating a NEW Gist (POST), we strictly cannot send `null` values in the files object.
+  if (!isUpdate) {
+      Object.keys(files).forEach(key => {
+          if (files[key] === null) {
+              delete files[key];
+          }
+      });
+  }
+  
+  // Safety check: Ensure we are sending at least one file
+  if (Object.keys(files).length === 0) {
+      return { success: false, message: 'Error: No data generated to upload.' };
+  }
+
+  // --- CRITICAL FIX FOR 422 ERROR (UPDATE MODE) ---
+  // Construct payload differently for POST (Create) and PATCH (Update).
+  // 'public' field cannot be changed via PATCH and causes validation errors.
+  let payload: any = {
     description: "NavHub Pro Backup Data",
-    public: false,
     files: files
   };
+
+  if (!isUpdate) {
+      // Only include 'public' when creating new
+      payload.public = false; 
+  }
 
   try {
     let url = `${GITHUB_API_BASE}/gists`;
