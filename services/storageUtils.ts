@@ -170,11 +170,30 @@ const downloadFromGitHub = async (config: CloudConfig): Promise<SyncResult> => {
     const json = await response.json();
     const file = json.files[GIST_FILENAME];
 
-    if (!file || !file.content) {
+    if (!file) {
       throw new Error('NavHub data file not found in this Gist.');
     }
 
-    const parsedData = JSON.parse(file.content);
+    let content = file.content;
+
+    // Fix for "Unterminated string in JSON": Handle truncated Gist content
+    if (file.truncated || !content) {
+        // Fetch raw content using the raw_url provided by GitHub API
+        const rawResponse = await fetch(file.raw_url, {
+            headers: { 'Authorization': `token ${config.githubToken}` }
+        });
+        
+        if (!rawResponse.ok) {
+            throw new Error("Failed to fetch raw gist content (Truncated).");
+        }
+        content = await rawResponse.text();
+    }
+
+    if (!content) {
+        throw new Error('Gist content is empty.');
+    }
+
+    const parsedData = JSON.parse(content);
     
     // Basic validation
     if (!Array.isArray(parsedData.categories) || !Array.isArray(parsedData.links)) {
@@ -444,12 +463,14 @@ const downloadFromWebDAV = async (config: CloudConfig): Promise<SyncResult> => {
 // --- Main Exported Functions ---
 
 export const uploadToCloud = async (data: AppData, config: CloudConfig): Promise<SyncResult> => {
+  // Defensive: explicitly check strings to avoid unexpected fallthrough
   if (config.activeProvider === 'notion') {
     return uploadToNotion(data, config);
   }
   if (config.activeProvider === 'webdav') {
     return uploadToWebDAV(data, config);
   }
+  // Default to GitHub for 'github' or invalid/empty types
   return uploadToGitHub(data, config);
 };
 

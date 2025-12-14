@@ -222,21 +222,30 @@ const Dashboard: React.FC = () => {
     saveTheme(newTheme);
   };
 
-  // Sync Logic (Upload/Download) omitted for brevity as it's static relative to UI changes
+  // Sync Logic
+  const handleSyncUpload = async (configOverride?: CloudConfig) => {
+    // Use the config passed from Modal if available, otherwise use state
+    const configToUse = configOverride || cloudConfig;
 
-  const handleSyncUpload = async () => {
-    if (!cloudConfig.enabled) return showToast('error', t.app.enableSyncFirst);
+    if (!configToUse.enabled) return showToast('error', t.app.enableSyncFirst);
     setIsSyncing(true);
     setSyncStatus('syncing');
-    const result = await uploadToCloud(data, cloudConfig);
+    
+    const result = await uploadToCloud(data, configToUse);
     setIsSyncing(false);
+    
     if (result.success) {
       setSyncStatus('synced');
       showToast('success', t.admin.cloud.uploadSuccess);
-      if (cloudConfig.activeProvider === 'github' && result.newGistId && result.newGistId !== cloudConfig.gistId) {
-        const newConfig = { ...cloudConfig, gistId: result.newGistId };
+      // Update local state and storage if a new Gist ID was created
+      if (configToUse.activeProvider === 'github' && result.newGistId && result.newGistId !== configToUse.gistId) {
+        const newConfig = { ...configToUse, gistId: result.newGistId };
         setCloudConfig(newConfig);
         saveCloudConfig(newConfig);
+      } else if (configOverride) {
+        // If upload succeeded with override config, save it as main config to prevent confusion
+        setCloudConfig(configToUse);
+        saveCloudConfig(configToUse);
       }
     } else {
       setSyncStatus('error');
@@ -244,12 +253,16 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const handleSyncDownload = async () => {
-     if (!cloudConfig.enabled) return showToast('error', t.app.enableSyncFirst);
+  const handleSyncDownload = async (configOverride?: CloudConfig) => {
+     // Use the config passed from Modal if available, otherwise use state
+     const configToUse = configOverride || cloudConfig;
+
+     if (!configToUse.enabled) return showToast('error', t.app.enableSyncFirst);
+     
      confirmAction(t.admin.cloud.download, t.admin.cloud.warning, async () => {
          setIsSyncing(true);
          setSyncStatus('syncing');
-         const result = await downloadFromCloud(cloudConfig);
+         const result = await downloadFromCloud(configToUse);
          setIsSyncing(false);
          if (result.success && result.data) {
            setData(result.data);
@@ -257,6 +270,11 @@ const Dashboard: React.FC = () => {
            setSyncStatus('synced');
            showToast('success', t.admin.cloud.downloadSuccess);
            setIsAdminModalOpen(false); 
+           // If download succeeded with override config, save it
+           if (configOverride) {
+              setCloudConfig(configToUse);
+              saveCloudConfig(configToUse);
+           }
          } else {
            setSyncStatus('error');
            showToast('error', result.message);

@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Plus, Save, Upload, Edit2, Trash2, Folder, ListPlus, Images, ArrowRight, Undo2, Tag, Download, Book, Cloud, ExternalLink, Settings, ChevronDown, ChevronUp, Wand2, Loader2, PanelTop, Copy, CheckCircle2, AlertTriangle, Image as ImageIcon } from 'lucide-react';
 import { AppData, Category, LinkItem, CloudConfig, SubCategory, SiteConfig } from '../types';
@@ -11,8 +12,8 @@ interface AdminModalProps {
   onUpdateData: (newData: AppData) => void;
   cloudConfig: CloudConfig;
   onUpdateCloudConfig: (config: CloudConfig) => void;
-  onSyncUpload: () => void;
-  onSyncDownload: () => void;
+  onSyncUpload: (config?: CloudConfig) => void;
+  onSyncDownload: (config?: CloudConfig) => void;
   isSyncing: boolean;
   editingItem: LinkItem | null;
   initialValues?: { categoryId: string; subCategoryId: string } | null;
@@ -878,15 +879,49 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                     </div>
                                 )}
 
-                                {/* Inputs for Notion and WebDAV would mirror structure above - simplified for brevity */}
+                                {localCloudConfig.activeProvider === 'notion' && (
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-xs font-medium text-slate-500 uppercase mb-1">{t.admin.cloud.notion.tokenLabel}</label>
+                                            <input type="password" value={localCloudConfig.notionToken} onChange={e => setLocalCloudConfig({...localCloudConfig, notionToken: e.target.value})} className="w-full px-3 py-2 border rounded-lg dark:bg-slate-800 dark:border-slate-700 dark:text-white" placeholder={t.admin.cloud.notion.tokenPlaceholder} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-slate-500 uppercase mb-1">{t.admin.cloud.notion.pageLabel}</label>
+                                            <input type="text" value={localCloudConfig.notionPageId} onChange={e => setLocalCloudConfig({...localCloudConfig, notionPageId: e.target.value})} className="w-full px-3 py-2 border rounded-lg dark:bg-slate-800 dark:border-slate-700 dark:text-white" placeholder={t.admin.cloud.notion.pagePlaceholder} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-slate-500 uppercase mb-1">{t.admin.cloud.notion.apiUrlLabel}</label>
+                                            <input type="text" value={localCloudConfig.notionApiUrl || ''} onChange={e => setLocalCloudConfig({...localCloudConfig, notionApiUrl: e.target.value})} className="w-full px-3 py-2 border rounded-lg dark:bg-slate-800 dark:border-slate-700 dark:text-white" placeholder={t.admin.cloud.notion.apiUrlPlaceholder} />
+                                            <p className="text-xs text-amber-500 mt-1">{t.admin.cloud.providerWarning}</p>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {localCloudConfig.activeProvider === 'webdav' && (
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-xs font-medium text-slate-500 uppercase mb-1">{t.admin.cloud.webdav.urlLabel}</label>
+                                            <input type="text" value={localCloudConfig.webdavUrl || ''} onChange={e => setLocalCloudConfig({...localCloudConfig, webdavUrl: e.target.value})} className="w-full px-3 py-2 border rounded-lg dark:bg-slate-800 dark:border-slate-700 dark:text-white" placeholder={t.admin.cloud.webdav.urlPlaceholder} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-slate-500 uppercase mb-1">{t.admin.cloud.webdav.userLabel}</label>
+                                            <input type="text" value={localCloudConfig.webdavUsername || ''} onChange={e => setLocalCloudConfig({...localCloudConfig, webdavUsername: e.target.value})} className="w-full px-3 py-2 border rounded-lg dark:bg-slate-800 dark:border-slate-700 dark:text-white" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-slate-500 uppercase mb-1">{t.admin.cloud.webdav.pwdLabel}</label>
+                                            <input type="password" value={localCloudConfig.webdavPassword || ''} onChange={e => setLocalCloudConfig({...localCloudConfig, webdavPassword: e.target.value})} className="w-full px-3 py-2 border rounded-lg dark:bg-slate-800 dark:border-slate-700 dark:text-white" />
+                                        </div>
+                                        <p className="text-xs text-amber-500">{t.admin.cloud.webdavWarning}</p>
+                                    </div>
+                                )}
 
                                 <button onClick={handleSaveCloudConfig} className="w-full py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600">{t.admin.cloud.saveConfig}</button>
 
                                 <div className="pt-6 border-t border-slate-100 dark:border-slate-700 grid grid-cols-2 gap-4">
-                                   <button onClick={onSyncUpload} className="py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center justify-center gap-2">
+                                   <button onClick={() => onSyncUpload(localCloudConfig)} className="py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center justify-center gap-2">
                                      <Upload className="w-4 h-4" /> {t.admin.cloud.upload}
                                    </button>
-                                   <button onClick={onSyncDownload} className="py-3 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 flex items-center justify-center gap-2 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200">
+                                   <button onClick={() => onSyncDownload(localCloudConfig)} className="py-3 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 flex items-center justify-center gap-2 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200">
                                      <Download className="w-4 h-4" /> {t.admin.cloud.download}
                                    </button>
                                 </div>
