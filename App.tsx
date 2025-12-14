@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, ReactNode, ErrorInfo, Component } from 'react';
-import { Menu, Search, Settings, Edit, Lock, RefreshCw, CheckCircle2, AlertCircle, Languages, AlertTriangle, Loader2, Moon, Sun, Laptop, GripVertical, Plus, Hash, Image as ImageIcon } from 'lucide-react';
+import React, { useState, useEffect, useRef, ReactNode, ErrorInfo } from 'react';
+import { Menu, Search, Settings, Edit, Lock, RefreshCw, CheckCircle2, AlertCircle, Languages, AlertTriangle, Loader2, Moon, Sun, Laptop, GripVertical, Plus, Hash, Image as ImageIcon, ChevronDown } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { AppData, LinkItem, CloudConfig, Language, Theme } from './types';
 import { loadData, saveData, loadCloudConfig, saveCloudConfig, uploadToCloud, downloadFromCloud, loadLanguage, saveLanguage, loadTheme, saveTheme } from './services/storageUtils';
@@ -20,8 +20,11 @@ interface ErrorBoundaryState {
 }
 
 // Error Boundary Component
-class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  public state: ErrorBoundaryState = { hasError: false };
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
 
   static getDerivedStateFromError(_: Error): ErrorBoundaryState {
     return { hasError: true };
@@ -70,6 +73,7 @@ const Dashboard: React.FC = () => {
   // UI State
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState('');
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   
   // Search State
   const [searchInputValue, setSearchInputValue] = useState(''); // Raw input
@@ -220,6 +224,18 @@ const Dashboard: React.FC = () => {
   const handleThemeChange = (newTheme: Theme) => {
     setTheme(newTheme);
     saveTheme(newTheme);
+  };
+  
+  const toggleCategoryCollapse = (categoryId: string) => {
+    setCollapsedCategories(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(categoryId)) {
+        newSet.delete(categoryId);
+      } else {
+        newSet.add(categoryId);
+      }
+      return newSet;
+    });
   };
 
   // Sync Logic
@@ -511,103 +527,112 @@ const Dashboard: React.FC = () => {
               data.categories.map(category => {
                 // Filter General Links for this category
                 const generalLinks = data.links.filter(l => l.categoryId === category.id && !l.subCategoryId);
+                const isCollapsed = collapsedCategories.has(category.id);
                 
                 return (
                 <section key={category.id} id={`category-${category.id}`} className="scroll-mt-24">
-                  <div className="flex items-center gap-3 mb-6">
+                  <div 
+                    className="flex items-center gap-3 mb-6 cursor-pointer select-none group"
+                    onDoubleClick={() => toggleCategoryCollapse(category.id)}
+                  >
+                    <ChevronDown className={`w-6 h-6 transition-transform duration-200 ${isCollapsed ? '-rotate-90 text-slate-400' : 'text-slate-800 dark:text-white'}`} />
                     <h2 className="text-2xl font-bold text-slate-800 dark:text-white drop-shadow-sm">{category.name}</h2>
                     <div className={`h-px flex-1 ${theme === 'custom' ? 'bg-white/20' : 'bg-slate-200 dark:bg-slate-700'}`} />
                   </div>
 
-                  {/* General Links Droppable Area */}
-                  {(generalLinks.length > 0 || isEditMode) && (
-                     <div className={`pl-0 lg:pl-4 rounded-xl p-2 border transition-colors mb-8 ${theme === 'custom' ? 'bg-black/20 border-white/5 hover:border-white/10' : 'bg-white/50 border-transparent hover:border-slate-100 dark:bg-slate-800/30 dark:hover:border-slate-700'}`}>
-                       {/* Optional Label for General links in Edit Mode for clarity */}
-                       {isEditMode && (
-                         <div className="flex items-center gap-2 mb-2 px-1 opacity-60">
-                            <Hash className="w-4 h-4 text-slate-400" />
-                            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider dark:text-slate-400">General</span>
-                         </div>
-                       )}
-                       <Droppable droppableId={`links__${category.id}__GENERAL`} type="LINK" direction="horizontal">
-                          {(provided) => (
-                            <div ref={provided.innerRef} {...provided.droppableProps} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                               {generalLinks.map((link, linkIndex) => (
-                                 <Draggable key={link.id} draggableId={link.id} index={linkIndex} isDragDisabled={!isEditMode}>
-                                   {(provided, snapshot) => (
-                                     <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} style={{ ...provided.draggableProps.style }} className={snapshot.isDragging ? "opacity-90 scale-105 z-50" : ""}><LinkCard item={link} isEditMode={isEditMode} onEdit={handleEditLink} onDelete={handleDeleteLink} t={t} /></div>
-                                   )}
-                                 </Draggable>
-                               ))}
-                               {provided.placeholder}
-                               {/* Add Link Shortcut for General Category */}
-                               {isEditMode && (
-                                  <button onClick={() => handleAddLinkShortcut(category.id, '')} className={`flex flex-col items-center justify-center gap-2 min-h-[120px] border-2 border-dashed rounded-xl transition-all group ${theme === 'custom' ? 'bg-black/20 border-white/20 hover:bg-white/10 hover:border-white/40' : 'bg-slate-50 border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 dark:bg-slate-800/30 dark:border-slate-700 dark:hover:border-indigo-500/50'}`}>
-                                    <div className="w-10 h-10 rounded-full bg-white/10 border border-white/20 flex items-center justify-center group-hover:scale-110 transition-transform"><Plus className="w-5 h-5 text-slate-400 group-hover:text-indigo-500" /></div><span className="text-xs font-medium text-slate-400 group-hover:text-indigo-600 dark:text-slate-500">{t.app.addLink}</span>
-                                  </button>
-                               )}
-                            </div>
-                          )}
-                       </Droppable>
-                     </div>
-                  )}
-
-                  <Droppable droppableId={`cat-${category.id}`} type="SUBCAT">
-                    {(provided) => (
-                      <div 
-                        ref={provided.innerRef} 
-                        {...provided.droppableProps}
-                        className="space-y-8"
-                      >
-                        {category.subCategories.length > 0 ? (
-                          category.subCategories.map((subCat, index) => {
-                            const subCatLinks = data.links.filter(l => l.categoryId === category.id && l.subCategoryId === subCat.id);
-                            if (subCatLinks.length === 0 && !isEditMode) return null;
-
-                            return (
-                              <Draggable key={subCat.id} draggableId={subCat.id} index={index} isDragDisabled={!isEditMode}>
-                                {(provided) => (
-                                  <div ref={provided.innerRef} {...provided.draggableProps} id={`subcat-${subCat.id}`} className={`pl-0 lg:pl-4 rounded-xl p-2 border transition-colors scroll-mt-24 ${theme === 'custom' ? 'bg-black/20 border-white/5 hover:border-white/10' : 'bg-white/50 border-transparent hover:border-slate-100 dark:bg-slate-800/30 dark:hover:border-slate-700'}`}>
-                                    <div className="flex items-center gap-2 mb-4 group">
-                                      <div {...provided.dragHandleProps} className={`cursor-grab p-1 rounded hover:bg-slate-200 text-slate-400 dark:hover:bg-slate-700 dark:text-slate-500 ${isEditMode ? 'opacity-100' : 'opacity-0 hidden'}`}><GripVertical className="w-4 h-4" /></div>
-                                      <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider dark:text-slate-400">{subCat.name}</h3>
-                                    </div>
-
-                                    <Droppable droppableId={`links__${category.id}__${subCat.id}`} type="LINK" direction="horizontal">
-                                      {(provided) => (
-                                        <div ref={provided.innerRef} {...provided.droppableProps} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 min-h-[50px]">
-                                          {subCatLinks.map((link, linkIndex) => (
-                                            <Draggable key={link.id} draggableId={link.id} index={linkIndex} isDragDisabled={!isEditMode}>
-                                              {(provided, snapshot) => (
-                                                <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} style={{ ...provided.draggableProps.style }} className={snapshot.isDragging ? "opacity-90 scale-105 z-50" : ""}><LinkCard item={link} isEditMode={isEditMode} onEdit={handleEditLink} onDelete={handleDeleteLink} t={t} /></div>
-                                              )}
-                                            </Draggable>
-                                          ))}
-                                          {provided.placeholder}
-                                          {isEditMode && (
-                                            <button onClick={() => handleAddLinkShortcut(category.id, subCat.id)} className={`flex flex-col items-center justify-center gap-2 min-h-[120px] border-2 border-dashed rounded-xl transition-all group ${theme === 'custom' ? 'bg-black/20 border-white/20 hover:bg-white/10 hover:border-white/40' : 'bg-slate-50 border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 dark:bg-slate-800/30 dark:border-slate-700 dark:hover:border-indigo-500/50'}`}>
-                                              <div className="w-10 h-10 rounded-full bg-white/10 border border-white/20 flex items-center justify-center group-hover:scale-110 transition-transform"><Plus className="w-5 h-5 text-slate-400 group-hover:text-indigo-500" /></div><span className="text-xs font-medium text-slate-400 group-hover:text-indigo-600 dark:text-slate-500">{t.app.addLink}</span>
-                                            </button>
-                                          )}
-                                        </div>
-                                      )}
-                                    </Droppable>
-                                  </div>
-                                )}
-                              </Draggable>
-                            );
-                          })
-                        ) : (
-                          isEditMode && category.subCategories.length === 0 && generalLinks.length === 0 && (
-                             <div className={`p-8 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-slate-400 ${theme === 'custom' ? 'border-white/20' : 'border-slate-200 dark:border-slate-700'}`}>
-                                <p className="text-sm">{t.app.noSubCategories}</p>
+                  {!isCollapsed && (
+                    <>
+                      {/* General Links Droppable Area */}
+                      {(generalLinks.length > 0 || isEditMode) && (
+                         <div className={`pl-0 lg:pl-4 rounded-xl p-2 border transition-colors mb-8 ${theme === 'custom' ? 'bg-black/20 border-white/5 hover:border-white/10' : 'bg-white/50 border-transparent hover:border-slate-100 dark:bg-slate-800/30 dark:hover:border-slate-700'}`}>
+                           {/* Optional Label for General links in Edit Mode for clarity */}
+                           {isEditMode && (
+                             <div className="flex items-center gap-2 mb-2 px-1 opacity-60">
+                                <Hash className="w-4 h-4 text-slate-400" />
+                                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider dark:text-slate-400">General</span>
                              </div>
-                          )
+                           )}
+                           <Droppable droppableId={`links__${category.id}__GENERAL`} type="LINK" direction="horizontal">
+                              {(provided) => (
+                                <div ref={provided.innerRef} {...provided.droppableProps} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                                   {generalLinks.map((link, linkIndex) => (
+                                     <Draggable key={link.id} draggableId={link.id} index={linkIndex} isDragDisabled={!isEditMode}>
+                                       {(provided, snapshot) => (
+                                         <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} style={{ ...provided.draggableProps.style }} className={snapshot.isDragging ? "opacity-90 scale-105 z-50" : ""}><LinkCard item={link} isEditMode={isEditMode} onEdit={handleEditLink} onDelete={handleDeleteLink} t={t} /></div>
+                                       )}
+                                     </Draggable>
+                                   ))}
+                                   {provided.placeholder}
+                                   {/* Add Link Shortcut for General Category */}
+                                   {isEditMode && (
+                                      <button onClick={() => handleAddLinkShortcut(category.id, '')} className={`flex flex-col items-center justify-center gap-2 min-h-[120px] border-2 border-dashed rounded-xl transition-all group ${theme === 'custom' ? 'bg-black/20 border-white/20 hover:bg-white/10 hover:border-white/40' : 'bg-slate-50 border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 dark:bg-slate-800/30 dark:border-slate-700 dark:hover:border-indigo-500/50'}`}>
+                                        <div className="w-10 h-10 rounded-full bg-white/10 border border-white/20 flex items-center justify-center group-hover:scale-110 transition-transform"><Plus className="w-5 h-5 text-slate-400 group-hover:text-indigo-500" /></div><span className="text-xs font-medium text-slate-400 group-hover:text-indigo-600 dark:text-slate-500">{t.app.addLink}</span>
+                                      </button>
+                                   )}
+                                </div>
+                              )}
+                           </Droppable>
+                         </div>
+                      )}
+
+                      <Droppable droppableId={`cat-${category.id}`} type="SUBCAT">
+                        {(provided) => (
+                          <div 
+                            ref={provided.innerRef} 
+                            {...provided.droppableProps}
+                            className="space-y-8"
+                          >
+                            {category.subCategories.length > 0 ? (
+                              category.subCategories.map((subCat, index) => {
+                                const subCatLinks = data.links.filter(l => l.categoryId === category.id && l.subCategoryId === subCat.id);
+                                if (subCatLinks.length === 0 && !isEditMode) return null;
+
+                                return (
+                                  <Draggable key={subCat.id} draggableId={subCat.id} index={index} isDragDisabled={!isEditMode}>
+                                    {(provided) => (
+                                      <div ref={provided.innerRef} {...provided.draggableProps} id={`subcat-${subCat.id}`} className={`pl-0 lg:pl-4 rounded-xl p-2 border transition-colors scroll-mt-24 ${theme === 'custom' ? 'bg-black/20 border-white/5 hover:border-white/10' : 'bg-white/50 border-transparent hover:border-slate-100 dark:bg-slate-800/30 dark:hover:border-slate-700'}`}>
+                                        <div className="flex items-center gap-2 mb-4 group">
+                                          <div {...provided.dragHandleProps} className={`cursor-grab p-1 rounded hover:bg-slate-200 text-slate-400 dark:hover:bg-slate-700 dark:text-slate-500 ${isEditMode ? 'opacity-100' : 'opacity-0 hidden'}`}><GripVertical className="w-4 h-4" /></div>
+                                          <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider dark:text-slate-400">{subCat.name}</h3>
+                                        </div>
+
+                                        <Droppable droppableId={`links__${category.id}__${subCat.id}`} type="LINK" direction="horizontal">
+                                          {(provided) => (
+                                            <div ref={provided.innerRef} {...provided.droppableProps} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 min-h-[50px]">
+                                              {subCatLinks.map((link, linkIndex) => (
+                                                <Draggable key={link.id} draggableId={link.id} index={linkIndex} isDragDisabled={!isEditMode}>
+                                                  {(provided, snapshot) => (
+                                                    <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} style={{ ...provided.draggableProps.style }} className={snapshot.isDragging ? "opacity-90 scale-105 z-50" : ""}><LinkCard item={link} isEditMode={isEditMode} onEdit={handleEditLink} onDelete={handleDeleteLink} t={t} /></div>
+                                                  )}
+                                                </Draggable>
+                                              ))}
+                                              {provided.placeholder}
+                                              {isEditMode && (
+                                                <button onClick={() => handleAddLinkShortcut(category.id, subCat.id)} className={`flex flex-col items-center justify-center gap-2 min-h-[120px] border-2 border-dashed rounded-xl transition-all group ${theme === 'custom' ? 'bg-black/20 border-white/20 hover:bg-white/10 hover:border-white/40' : 'bg-slate-50 border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 dark:bg-slate-800/30 dark:border-slate-700 dark:hover:border-indigo-500/50'}`}>
+                                                  <div className="w-10 h-10 rounded-full bg-white/10 border border-white/20 flex items-center justify-center group-hover:scale-110 transition-transform"><Plus className="w-5 h-5 text-slate-400 group-hover:text-indigo-500" /></div><span className="text-xs font-medium text-slate-400 group-hover:text-indigo-600 dark:text-slate-500">{t.app.addLink}</span>
+                                                </button>
+                                              )}
+                                            </div>
+                                          )}
+                                        </Droppable>
+                                      </div>
+                                    )}
+                                  </Draggable>
+                                );
+                              })
+                            ) : (
+                              isEditMode && category.subCategories.length === 0 && generalLinks.length === 0 && (
+                                 <div className={`p-8 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-slate-400 ${theme === 'custom' ? 'border-white/20' : 'border-slate-200 dark:border-slate-700'}`}>
+                                    <p className="text-sm">{t.app.noSubCategories}</p>
+                                 </div>
+                              )
+                            )}
+                            {provided.placeholder}
+                          </div>
                         )}
-                        {provided.placeholder}
-                      </div>
-                    )}
-                  </Droppable>
+                      </Droppable>
+                    </>
+                  )}
                 </section>
                 );
               })
