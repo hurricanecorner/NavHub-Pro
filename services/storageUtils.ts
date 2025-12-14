@@ -126,7 +126,7 @@ const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncR
   // GitHub API requires key: null to delete, NOT key: {content: null}
   const files: Record<string, any> = {};
 
-  // Check if chunking is needed
+  // Construct new file content
   if (jsonStr.length > MAX_CHUNK_SIZE) {
     const totalChunks = Math.ceil(jsonStr.length / MAX_CHUNK_SIZE);
     
@@ -147,47 +147,46 @@ const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncR
       const chunkContent = jsonStr.substring(start, end);
       files[`navhub-data.part${i + 1}`] = { content: chunkContent };
     }
-    
-    // 3. Cleanup Strategy (ONLY IF UPDATING)
-    if (isUpdate) {
-        // Only try to clean up a reasonable amount of potential old chunks
-        for (let j = 1; j <= 5; j++) {
-           files[`navhub-data.part${totalChunks + j}`] = null;
-        }
-    }
-
   } else {
     // Normal Upload
     files[GIST_FILENAME] = { content: jsonStr };
-    
-    // Cleanup Strategy (ONLY IF UPDATING)
-    if (isUpdate) {
-        // Since we stripped the background, data is likely small. 
-        // We clean up potential old parts.
-        for (let j = 1; j <= 10; j++) {
-           files[`navhub-data.part${j}`] = null;
-        }
-    }
   }
 
-  // --- CRITICAL FIX FOR 422 ERROR (CREATE MODE) ---
-  // If we are creating a NEW Gist (POST), we strictly cannot send `null` values in the files object.
-  if (!isUpdate) {
-      Object.keys(files).forEach(key => {
-          if (files[key] === null) {
-              delete files[key];
+  // --- SMART CLEANUP (UPDATE MODE ONLY) ---
+  // If updating, we MUST check what files currently exist in the Gist.
+  // We should ONLY delete files (set to null) if they actually exist on GitHub.
+  // Setting null for non-existent files triggers "422 Validation Failed".
+  if (isUpdate) {
+      try {
+          const checkRes = await fetch(`${GITHUB_API_BASE}/gists/${safeGistId}`, {
+              headers: {
+                  'Authorization': `token ${config.githubToken}`,
+                  'Accept': 'application/vnd.github.v3+json',
+              }
+          });
+          
+          if (checkRes.ok) {
+              const currentGist = await checkRes.json();
+              const existingFiles = Object.keys(currentGist.files || {});
+              
+              // Find any 'navhub-data.partX' files that are NOT in our new upload list
+              // and mark them for deletion.
+              existingFiles.forEach(filename => {
+                  if (filename.startsWith('navhub-data.part') && !files[filename]) {
+                      files[filename] = null;
+                  }
+              });
           }
-      });
+      } catch (e) {
+          console.warn("Could not fetch existing Gist for cleanup check, proceeding with overwrite only.", e);
+      }
   }
-  
+
   // Safety check: Ensure we are sending at least one file
   if (Object.keys(files).length === 0) {
       return { success: false, message: 'Error: No data generated to upload.' };
   }
 
-  // --- CRITICAL FIX FOR 422 ERROR (UPDATE MODE) ---
-  // Construct payload differently for POST (Create) and PATCH (Update).
-  // 'public' field cannot be changed via PATCH and causes validation errors.
   let payload: any = {
     description: "NavHub Pro Backup Data",
     files: files
