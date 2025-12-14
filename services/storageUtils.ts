@@ -99,6 +99,10 @@ const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncR
     return { success: false, message: 'Missing GitHub Token' };
   }
 
+  // Robustly determine if we are updating or creating
+  const safeGistId = config.gistId?.trim() || '';
+  const isUpdate = safeGistId.length > 0;
+
   const jsonStr = JSON.stringify(data, null, 2);
   const files: Record<string, { content: string | null }> = {};
 
@@ -125,9 +129,8 @@ const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncR
     }
     
     // 3. Cleanup Strategy (ONLY IF UPDATING)
-    // If we are updating an existing Gist, we try to delete extra parts.
-    // We cannot do this for a new Gist (POST) as it causes 422 error.
-    if (config.gistId) {
+    // CRITICAL: Ensure we only add null content if isUpdate is true
+    if (isUpdate) {
         for (let j = 1; j <= 10; j++) {
            files[`navhub-data.part${totalChunks + j}`] = { content: null };
         }
@@ -138,8 +141,7 @@ const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncR
     files[GIST_FILENAME] = { content: jsonStr };
     
     // Cleanup Strategy (ONLY IF UPDATING)
-    // Blind cleanup of first 20 parts just in case we switched from chunked to non-chunked
-    if (config.gistId) {
+    if (isUpdate) {
         for (let j = 1; j <= 20; j++) {
            files[`navhub-data.part${j}`] = { content: null };
         }
@@ -156,9 +158,9 @@ const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncR
     let url = `${GITHUB_API_BASE}/gists`;
     let method = 'POST';
 
-    // If we have an existing Gist ID, we update it (PATCH). Otherwise create new (POST).
-    if (config.gistId) {
-      url = `${GITHUB_API_BASE}/gists/${config.gistId}`;
+    // Strictly use the same flag to determine method
+    if (isUpdate) {
+      url = `${GITHUB_API_BASE}/gists/${safeGistId}`;
       method = 'PATCH';
     }
 
@@ -173,7 +175,7 @@ const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncR
     });
 
     if (!response.ok) {
-      if (response.status === 404 && config.gistId) {
+      if (response.status === 404 && isUpdate) {
         return { success: false, message: 'Gist ID not found. Try clearing the ID to create a new one.' };
       }
       if (response.status === 401) {
@@ -207,12 +209,14 @@ const uploadToGitHub = async (data: AppData, config: CloudConfig): Promise<SyncR
 };
 
 const downloadFromGitHub = async (config: CloudConfig): Promise<SyncResult> => {
-  if (!config.githubToken || !config.gistId) {
+  const safeGistId = config.gistId?.trim() || '';
+
+  if (!config.githubToken || !safeGistId) {
     return { success: false, message: 'Missing Token or Gist ID' };
   }
 
   try {
-    const response = await fetch(`${GITHUB_API_BASE}/gists/${config.gistId}`, {
+    const response = await fetch(`${GITHUB_API_BASE}/gists/${safeGistId}`, {
       headers: {
         'Authorization': `token ${config.githubToken}`,
         'Accept': 'application/vnd.github.v3+json',
