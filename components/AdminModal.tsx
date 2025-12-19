@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Plus, Upload, Edit2, Trash2, Folder, ListPlus, Download, Cloud, Settings, Wand2, Loader2, Image as ImageIcon, Globe, Tag, ExternalLink, ChevronDown, CheckCircle2 } from 'lucide-react';
+import { X, Plus, Upload, Edit2, Trash2, Folder, ListPlus, Download, Cloud, Settings, Wand2, Loader2, Image as ImageIcon, Globe, Tag, ExternalLink, ChevronDown, CheckCircle2, Cpu } from 'lucide-react';
 import { AppData, Category, LinkItem, CloudConfig, SiteConfig, SubCategory } from '../types';
 import { ToastType } from './Toast';
 import { publishToNotion } from '../services/storageUtils';
@@ -30,6 +30,9 @@ interface BulkIconUpload {
   preview: string;
   assignedId: string | null;
 }
+
+declare const __BUILD_TIME__: string;
+const BUILD_ID = "v2.0.6-" + (typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toLocaleString());
 
 const compressImage = async (input: string, maxWidth: number, quality = 0.8): Promise<string> => {
   let src = input;
@@ -247,7 +250,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
       </div>
       <div className="flex-1 py-4 space-y-1 overflow-y-auto">
         {(Object.keys(t.admin.tabs) as Tab[]).map((tabId) => {
-          const iconsMap = {
+          const iconsMap: Record<Tab, React.ReactNode> = {
             link: <Plus className="w-5 h-5" />,
             category: <Folder className="w-5 h-5" />,
             cloud: <Cloud className="w-5 h-5" />,
@@ -261,6 +264,12 @@ const AdminModal: React.FC<AdminModalProps> = ({
             </button>
           );
         })}
+      </div>
+      <div className="p-4 border-t border-slate-200/50 dark:border-slate-700/50 hidden sm:block">
+        <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono uppercase tracking-tighter opacity-60">
+          <Cpu className="w-3 h-3" />
+          <span>{BUILD_ID}</span>
+        </div>
       </div>
     </div>
   );
@@ -279,11 +288,10 @@ const AdminModal: React.FC<AdminModalProps> = ({
           </div>
           
           <div className="flex-1 overflow-y-auto p-6">
-            {/* --- 链接录入 TAB --- */}
             {activeTab === 'link' && (
               <div className="space-y-6">
                 <div className="flex gap-2 p-1 bg-slate-100 rounded-lg w-fit dark:bg-slate-800">
-                  {(['single', 'bulk', 'icons'] as LinkMode[]).map(m => (
+                  {(['single', 'bulk', 'icons'] as const).map(m => (
                     <button key={m} onClick={() => setLinkMode(m)} className={`px-4 py-1.5 text-xs font-medium rounded-md transition-all ${linkMode === m ? 'bg-white text-indigo-600 shadow-sm dark:bg-slate-700 dark:text-indigo-300' : 'text-slate-500 dark:text-slate-400'}`}>
                       {t.admin.link.modes[m]}
                     </button>
@@ -443,7 +451,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
               </div>
             )}
 
-            {/* --- 分类管理 TAB --- */}
             {activeTab === 'category' && (
               <div className="max-w-3xl space-y-6 animate-in slide-in-from-bottom-4 duration-300">
                 <div className="flex justify-between items-center"><h4 className="font-bold dark:text-white">{t.admin.category.title}</h4><button onClick={() => { setCatForm({ id: null, name: '', icon: '' }); setCatEditingId('new'); }} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm flex items-center gap-2 shadow-lg shadow-indigo-100 dark:shadow-none"><Plus className="w-4 h-4" /> {t.admin.category.new}</button></div>
@@ -476,7 +483,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
               </div>
             )}
 
-            {/* --- 云端同步 TAB --- */}
             {activeTab === 'cloud' && (
               <div className="max-w-2xl mx-auto space-y-8 animate-in fade-in duration-300">
                 <div className="bg-slate-50/80 p-6 rounded-2xl flex items-center justify-between dark:bg-slate-800/50">
@@ -537,7 +543,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
               </div>
             )}
 
-            {/* --- 数据备份 TAB --- */}
             {activeTab === 'data' && (
               <div className="max-w-2xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 animate-in fade-in zoom-in-95 duration-300">
                 <div className="p-8 border-2 border-slate-100 rounded-3xl bg-slate-50/50 text-center flex flex-col items-center dark:bg-slate-800/30 dark:border-slate-700 transition-all hover:border-indigo-100 dark:hover:border-indigo-900/40">
@@ -562,7 +567,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
               </div>
             )}
 
-            {/* --- 样式设置 TAB --- */}
             {activeTab === 'settings' && (
               <div className="max-w-2xl mx-auto space-y-6 animate-in slide-in-from-right-4 duration-300">
                 <div className="space-y-4">
@@ -596,11 +600,10 @@ const AdminModal: React.FC<AdminModalProps> = ({
         </div>
       </div>
 
-      {/* Popups for Cat/SubCat */}
       {(catEditingId || subCatEditingId) && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => { setCatEditingId(null); setSubCatEditingId(null); }} />
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm relative z-10 dark:bg-slate-900 border dark:border-slate-800 shadow-2xl">
+          <div className="bg-white rounded-2xl p-6 w-full max-sm relative z-10 dark:bg-slate-900 border dark:border-slate-800 shadow-2xl">
             <h4 className="font-bold mb-4 dark:text-white">{catEditingId ? t.admin.category.edit : t.admin.category.editSub}</h4>
             <div className="space-y-4">
               <input type="text" placeholder={t.admin.category.name} value={catEditingId ? catForm.name : subCatForm.name} onChange={e => catEditingId ? setCatForm({ ...catForm, name: e.target.value }) : setSubCatForm({ ...subCatForm, name: e.target.value })} className="w-full px-3 py-2 border rounded-lg dark:bg-slate-800 dark:text-white dark:border-slate-700" />

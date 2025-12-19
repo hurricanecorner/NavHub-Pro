@@ -1,3 +1,4 @@
+
 import React, { Component, useState, useEffect, ReactNode, ErrorInfo } from 'react';
 import { Menu, Search, Settings, Edit, Lock, Languages, AlertTriangle, Moon, Sun, Laptop, Image as ImageIcon, ChevronDown, PlusCircle, Plus } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
@@ -136,7 +137,6 @@ const Dashboard: React.FC = () => {
       const otherLinks = data.links.filter(l => l.id !== linkToMove.id);
       const updatedLink = { ...linkToMove, categoryId: destCatId, subCategoryId: destSubId };
       
-      // Calculate global insertion index to maintain list order across re-renders
       const destItems = otherLinks.filter(l => l.categoryId === destCatId && l.subCategoryId === destSubId);
       const targetIndexInGlobal = otherLinks.indexOf(destItems[destination.index]) === -1 
         ? otherLinks.length 
@@ -203,7 +203,13 @@ const Dashboard: React.FC = () => {
               <div className="relative group">
                 <button className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700">{theme === 'light' ? <Sun className="w-5 h-5" /> : theme === 'dark' ? <Moon className="w-5 h-5" /> : theme === 'system' ? <Laptop className="w-5 h-5" /> : <ImageIcon className="w-5 h-5" />}</button>
                 <div className="absolute right-0 top-full pt-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all w-32 z-50">
-                  <div className="bg-white rounded-lg shadow-xl border p-1 dark:bg-slate-800 dark:border-slate-700">{['light', 'dark', 'system', 'custom'].map(m => (<button key={m} onClick={() => { setTheme(m as Theme); saveTheme(m as Theme); }} className="w-full text-left px-3 py-2 text-xs rounded hover:bg-slate-50 dark:hover:bg-slate-700 capitalize dark:text-slate-200">{t.app.theme[m]}</button>))}</div>
+                  <div className="bg-white rounded-lg shadow-xl border p-1 dark:bg-slate-800 dark:border-slate-700">
+                    {(['light', 'dark', 'system', 'custom'] as const).map(m => (
+                      <button key={m} onClick={() => { setTheme(m as Theme); saveTheme(m as Theme); }} className="w-full text-left px-3 py-2 text-xs rounded hover:bg-slate-50 dark:hover:bg-slate-700 capitalize dark:text-slate-200">
+                        {t.app.theme[m]}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
               <button onClick={() => { const nl = lang === 'en' ? 'zh' : 'en'; setLang(nl); saveLanguage(nl); }} className="p-2 text-slate-400 flex items-center gap-1 uppercase text-sm font-bold hover:text-indigo-500 transition-colors"><Languages className="w-5 h-5" /> {lang}</button>
@@ -240,7 +246,6 @@ const Dashboard: React.FC = () => {
                   
                   {!isCollapsed && (
                     <div className="space-y-8 animate-in fade-in slide-in-from-top-2 duration-300">
-                      {/* GENERAL Section (Shown if links exist outside subcategories or if no subcategories exist) */}
                       {(!hasSubCats || generalLinks.length > 0 || isEditMode) && (
                         <div className="mb-8">
                           <div className="flex items-center gap-2 mb-4">
@@ -266,7 +271,6 @@ const Dashboard: React.FC = () => {
                         </div>
                       )}
 
-                      {/* Sub-Category Sections */}
                       {hasSubCats && category.subCategories.map(sub => (
                         <div key={sub.id} id={`subcat-${sub.id}`} className="mb-8 last:mb-0">
                           <div className="flex items-center gap-2 mb-4 group/sub">
