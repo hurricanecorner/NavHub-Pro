@@ -1,5 +1,4 @@
 
-
 import React, { useState } from 'react';
 import { LinkItem } from '../types';
 import { ExternalLink, Edit2, Trash2, Globe } from 'lucide-react';
@@ -28,31 +27,34 @@ const LinkCard: React.FC<LinkCardProps> = ({ item, isEditMode, onEdit, onDelete,
       dark:bg-slate-800/60 dark:backdrop-blur-md dark:border-slate-700/50 dark:shadow-none
       ${isEditMode ? 'cursor-default' : 'hover:shadow-lg hover:scale-[1.02] hover:border-indigo-100 dark:hover:border-indigo-500/30 dark:hover:bg-slate-800/80'}`}>
       
-      {/* Tooltip for full description on hover (only in view mode or if not interfering) */}
+      {/* Tooltip for full description on hover */}
       {item.description && !isEditMode && (
         <div className="absolute left-0 bottom-[calc(100%+10px)] w-full bg-slate-800 text-white text-xs p-3 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none dark:bg-slate-900 dark:border dark:border-slate-700">
           <p className="leading-relaxed break-words">{item.description}</p>
-          {/* Tooltip Arrow */}
           <div className="absolute left-6 top-full w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-slate-800 dark:border-t-slate-900"></div>
         </div>
       )}
 
-      {/* Icon */}
-      {item.iconUrl && !imgError ? (
-        <img 
-          src={item.iconUrl} 
-          alt={item.title} 
-          className="w-10 h-10 rounded-full object-cover shrink-0 bg-slate-50 border border-slate-200 dark:border-slate-700/50 dark:bg-slate-700"
-          onError={() => setImgError(true)}
-        />
-      ) : (
-        <IconFallback />
-      )}
+      {/* 
+          Icon Container with "Cut Logic" 
+          通过稍微放大图像并裁剪容器，切除 App Store 图标原始边缘的 1-2 像素白边
+      */}
+      <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 border border-slate-200 bg-white dark:border-slate-700/50 dark:bg-slate-800 flex items-center justify-center shadow-inner">
+        {item.iconUrl && !imgError ? (
+          <img 
+            src={item.iconUrl} 
+            alt={item.title} 
+            className="w-full h-full object-cover scale-[1.12] transition-transform group-hover:scale-[1.18]"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <IconFallback />
+        )}
+      </div>
 
       {/* Content */}
       <div className="flex-1 min-w-0">
         <h3 className="font-semibold text-slate-800 truncate pr-6 mb-1 text-sm dark:text-slate-100">{item.title}</h3>
-        {/* Enforce 1-line limit */}
         <p className="text-xs text-slate-500 truncate leading-relaxed dark:text-slate-400">{item.description}</p>
         
         {/* Tags */}

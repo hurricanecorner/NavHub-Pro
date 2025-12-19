@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, Plus, Upload, Edit2, Trash2, Folder, ListPlus, Download, Cloud, Settings, Wand2, Loader2, Image as ImageIcon, Globe, Tag, ExternalLink, ChevronDown, CheckCircle2, Cpu, Hash, Search, Save } from 'lucide-react';
 import { AppData, Category, LinkItem, CloudConfig, SiteConfig, SubCategory } from '../types';
@@ -32,7 +31,7 @@ interface BulkIconUpload {
 }
 
 declare const __BUILD_TIME__: string;
-const BUILD_ID = "v2.0.8-" + (typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toLocaleString());
+const BUILD_ID = "v2.1.0-" + (typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toLocaleString());
 
 const compressImage = async (input: string, maxWidth: number, quality = 0.8): Promise<string> => {
   let src = input;
@@ -91,11 +90,9 @@ const AdminModal: React.FC<AdminModalProps> = ({
   const [siteForm, setSiteForm] = useState<SiteConfig>({ title: '', logoUrl: '', faviconUrl: '', backgroundUrl: '' });
   const [localCloud, setLocalCloud] = useState<CloudConfig>(cloudConfig);
 
-  // 标签管理状态
   const [tagSearchQuery, setTagSearchQuery] = useState('');
   const [renamingTag, setRenamingTag] = useState<{ old: string; new: string } | null>(null);
 
-  // 核心逻辑：提取全局现有标签并计算频率
   const globalTags = useMemo(() => {
     const counts: Record<string, number> = {};
     data.links.forEach(l => {
@@ -104,7 +101,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
       });
     });
     return Object.entries(counts)
-      .sort((a, b) => b[1] - a[1]) // 按频率排序
+      .sort((a, b) => b[1] - a[1])
       .map(([name, count]) => ({ name, count }));
   }, [data.links]);
 
@@ -227,7 +224,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
     const updatedLinks = data.links.map(link => {
       if (!link.tags?.includes(oldName)) return link;
       const newTags = link.tags.map(t => t === oldName ? newName.trim() : t);
-      // 利用 Set 去重并转回数组
       return { ...link, tags: Array.from(new Set(newTags)) };
     });
     onUpdateData({ ...data, links: updatedLinks });
@@ -383,8 +379,8 @@ const AdminModal: React.FC<AdminModalProps> = ({
                     <div>
                       <label className="block text-sm font-bold text-slate-600 mb-1.5 dark:text-slate-300">{t.admin.link.icon}</label>
                       <div className="flex gap-4">
-                        <div className="w-14 h-14 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-center shrink-0 dark:bg-slate-800 dark:border-slate-700">
-                          {linkForm.iconUrl ? <img src={linkForm.iconUrl} className="w-full h-full object-contain p-1.5" /> : <ImageIcon className="w-6 h-6 text-slate-300" />}
+                        <div className="w-14 h-14 bg-slate-50 border border-slate-200 rounded-xl overflow-hidden flex items-center justify-center shrink-0 dark:bg-slate-800 dark:border-slate-700">
+                          {linkForm.iconUrl ? <img src={linkForm.iconUrl} className="w-full h-full object-cover scale-[1.12]" /> : <ImageIcon className="w-6 h-6 text-slate-300" />}
                         </div>
                         <div className="flex-1 space-y-2">
                           <input type="text" value={linkForm.iconUrl} onChange={e => setLinkForm({ ...linkForm, iconUrl: e.target.value })} className="w-full px-4 py-2 border rounded-xl text-sm dark:bg-slate-800 dark:text-white dark:border-slate-700" placeholder="https://..." />
@@ -502,7 +498,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                           const assigned = linkBulkIcons.find(bi => bi.assignedId === l.id);
                           return (
                             <button key={l.id} onClick={() => selectedBulkIconId && setLinkBulkIcons(p => p.map(bi => bi.id === selectedBulkIconId ? { ...bi, assignedId: l.id } : (bi.assignedId === l.id ? { ...bi, assignedId: null } : bi)))} className={`flex items-center gap-3 p-2 bg-white border rounded-xl text-left transition-all ${assigned ? 'ring-2 ring-indigo-500 shadow-sm' : 'hover:border-indigo-300'} dark:bg-slate-900 dark:border-slate-700`}>
-                              <div className="w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 bg-slate-50 dark:bg-slate-800 dark:border-slate-700">{(assigned || l.iconUrl) ? <img src={assigned ? assigned.preview : l.iconUrl} className="w-full h-full object-contain p-1" /> : <Globe className="w-4 h-4 text-slate-300" />}</div>
+                              <div className="w-8 h-8 rounded-lg border overflow-hidden flex items-center justify-center shrink-0 bg-slate-50 dark:bg-slate-800 dark:border-slate-700">{(assigned || l.iconUrl) ? <img src={assigned ? assigned.preview : l.iconUrl} className="w-full h-full object-cover scale-[1.12]" /> : <Globe className="w-4 h-4 text-slate-300" />}</div>
                               <div className="min-w-0 font-bold truncate text-xs dark:text-white">{l.title}</div>
                             </button>
                           );
@@ -514,7 +510,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
               </div>
             )}
 
-            {/* --- 标签管理 TAB --- */}
             {activeTab === 'tags' && (
               <div className="max-w-4xl mx-auto space-y-6 animate-in slide-in-from-bottom-4 duration-300">
                 <div className="flex flex-col sm:flex-row gap-4 items-center justify-between border-b dark:border-slate-800 pb-4">
