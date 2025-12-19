@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect, useRef } from 'react';
-import { X, Plus, Upload, Edit2, Trash2, Folder, ListPlus, Download, Cloud, Settings, Wand2, Loader2, Image as ImageIcon, Globe, Tag, ExternalLink, ChevronDown, CheckCircle2, Cpu } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Plus, Upload, Edit2, Trash2, Folder, ListPlus, Download, Cloud, Settings, Wand2, Loader2, Image as ImageIcon, Globe, Tag, ExternalLink, ChevronDown, CheckCircle2, Cpu, Hash, Search, Save } from 'lucide-react';
 import { AppData, Category, LinkItem, CloudConfig, SiteConfig, SubCategory } from '../types';
 import { ToastType } from './Toast';
 import { publishToNotion } from '../services/storageUtils';
@@ -22,7 +22,7 @@ interface AdminModalProps {
   confirmAction: (title: string, message: string, onConfirm: () => void, isDangerous?: boolean) => void;
 }
 
-type Tab = 'link' | 'category' | 'cloud' | 'data' | 'settings';
+type Tab = 'link' | 'category' | 'tags' | 'cloud' | 'data' | 'settings';
 type LinkMode = 'single' | 'bulk' | 'icons';
 
 interface BulkIconUpload {
@@ -32,7 +32,7 @@ interface BulkIconUpload {
 }
 
 declare const __BUILD_TIME__: string;
-const BUILD_ID = "v2.0.6-" + (typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toLocaleString());
+const BUILD_ID = "v2.0.8-" + (typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toLocaleString());
 
 const compressImage = async (input: string, maxWidth: number, quality = 0.8): Promise<string> => {
   let src = input;
@@ -90,6 +90,30 @@ const AdminModal: React.FC<AdminModalProps> = ({
   const [subCatForm, setSubCatForm] = useState<{ parentId: string; id: string | null; name: string }>({ parentId: '', id: null, name: '' });
   const [siteForm, setSiteForm] = useState<SiteConfig>({ title: '', logoUrl: '', faviconUrl: '', backgroundUrl: '' });
   const [localCloud, setLocalCloud] = useState<CloudConfig>(cloudConfig);
+
+  // 标签管理状态
+  const [tagSearchQuery, setTagSearchQuery] = useState('');
+  const [renamingTag, setRenamingTag] = useState<{ old: string; new: string } | null>(null);
+
+  // 核心逻辑：提取全局现有标签并计算频率
+  const globalTags = useMemo(() => {
+    const counts: Record<string, number> = {};
+    data.links.forEach(l => {
+      (l.tags || []).forEach(tag => {
+        counts[tag] = (counts[tag] || 0) + 1;
+      });
+    });
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1]) // 按频率排序
+      .map(([name, count]) => ({ name, count }));
+  }, [data.links]);
+
+  const suggestedTags = useMemo(() => {
+    return globalTags
+      .map(t => t.name)
+      .filter(tag => !linkForm.tags?.includes(tag))
+      .slice(0, 15);
+  }, [globalTags, linkForm.tags]);
 
   useEffect(() => {
     if (isOpen) {
@@ -155,11 +179,11 @@ const AdminModal: React.FC<AdminModalProps> = ({
     } catch (e) { showToast('error', t.admin.link.meta.error); } finally { setIsFetchingMeta(false); }
   };
 
-  const handleAddTag = () => {
-    const tag = tagInput.trim();
+  const handleAddTag = (tagToAdd?: string) => {
+    const tag = (tagToAdd || tagInput).trim();
     if (tag && !linkForm.tags?.includes(tag)) {
       setLinkForm({ ...linkForm, tags: [...(linkForm.tags || []), tag] });
-      setTagInput('');
+      if (!tagToAdd) setTagInput('');
     }
   };
 
@@ -196,6 +220,30 @@ const AdminModal: React.FC<AdminModalProps> = ({
     onUpdateData({ ...data, links: [...data.links, ...newLinks] });
     showToast('success', t.admin.link.bulk.success.replace('{count}', newLinks.length.toString()));
     setBulkUrls('');
+  };
+
+  const handleGlobalRenameTag = (oldName: string, newName: string) => {
+    if (!newName.trim() || oldName === newName) { setRenamingTag(null); return; }
+    const updatedLinks = data.links.map(link => {
+      if (!link.tags?.includes(oldName)) return link;
+      const newTags = link.tags.map(t => t === oldName ? newName.trim() : t);
+      // 利用 Set 去重并转回数组
+      return { ...link, tags: Array.from(new Set(newTags)) };
+    });
+    onUpdateData({ ...data, links: updatedLinks });
+    setRenamingTag(null);
+    showToast('success', t.app.saved);
+  };
+
+  const handleGlobalDeleteTag = (tagName: string) => {
+    confirmAction(t.admin.tags.title, t.admin.tags.deleteConfirm, () => {
+      const updatedLinks = data.links.map(link => ({
+        ...link,
+        tags: (link.tags || []).filter(t => t !== tagName)
+      }));
+      onUpdateData({ ...data, links: updatedLinks });
+      showToast('success', t.app.deleted);
+    }, true);
   };
 
   const handleExportHTML = () => {
@@ -253,6 +301,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
           const iconsMap: Record<Tab, React.ReactNode> = {
             link: <Plus className="w-5 h-5" />,
             category: <Folder className="w-5 h-5" />,
+            tags: <Hash className="w-5 h-5" />,
             cloud: <Cloud className="w-5 h-5" />,
             data: <Download className="w-5 h-5" />,
             settings: <Wand2 className="w-5 h-5" />,
@@ -349,20 +398,34 @@ const AdminModal: React.FC<AdminModalProps> = ({
                       <textarea value={linkForm.description} onChange={e => setLinkForm({ ...linkForm, description: e.target.value })} rows={4} className="w-full px-4 py-2.5 border rounded-xl dark:bg-slate-800 dark:text-white dark:border-slate-700" />
                     </div>
 
-                    <div>
-                      <label className="block text-sm font-bold text-slate-600 mb-1.5 dark:text-slate-300">{t.admin.link.tags}</label>
-                      <div className="flex gap-2 mb-2">
-                        <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddTag()} className="flex-1 px-4 py-2.5 border rounded-xl dark:bg-slate-800 dark:text-white dark:border-slate-700" placeholder={t.admin.link.tagsPlaceholder} />
-                        <button onClick={handleAddTag} className="px-5 py-2.5 bg-slate-100 text-slate-800 rounded-xl font-bold hover:bg-slate-200 transition-colors dark:bg-slate-800 dark:text-white">{t.admin.link.addTag}</button>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
+                    <div className="space-y-3">
+                      <label className="block text-sm font-bold text-slate-600 dark:text-slate-300">{t.admin.link.tags}</label>
+                      <div className="flex flex-wrap gap-2 min-h-[32px]">
                         {linkForm.tags?.map(tag => (
-                          <span key={tag} className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-xs font-bold flex items-center gap-1 dark:bg-indigo-900/40 dark:text-indigo-300">
+                          <span key={tag} className="px-3 py-1 bg-indigo-600 text-white rounded-full text-xs font-bold flex items-center gap-1.5 shadow-sm animate-in zoom-in-95">
+                            <Hash className="w-3 h-3" />
                             {tag}
-                            <button onClick={() => setLinkForm({ ...linkForm, tags: linkForm.tags?.filter(t => t !== tag) })}><X className="w-3 h-3" /></button>
+                            <button onClick={() => setLinkForm({ ...linkForm, tags: linkForm.tags?.filter(t => t !== tag) })} className="hover:bg-white/20 rounded-full p-0.5"><X className="w-3 h-3" /></button>
                           </span>
                         ))}
                       </div>
+                      <div className="flex gap-2">
+                        <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddTag()} className="flex-1 px-4 py-2.5 border rounded-xl dark:bg-slate-800 dark:text-white dark:border-slate-700" placeholder={t.admin.link.tagsPlaceholder} />
+                        <button onClick={() => handleAddTag()} className="px-5 py-2.5 bg-slate-100 text-slate-800 rounded-xl font-bold hover:bg-slate-200 transition-colors dark:bg-slate-800 dark:text-white">{t.admin.link.addTag}</button>
+                      </div>
+                      {suggestedTags.length > 0 && (
+                        <div className="pt-2">
+                          <div className="flex items-center gap-2 mb-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                            <Tag className="w-3 h-3" />
+                            <span>常用标签建议</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {suggestedTags.map(tag => (
+                              <button key={tag} onClick={() => handleAddTag(tag)} className="px-2.5 py-1 bg-slate-50 border border-slate-200 text-slate-500 rounded-lg text-[11px] font-medium hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all dark:bg-slate-800/40 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-indigo-900/20">+ {tag}</button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div className="pt-6 flex gap-4 border-t dark:border-slate-800">
@@ -448,6 +511,59 @@ const AdminModal: React.FC<AdminModalProps> = ({
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* --- 标签管理 TAB --- */}
+            {activeTab === 'tags' && (
+              <div className="max-w-4xl mx-auto space-y-6 animate-in slide-in-from-bottom-4 duration-300">
+                <div className="flex flex-col sm:flex-row gap-4 items-center justify-between border-b dark:border-slate-800 pb-4">
+                  <div>
+                    <h4 className="font-bold text-lg dark:text-white">{t.admin.tags.title}</h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{t.admin.tags.mergeHint}</p>
+                  </div>
+                  <div className="relative w-full sm:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input type="text" value={tagSearchQuery} onChange={e => setTagSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-xl text-sm dark:bg-slate-800 dark:text-white dark:border-slate-700" placeholder={t.admin.tags.searchPlaceholder} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {globalTags.filter(t => t.name.toLowerCase().includes(tagSearchQuery.toLowerCase())).map(tag => (
+                    <div key={tag.name} className="p-4 border rounded-xl bg-slate-50 dark:bg-slate-800/30 dark:border-slate-700 flex items-center justify-between group">
+                      <div className="flex-1 mr-4">
+                        {renamingTag?.old === tag.name ? (
+                          <div className="flex gap-2 animate-in zoom-in-95 duration-200">
+                            <input type="text" value={renamingTag.new} onChange={e => setRenamingTag({ ...renamingTag, new: e.target.value })} className="flex-1 px-3 py-1.5 text-sm border rounded-lg dark:bg-slate-900 dark:text-white" autoFocus onKeyDown={e => e.key === 'Enter' && handleGlobalRenameTag(tag.name, renamingTag.new)} />
+                            <button onClick={() => handleGlobalRenameTag(tag.name, renamingTag.new)} className="p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><Save className="w-4 h-4" /></button>
+                            <button onClick={() => setRenamingTag(null)} className="p-1.5 bg-slate-200 text-slate-600 rounded-lg dark:bg-slate-700 dark:text-slate-300"><X className="w-4 h-4" /></button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col">
+                            <div className="flex items-center gap-2 mb-1">
+                              <Hash className="w-4 h-4 text-indigo-500" />
+                              <span className="font-bold text-slate-800 dark:text-white">{tag.name}</span>
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">{t.admin.tags.count.replace('{count}', tag.count.toString())}</span>
+                          </div>
+                        )}
+                      </div>
+                      
+                      {renamingTag?.old !== tag.name && (
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => setRenamingTag({ old: tag.name, new: tag.name })} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg dark:hover:bg-indigo-900/30 transition-colors"><Edit2 className="w-4 h-4" /></button>
+                          <button onClick={() => handleGlobalDeleteTag(tag.name)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg dark:hover:bg-red-900/30 transition-colors"><Trash2 className="w-4 h-4" /></button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {globalTags.length === 0 && (
+                    <div className="col-span-full py-12 text-center text-slate-400">
+                      <Tag className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                      <p>{t.admin.tags.empty}</p>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

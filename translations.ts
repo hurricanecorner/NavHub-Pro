@@ -45,9 +45,20 @@ export const TRANSLATIONS = {
       tabs: {
         link: "Add Link",
         category: "Categories",
+        tags: "Tags Library",
         cloud: "Cloud Sync",
         data: "Data Backup",
         settings: "Site Settings"
+      },
+      tags: {
+        title: "Tags Management",
+        searchPlaceholder: "Filter tags...",
+        count: "{count} links",
+        rename: "Rename Tag",
+        renamePlaceholder: "New name...",
+        deleteConfirm: "Delete this tag from ALL links? This cannot be undone.",
+        empty: "No tags used yet.",
+        mergeHint: "Renaming to an existing tag will merge them."
       },
       settings: {
         title: "Branding Settings",
@@ -191,9 +202,20 @@ export const TRANSLATIONS = {
       tabs: {
         link: "录入链接",
         category: "分类管理",
+        tags: "标签管理",
         cloud: "云端同步",
         data: "数据备份",
         settings: "样式设置"
+      },
+      tags: {
+        title: "标签库管理",
+        searchPlaceholder: "过滤标签...",
+        count: "{count} 个链接使用",
+        rename: "重命名标签",
+        renamePlaceholder: "新名称...",
+        deleteConfirm: "确定从所有链接中移除此标签？此操作不可撤销。",
+        empty: "暂未提取到任何标签。",
+        mergeHint: "如果重命名为已存在的标签，它们将会自动合并。"
       },
       settings: {
         title: "品牌标识",
