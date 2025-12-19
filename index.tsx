@@ -8,8 +8,7 @@ if (!rootElement) {
 }
 
 const root = ReactDOM.createRoot(rootElement);
+// 注意：必须关闭 StrictMode 才能让 @hello-pangea/dnd 正常工作，避免双重挂载导致的 Context 丢失
 root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
+  <App />
 );
