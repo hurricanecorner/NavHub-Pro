@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Plus, Upload, Edit2, Trash2, Folder, ListPlus, Download, Cloud, Settings, Wand2, Loader2, Image as ImageIcon, Globe, Tag, ExternalLink, ChevronDown, CheckCircle2, Cpu, Hash, Search, Save } from 'lucide-react';
+import { X, Plus, Upload, Edit2, Trash2, Folder, ListPlus, Download, Cloud, Settings, Wand2, Loader2, Image as ImageIcon, Globe, Tag, ExternalLink, ChevronDown, CheckCircle2, Cpu, Hash, Search, Save, Check, MousePointer2, Apple } from 'lucide-react';
 import { AppData, Category, LinkItem, CloudConfig, SiteConfig, SubCategory } from '../types';
 import { ToastType } from './Toast';
 import { publishToNotion } from '../services/storageUtils';
@@ -30,8 +31,15 @@ interface BulkIconUpload {
   assignedId: string | null;
 }
 
+interface MetaResult {
+  title: string;
+  description: string;
+  iconUrl: string;
+  source: 'App Store' | 'Microlink';
+}
+
 declare const __BUILD_TIME__: string;
-const BUILD_ID = "v2.1.0-" + (typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toLocaleString());
+const BUILD_ID = "v2.2.0-" + (typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toLocaleString());
 
 const compressImage = async (input: string, maxWidth: number, quality = 0.8): Promise<string> => {
   let src = input;
@@ -78,6 +86,9 @@ const AdminModal: React.FC<AdminModalProps> = ({
   const [linkForm, setLinkForm] = useState<Partial<LinkItem>>({ title: '', url: '', description: '', categoryId: '', subCategoryId: '', iconUrl: '', tags: [] });
   const [tagInput, setTagInput] = useState('');
   const [isFetchingMeta, setIsFetchingMeta] = useState(false);
+  const [metaPickerData, setMetaPickerData] = useState<{ a?: MetaResult; b?: MetaResult } | null>(null);
+  const [pickerSelections, setPickerSelections] = useState({ title: 'a', description: 'a', iconUrl: 'a' });
+
   const [bulkUrls, setBulkUrls] = useState('');
   const [bulkDefaultTitle, setBulkDefaultTitle] = useState('');
   const [linkBulkIcons, setLinkBulkIcons] = useState<BulkIconUpload[]>([]);
@@ -136,23 +147,14 @@ const AdminModal: React.FC<AdminModalProps> = ({
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, isIcon: boolean, callback: (res: string) => void) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    // 获取原始文件大小
     const originalSizeKB = Math.round(file.size / 1024);
-
     const reader = new FileReader();
     reader.onload = async (event) => {
       const result = event.target?.result as string;
       if (result) {
         const compressed = await compressImage(result, isIcon ? 128 : 1920);
-        
-        // 计算压缩后的 Base64 字符串对应的实际字节数
-        // Base64 编码字符串长度与原始字节比例约为 4:3
         const compressedSizeKB = Math.round(((compressed.length * 3) / 4) / 1024);
-        
         callback(compressed);
-        
-        // 增加更直观的压缩对比提示
         const prefix = isIcon ? "图标" : "背景图片";
         showToast('success', `${prefix}优化完成: ${originalSizeKB}KB -> ${compressedSizeKB}KB`);
       }
@@ -166,27 +168,71 @@ const AdminModal: React.FC<AdminModalProps> = ({
     let targetUrl = rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`;
     setLinkForm(prev => ({ ...prev, url: targetUrl }));
     setIsFetchingMeta(true);
+    setMetaPickerData(null);
+
     try {
-      const parts = new URL(targetUrl).hostname.split('.');
+      const urlObj = new URL(targetUrl);
+      const parts = urlObj.hostname.split('.');
       const query = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
-      const resApp = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&country=cn&entity=software&limit=1`);
-      const appData = await resApp.json();
-      if (appData.results?.[0]) {
-        const item = appData.results[0];
-        const compressedIcon = await compressImage(item.artworkUrl512 || item.artworkUrl100, 128);
-        setLinkForm(prev => ({ ...prev, title: item.trackName, description: item.description?.split('\n')[0], iconUrl: compressedIcon }));
+
+      // 并发请求
+      const [resApp, resMicro] = await Promise.allSettled([
+        fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&country=cn&entity=software&limit=1`).then(r => r.json()),
+        fetch(`https://api.microlink.io?url=${encodeURIComponent(targetUrl)}`).then(r => r.json())
+      ]);
+
+      let appResult: MetaResult | null = null;
+      let microResult: MetaResult | null = null;
+
+      if (resApp.status === 'fulfilled' && resApp.value.results?.[0]) {
+        const item = resApp.value.results[0];
+        appResult = {
+          title: item.trackName,
+          description: item.description?.split('\n')[0],
+          iconUrl: await compressImage(item.artworkUrl512 || item.artworkUrl100, 128),
+          source: 'App Store'
+        };
+      }
+
+      if (resMicro.status === 'fulfilled' && resMicro.value.status === 'success') {
+        const { title, description, logo } = resMicro.value.data;
+        microResult = {
+          title: title || '',
+          description: description || '',
+          iconUrl: logo?.url ? await compressImage(logo.url, 128) : '',
+          source: 'Microlink'
+        };
+      }
+
+      if (appResult && microResult) {
+        // 两者都有，开启比对拾取器
+        setMetaPickerData({ a: appResult, b: microResult });
+        setPickerSelections({ title: 'a', description: 'a', iconUrl: 'a' });
+      } else if (appResult || microResult) {
+        // 只有一个有，直接应用
+        const final = appResult || microResult;
+        setLinkForm(prev => ({ ...prev, title: final!.title, description: final!.description, iconUrl: final!.iconUrl }));
         showToast('success', t.admin.link.meta.success);
       } else {
-        const res = await fetch(`https://api.microlink.io?url=${encodeURIComponent(targetUrl)}`);
-        const resData = await res.json();
-        if (resData.status === 'success') {
-          const { title, description, logo } = resData.data;
-          let icon = linkForm.iconUrl;
-          if (logo?.url) icon = await compressImage(logo.url, 128);
-          setLinkForm(prev => ({ ...prev, title: title || prev.title, description: description || prev.description, iconUrl: icon }));
-        }
+        showToast('error', t.admin.link.meta.error);
       }
-    } catch (e) { showToast('error', t.admin.link.meta.error); } finally { setIsFetchingMeta(false); }
+    } catch (e) {
+      showToast('error', t.admin.link.meta.error);
+    } finally {
+      setIsFetchingMeta(false);
+    }
+  };
+
+  const applyPickerSelection = () => {
+    if (!metaPickerData) return;
+    const { a, b } = metaPickerData;
+    const finalTitle = pickerSelections.title === 'a' ? a!.title : b!.title;
+    const finalDesc = pickerSelections.description === 'a' ? a!.description : b!.description;
+    const finalIcon = pickerSelections.iconUrl === 'a' ? a!.iconUrl : b!.iconUrl;
+    
+    setLinkForm(prev => ({ ...prev, title: finalTitle, description: finalDesc, iconUrl: finalIcon }));
+    setMetaPickerData(null);
+    showToast('success', t.admin.link.meta.success);
   };
 
   const handleAddTag = (tagToAdd?: string) => {
@@ -357,7 +403,102 @@ const AdminModal: React.FC<AdminModalProps> = ({
                 </div>
 
                 {linkMode === 'single' && (
-                  <div className="max-w-3xl space-y-5 animate-in fade-in duration-200">
+                  <div className="max-w-3xl space-y-5 animate-in fade-in duration-200 relative">
+                    {/* Metadata Selection Overlay */}
+                    {metaPickerData && (
+                      <div className="absolute inset-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm flex flex-col p-4 animate-in fade-in zoom-in-95 duration-300">
+                        <div className="flex items-center justify-between mb-6">
+                          <div>
+                            <h4 className="font-bold text-lg dark:text-white flex items-center gap-2">
+                              <MousePointer2 className="w-5 h-5 text-indigo-500" />
+                              混合拾取元数据
+                            </h4>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">点击对比项选择您最满意的部分</p>
+                          </div>
+                          <button onClick={() => setMetaPickerData(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full"><X className="w-5 h-5 text-slate-400" /></button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto space-y-8 pr-2">
+                          {/* Row 1: Title */}
+                          <div className="space-y-3">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">标题选择</label>
+                            <div className="grid grid-cols-2 gap-3">
+                              {(['a', 'b'] as const).map(key => {
+                                const active = pickerSelections.title === key;
+                                const item = metaPickerData[key]!;
+                                return (
+                                  <button key={key} onClick={() => setPickerSelections(p => ({...p, title: key}))} className={`relative p-4 rounded-xl border-2 text-left transition-all ${active ? 'border-indigo-500 bg-indigo-50/30 dark:bg-indigo-900/20' : 'border-slate-100 hover:border-slate-300 dark:border-slate-800 dark:hover:border-slate-700'}`}>
+                                    <div className="flex items-center gap-2 mb-2">
+                                      {key === 'a' ? <Apple className="w-3 h-3 text-slate-400" /> : <Globe className="w-3 h-3 text-slate-400" />}
+                                      <span className="text-[10px] font-bold text-slate-400 uppercase">{item.source}</span>
+                                    </div>
+                                    <div className="font-bold text-sm dark:text-white truncate">{item.title}</div>
+                                    {active && <div className="absolute top-2 right-2 w-5 h-5 bg-indigo-500 rounded-full flex items-center justify-center"><Check className="w-3 h-3 text-white" /></div>}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Row 2: Icon */}
+                          <div className="space-y-3">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">图标选择</label>
+                            <div className="grid grid-cols-2 gap-3">
+                              {(['a', 'b'] as const).map(key => {
+                                const active = pickerSelections.iconUrl === key;
+                                const item = metaPickerData[key]!;
+                                return (
+                                  <button key={key} onClick={() => setPickerSelections(p => ({...p, iconUrl: key}))} className={`relative p-4 rounded-xl border-2 flex items-center gap-4 transition-all ${active ? 'border-indigo-500 bg-indigo-50/30 dark:bg-indigo-900/20' : 'border-slate-100 hover:border-slate-300 dark:border-slate-800 dark:hover:border-slate-700'}`}>
+                                    <div className="w-12 h-12 rounded-xl bg-white dark:bg-slate-800 border overflow-hidden flex items-center justify-center shadow-sm shrink-0">
+                                      {item.iconUrl ? <img src={item.iconUrl} className="w-full h-full object-cover scale-[1.12]" /> : <ImageIcon className="w-5 h-5 text-slate-300" />}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        {key === 'a' ? <Apple className="w-3 h-3 text-slate-400" /> : <Globe className="w-3 h-3 text-slate-400" />}
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase">{item.source}</span>
+                                      </div>
+                                      <div className="text-[10px] text-slate-500 truncate">128x128 预览</div>
+                                    </div>
+                                    {active && <div className="absolute top-2 right-2 w-5 h-5 bg-indigo-500 rounded-full flex items-center justify-center"><Check className="w-3 h-3 text-white" /></div>}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Row 3: Description */}
+                          <div className="space-y-3">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">描述选择</label>
+                            <div className="grid grid-cols-2 gap-3">
+                              {(['a', 'b'] as const).map(key => {
+                                const active = pickerSelections.description === key;
+                                const item = metaPickerData[key]!;
+                                return (
+                                  <button key={key} onClick={() => setPickerSelections(p => ({...p, description: key}))} className={`relative p-4 rounded-xl border-2 text-left transition-all ${active ? 'border-indigo-500 bg-indigo-50/30 dark:bg-indigo-900/20' : 'border-slate-100 hover:border-slate-300 dark:border-slate-800 dark:hover:border-slate-700'}`}>
+                                    <div className="flex items-center gap-2 mb-2">
+                                      {key === 'a' ? <Apple className="w-3 h-3 text-slate-400" /> : <Globe className="w-3 h-3 text-slate-400" />}
+                                      <span className="text-[10px] font-bold text-slate-400 uppercase">{item.source}</span>
+                                    </div>
+                                    <div className="text-xs dark:text-slate-300 line-clamp-2 h-8 leading-relaxed">
+                                      {item.description || "（无描述）"}
+                                    </div>
+                                    {active && <div className="absolute top-2 right-2 w-5 h-5 bg-indigo-500 rounded-full flex items-center justify-center"><Check className="w-3 h-3 text-white" /></div>}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="pt-6 flex gap-3">
+                          <button onClick={() => setMetaPickerData(null)} className="px-6 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition-colors dark:hover:bg-slate-800">放弃</button>
+                          <button onClick={applyPickerSelection} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">
+                             确认应用选择
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     <div>
                       <label className="block text-sm font-bold text-slate-600 mb-1.5 dark:text-slate-300">{t.admin.link.url} <span className="text-red-500">*</span></label>
                       <div className="flex gap-2">
@@ -392,7 +533,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                     <div>
                       <label className="block text-sm font-bold text-slate-600 mb-1.5 dark:text-slate-300">{t.admin.link.icon}</label>
                       <div className="flex gap-4">
-                        <div className="w-14 h-14 bg-slate-50 border border-slate-200 rounded-xl overflow-hidden flex items-center justify-center shrink-0 dark:bg-slate-800 dark:border-slate-700">
+                        <div className="w-14 h-14 bg-slate-50 border border-slate-200 rounded-xl overflow-hidden flex items-center justify-center shrink-0 dark:bg-slate-800 dark:border-slate-700 shadow-inner">
                           {linkForm.iconUrl ? <img src={linkForm.iconUrl} className="w-full h-full object-cover scale-[1.12]" /> : <ImageIcon className="w-6 h-6 text-slate-300" />}
                         </div>
                         <div className="flex-1 space-y-2">
