@@ -25,8 +25,8 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
         <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white p-6">
           <div className="text-center">
             <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-            <h2 className="text-2xl font-bold mb-4">系统初始化异常</h2>
-            <button onClick={() => window.location.reload()} className="bg-indigo-600 px-6 py-2 rounded-lg">刷新重试</button>
+            <h2 className="text-2xl font-bold mb-4">System Initialization Error</h2>
+            <button onClick={() => window.location.reload()} className="bg-indigo-600 px-6 py-2 rounded-lg">Retry</button>
           </div>
         </div>
       );
@@ -157,7 +157,7 @@ const Dashboard: React.FC = () => {
       <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center transition-colors group-hover:bg-indigo-50 group-hover:text-indigo-500 dark:bg-slate-800">
         <Plus className="w-6 h-6" />
       </div>
-      <span className="text-xs font-medium text-slate-400 group-hover:text-indigo-500 transition-colors">添加链接</span>
+      <span className="text-xs font-medium text-slate-400 group-hover:text-indigo-500 transition-colors">{t.app.quickAdd}</span>
     </button>
   );
 
@@ -217,22 +217,21 @@ const Dashboard: React.FC = () => {
               <button 
                 onClick={() => setIsEditMode(!isEditMode)} 
                 className={`p-2 rounded-lg transition-all duration-300 ${isEditMode ? 'bg-indigo-600 text-white shadow-lg ring-2 ring-indigo-500/20' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
-                title={isEditMode ? "锁定并保存" : "进入编辑模式"}
+                title={isEditMode ? "Lock" : "Edit"}
               >
-                {/* 这里是修正后的图标逻辑：锁定态显示铅笔，编辑态显示锁 */}
                 {isEditMode ? <Lock className="w-5 h-5" /> : <Edit className="w-5 h-5" />}
               </button>
 
-              <button onClick={() => setIsAdminModalOpen(true)} className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2 dark:bg-indigo-600 hover:scale-105 transition-transform shadow-lg"><Settings className="w-4 h-4" /> 后台管理</button>
+              <button onClick={() => setIsAdminModalOpen(true)} className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2 dark:bg-indigo-600 hover:scale-105 transition-transform shadow-lg"><Settings className="w-4 h-4" /> {t.app.admin}</button>
             </div>
           </header>
 
           <div className="flex-1 overflow-y-auto p-4 lg:p-8 space-y-12">
             {activeSearchQuery ? (
               <section>
-                <h2 className="text-xl font-bold mb-6 dark:text-white">搜索结果</h2>
+                <h2 className="text-xl font-bold mb-6 dark:text-white">{t.app.searchResults}</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                  {filteredLinks.length > 0 ? filteredLinks.map(link => (<LinkCard key={link.id} item={link} isEditMode={false} onEdit={() => {}} onDelete={() => {}} t={t} />)) : <p className="text-slate-500 dark:text-slate-400">未找到相关链接</p>}
+                  {filteredLinks.length > 0 ? filteredLinks.map(link => (<LinkCard key={link.id} item={link} isEditMode={false} onEdit={() => {}} onDelete={() => {}} t={t} />)) : <p className="text-slate-500 dark:text-slate-400">{t.app.noResults}</p>}
                 </div>
               </section>
             ) : data.categories.map(category => {
@@ -249,7 +248,6 @@ const Dashboard: React.FC = () => {
                     <ChevronDown className={`w-8 h-8 text-slate-800 transition-transform duration-300 dark:text-white ${isCollapsed ? '-rotate-90' : ''}`} />
                     <h2 className="text-2xl font-bold text-slate-800 drop-shadow-sm dark:text-white">
                       {category.name}
-                      {isCollapsed && <span className="text-xs font-normal text-slate-400 ml-4 opacity-0 group-hover/title:opacity-100 transition-opacity">双击展开</span>}
                     </h2>
                   </div>
                   
@@ -267,7 +265,7 @@ const Dashboard: React.FC = () => {
                                   <Draggable key={link.id} draggableId={link.id} index={index} isDragDisabled={!isEditMode}>
                                     {(provided) => (
                                       <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps}>
-                                        <LinkCard item={link} isEditMode={isEditMode} onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} onDelete={(id) => confirmAction("删除", "确定删除该链接？", () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} t={t} />
+                                        <LinkCard item={link} isEditMode={isEditMode} onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} t={t} />
                                       </div>
                                     )}
                                   </Draggable>
@@ -292,7 +290,7 @@ const Dashboard: React.FC = () => {
                                   <Draggable key={link.id} draggableId={link.id} index={index} isDragDisabled={!isEditMode}>
                                     {(provided) => (
                                       <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps}>
-                                        <LinkCard item={link} isEditMode={isEditMode} onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} onDelete={(id) => confirmAction("删除", "确定删除该链接？", () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} t={t} />
+                                        <LinkCard item={link} isEditMode={isEditMode} onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} t={t} />
                                       </div>
                                     )}
                                   </Draggable>
@@ -319,7 +317,7 @@ const Dashboard: React.FC = () => {
             cloudConfig={cloudConfig} 
             onUpdateCloudConfig={(c) => { setCloudConfig(c); saveCloudConfig(c); }} 
             onSyncUpload={async (c) => { setIsSyncing(true); const res = await uploadToCloud(data, c || cloudConfig); setIsSyncing(false); showToast(res.success ? 'success' : 'error', res.message); }} 
-            onSyncDownload={async (c) => { const res = await downloadFromCloud(c || cloudConfig); if(res.success && res.data) { handleUpdateData(res.data); showToast('success', "下载成功"); } }} 
+            onSyncDownload={async (c) => { const res = await downloadFromCloud(c || cloudConfig); if(res.success && res.data) { handleUpdateData(res.data); showToast('success', t.app.success); } }} 
             isSyncing={isSyncing} 
             editingItem={editingItem} 
             initialValues={initialLinkData} 

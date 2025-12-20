@@ -24,6 +24,7 @@ export const TRANSLATIONS = {
       searchResults: "Search Results",
       noResults: "No results found.",
       addLink: "Add Link",
+      quickAdd: "Quick Add",
       deleteLinkConfirm: "Are you sure you want to delete this link?",
       noSubCategories: "No sub-categories.",
       visit: "Visit",
@@ -36,6 +37,7 @@ export const TRANSLATIONS = {
       missingNotionConfig: "Check Notion Token/ID.",
       missingGithubConfig: "Check Token/Gist ID.",
       linkDeleted: "Link removed.",
+      imageTooLarge: "Image is too large (Max 1MB).",
     },
     admin: {
       title: "Admin Center",
@@ -52,11 +54,16 @@ export const TRANSLATIONS = {
       },
       tags: {
         title: "Tags Management",
+        globalTitle: "Global Tags Center",
+        globalDesc: "Manage all resource tags. Supports batch renaming and auto-merging.",
         searchPlaceholder: "Filter tags...",
         count: "{count} links",
+        usageCount: "{count} items",
         rename: "Rename Tag",
         renamePlaceholder: "New name...",
-        deleteConfirm: "Delete this tag from ALL links? This cannot be undone.",
+        deleteTitle: "Delete Tag",
+        deleteMessage: "Remove tag \"{tag}\" from ALL links? This cannot be undone.",
+        renameSuccess: "Tags updated and merged.",
         empty: "No tags used yet.",
         mergeHint: "Renaming to an existing tag will merge them."
       },
@@ -90,18 +97,25 @@ export const TRANSLATIONS = {
         subCategory: "Sub Category",
         general: "General / No Sub",
         description: "Description",
-        tags: "Tags",
-        tagsPlaceholder: "Press Enter to add",
+        tags: "Tags Library",
+        tagsPlaceholder: "Type new tag...",
         addTag: "Add",
         icon: "Icon",
-        uploadOrPaste: "Click to upload",
+        uploadOrPaste: "Upload & Compress",
         selectCategory: "-- Select --",
         create: "Create Link",
         save: "Save Changes",
         update: "Update Link",
         meta: {
           success: "Metadata fetched!",
-          error: "Fetch failed."
+          error: "Fetch failed.",
+          pickerTitle: "Smart Multi-Source Metadata Picker",
+          pickerDesc: "Aggregated info from multiple platforms. Click to mix and match.",
+          abandon: "Discard",
+          apply: "Apply Selection",
+          titleStrategy: "Title Strategy",
+          iconStrategy: "Icon Strategy",
+          descStrategy: "Description Strategy"
         },
         modes: {
           single: "Single",
@@ -112,7 +126,7 @@ export const TRANSLATIONS = {
           label: "Paste URLs (one per line)",
           placeholder: "https://example.com\nbaidu.com\n...",
           defaultTitle: "Default Title (Optional)",
-          defaultTitlePlaceholder: "Leave empty to auto-fetch",
+          defaultTitlePlaceholder: "Leave empty to auto-fetch from URL",
           import: "Import Now",
           success: "Successfully imported {count} links"
         },
@@ -126,19 +140,21 @@ export const TRANSLATIONS = {
         title: "Category Management",
         new: "New Main Category",
         newSub: "New Sub Category",
+        noSub: "No sub-categories",
         edit: "Edit Category",
         editSub: "Edit Sub",
         name: "Category Name",
         deleteConfirm: "Delete this category and all links inside?",
         deleteSubConfirm: "Delete this sub-category?",
-        cancel: "Cancel"
+        cancel: "Cancel",
+        saveDone: "Save Done"
       },
       cloud: {
         enable: "Enable Sync Feature",
         desc: "Synchronize your data across multiple devices via your preferred cloud provider.",
         saveConfig: "Save Configuration",
-        upload: "Upload to Cloud",
-        download: "Download from Cloud",
+        upload: "Upload Sync",
+        download: "Download Local",
         github: {
           token: "GitHub Token",
           gistId: "Gist ID"
@@ -147,6 +163,7 @@ export const TRANSLATIONS = {
           token: "Integration Token",
           pageId: "Page ID",
           proxy: "API Proxy URL (CORS)",
+          proxyHelp: "Note: Notion API requires a proxy due to browser CORS restrictions.",
           publish: "Publish to Notion (Append)",
           help: "CORS Note: Use a Proxy URL for Notion API in browser."
         },
@@ -181,6 +198,7 @@ export const TRANSLATIONS = {
       searchResults: "搜索结果",
       noResults: "未找到结果。",
       addLink: "添加链接",
+      quickAdd: "添加链接",
       deleteLinkConfirm: "确定要删除此链接吗？",
       noSubCategories: "暂无子分类。",
       visit: "访问",
@@ -193,6 +211,7 @@ export const TRANSLATIONS = {
       missingNotionConfig: "请检查 Notion 配置。",
       missingGithubConfig: "请检查 Token/Gist ID。",
       linkDeleted: "链接已删除。",
+      imageTooLarge: "图片文件过大（最大 1MB）。",
     },
     admin: {
       title: "管理中心",
@@ -209,11 +228,16 @@ export const TRANSLATIONS = {
       },
       tags: {
         title: "标签库管理",
-        searchPlaceholder: "过滤标签...",
+        globalTitle: "全局标签中心",
+        globalDesc: "统一管理所有资源标签，支持批量重命名与自动合并。",
+        searchPlaceholder: "筛选标签...",
         count: "{count} 个链接使用",
+        usageCount: "{count} 个资源使用",
         rename: "重命名标签",
         renamePlaceholder: "新名称...",
-        deleteConfirm: "确定从所有链接中移除此标签？此操作不可撤销。",
+        deleteTitle: "删除标签",
+        deleteMessage: "确定从所有链接中移除标签 \"{tag}\" 吗？",
+        renameSuccess: "标签已更新并自动合并。",
         empty: "暂未提取到任何标签。",
         mergeHint: "如果重命名为已存在的标签，它们将会自动合并。"
       },
@@ -247,18 +271,25 @@ export const TRANSLATIONS = {
         subCategory: "子分类",
         general: "通用 / 无子分类",
         description: "描述",
-        tags: "标签",
-        tagsPlaceholder: "输入并按回车",
+        tags: "标签库",
+        tagsPlaceholder: "输入新标签并按回车...",
         addTag: "添加",
         icon: "图标",
-        uploadOrPaste: "点击上传图片",
+        uploadOrPaste: "上传并自动压缩图片",
         selectCategory: "-- 请选择 --",
         create: "创建链接",
         save: "保存修改",
         update: "更新链接",
         meta: {
           success: "元数据获取成功！",
-          error: "获取失败。"
+          error: "获取失败。",
+          pickerTitle: "精准多源元数据拾取",
+          pickerDesc: "智能聚合多平台信息，请通过点击各项来组合您最满意的呈现效果。",
+          abandon: "放弃",
+          apply: "确认组合方案并应用",
+          titleStrategy: "标题组合策略",
+          iconStrategy: "图标呈现方案",
+          descStrategy: "简介描述优化"
         },
         modes: {
           single: "单条录入",
@@ -269,7 +300,7 @@ export const TRANSLATIONS = {
           label: "粘贴网址 (每行一个)",
           placeholder: "https://example.com\nbaidu.com\n...",
           defaultTitle: "默认标题 (选填)",
-          defaultTitlePlaceholder: "留空则自动从网址获取",
+          defaultTitlePlaceholder: "留空则自动从网址获取标题",
           import: "立即导入",
           success: "成功导入 {count} 条链接"
         },
@@ -283,19 +314,21 @@ export const TRANSLATIONS = {
         title: "分类管理",
         new: "新建主分类",
         newSub: "新建子分类",
+        noSub: "暂无子分类",
         edit: "编辑主分类",
         editSub: "编辑子分类",
         name: "分类名称",
         deleteConfirm: "确定删除该分类及其所有链接吗？",
         deleteSubConfirm: "确定删除该子分类吗？",
-        cancel: "取消"
+        cancel: "取消",
+        saveDone: "完成保存"
       },
       cloud: {
         enable: "启用同步功能",
         desc: "在多设备间同步导航数据。请选择您偏好的服务提供商以开始您的同步之旅。",
-        saveConfig: "保存所有配置",
-        upload: "上传到云端",
-        download: "从云端下载",
+        saveConfig: "保存云端配置项",
+        upload: "上传同步",
+        download: "下回本地",
         github: {
           token: "GitHub 访问令牌",
           gistId: "Gist ID"
@@ -304,6 +337,7 @@ export const TRANSLATIONS = {
           token: "集成令牌 (Token)",
           pageId: "页面 ID (Page ID)",
           proxy: "API 代理地址 (CORS)",
+          proxyHelp: "由于浏览器 CORS 限制，直连 Notion API 可能失效，必须配置反向代理才能在浏览器正常使用。",
           publish: "发布到 Notion (追加)",
           help: "注意：由于跨域限制，Notion API 必须配置反向代理才能在浏览器使用。"
         },
@@ -311,7 +345,7 @@ export const TRANSLATIONS = {
           url: "服务器地址",
           user: "账户邮箱",
           pass: "应用密码",
-          help: "请确保您的 WebDAV 服务器支持 CORS 跨域请求或已配置代理。"
+          help: "WebDAV 适用于坚果云等支持该协议的服务。请确保服务器已开启 CORS 跨域支持或使用代理服务器。"
         }
       }
     }
