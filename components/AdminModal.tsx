@@ -136,15 +136,28 @@ const AdminModal: React.FC<AdminModalProps> = ({
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, isIcon: boolean, callback: (res: string) => void) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // 获取原始文件大小
+    const originalSizeKB = Math.round(file.size / 1024);
+
     const reader = new FileReader();
     reader.onload = async (event) => {
       const result = event.target?.result as string;
       if (result) {
         const compressed = await compressImage(result, isIcon ? 128 : 1920);
+        
+        // 计算压缩后的 Base64 字符串对应的实际字节数
+        // Base64 编码字符串长度与原始字节比例约为 4:3
+        const compressedSizeKB = Math.round(((compressed.length * 3) / 4) / 1024);
+        
         callback(compressed);
+        
+        // 增加更直观的压缩对比提示
+        const prefix = isIcon ? "图标" : "背景图片";
+        showToast('success', `${prefix}优化完成: ${originalSizeKB}KB -> ${compressedSizeKB}KB`);
       }
     };
-    reader.readAsDataURL(file as any);
+    reader.readAsDataURL(file);
   };
 
   const handleFetchMetadata = async () => {

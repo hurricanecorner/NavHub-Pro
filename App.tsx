@@ -214,17 +214,12 @@ const Dashboard: React.FC = () => {
               </div>
               <button onClick={() => { const nl = lang === 'en' ? 'zh' : 'en'; setLang(nl); saveLanguage(nl); }} className="p-2 text-slate-400 flex items-center gap-1 uppercase text-sm font-bold hover:text-indigo-500 transition-colors"><Languages className="w-5 h-5" /> {lang}</button>
               
-              {/* 这里是修正后的图标逻辑 */}
               <button 
                 onClick={() => setIsEditMode(!isEditMode)} 
-                className={`p-2 rounded-lg transition-all duration-300 ${isEditMode ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
+                className={`p-2 rounded-lg transition-all duration-300 ${isEditMode ? 'bg-indigo-600 text-white shadow-lg ring-2 ring-indigo-500/20' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
                 title={isEditMode ? "锁定并保存" : "进入编辑模式"}
               >
-                {/* 
-                   逻辑说明：
-                   - 如果 isEditMode 为 true（正在编辑）：显示 Lock 图标，意为“点击加锁保存”。
-                   - 如果 isEditMode 为 false（未在编辑）：显示 Edit 图标，意为“点击开始编辑”。
-                */}
+                {/* 这里是修正后的图标逻辑：锁定态显示铅笔，编辑态显示锁 */}
                 {isEditMode ? <Lock className="w-5 h-5" /> : <Edit className="w-5 h-5" />}
               </button>
 
