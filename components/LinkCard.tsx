@@ -15,7 +15,7 @@ interface LinkCardProps {
 const LinkCard: React.FC<LinkCardProps> = ({ item, isEditMode, isDragging, onEdit, onDelete, t }) => {
   const [imgError, setImgError] = useState(false);
   const IconFallback = () => (
-    <div className="w-12 h-12 rounded-[1.25rem] bg-brand-50 text-brand-500 flex items-center justify-center shrink-0 border border-brand-100 dark:border-transparent dark:bg-brand-900/40 dark:text-brand-400 transition-colors">
+    <div className="w-12 h-12 rounded-full bg-brand-50 text-brand-500 flex items-center justify-center shrink-0 border border-brand-100 dark:border-transparent dark:bg-brand-900/40 dark:text-brand-400 transition-colors">
       <Globe className="w-6 h-6" />
     </div>
   );
@@ -33,7 +33,7 @@ const LinkCard: React.FC<LinkCardProps> = ({ item, isEditMode, isDragging, onEdi
           <div className="absolute left-8 top-full w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-slate-900/90"></div>
         </div>
       )}
-      <div className={`w-12 h-12 rounded-[1.25rem] overflow-hidden shrink-0 border border-slate-100 bg-white dark:border-white/5 dark:bg-zinc-800 flex items-center justify-center shadow-inner transition-transform ${isDragging ? '!transition-none' : 'group-hover:scale-110 duration-500'}`}>
+      <div className={`w-12 h-12 rounded-full overflow-hidden shrink-0 border border-slate-100 bg-white dark:border-white/5 dark:bg-zinc-800 flex items-center justify-center shadow-inner transition-transform ${isDragging ? '!transition-none' : 'group-hover:scale-110 duration-500'}`}>
         {item.iconUrl && !imgError ? (
           <img src={item.iconUrl} alt={item.title} className={`w-full h-full object-cover scale-[1.1] transition-transform ${isDragging ? '!transition-none' : 'duration-700 group-hover:scale-[1.2]'}`} onError={() => setImgError(true)} />
         ) : ( <IconFallback /> )}

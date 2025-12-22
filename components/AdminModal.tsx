@@ -42,7 +42,7 @@ interface MetaResult {
 }
 
 declare const __BUILD_TIME__: string;
-const BUILD_ID = "V3.3.1-THEME-SET-" + (typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toLocaleString());
+const BUILD_ID = "V3.3.2-THEME-SET-" + (typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toLocaleString());
 
 const compressImage = async (input: string, maxWidth: number = 128, quality = 0.8): Promise<string> => {
   let src = input;
@@ -646,34 +646,43 @@ const AdminModal: React.FC<AdminModalProps> = ({
               <div className="space-y-4">
                 <label className="block text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest ml-1">{t.admin.link.meta.titleStrategy}</label>
                 <div className="grid grid-cols-2 gap-4">
-                  {metaPickerData.results.map(r => (
-                    <button key={r.id} onClick={() => setPickerSelection(p => ({ ...p, title: r.title }))} className={`p-5 rounded-2xl border-2 text-left transition-all ${pickerSelection.title === r.title ? 'border-brand-600 bg-brand-50 dark:bg-brand-900/20' : 'border-slate-100 dark:border-white/5 bg-slate-50 dark:bg-zinc-700 hover:border-slate-200'}`}>
-                      <div className="text-[10px] font-bold uppercase text-brand-600 dark:text-brand-400 mb-2">{r.sourceName}</div>
-                      <div className="font-bold text-sm text-slate-800 dark:text-zinc-100 truncate">{r.title}</div>
-                    </button>
-                  ))}
+                  {metaPickerData.results.map(r => {
+                    const isSelected = pickerSelection.title === r.title;
+                    return (
+                      <button key={r.id} onClick={() => setPickerSelection(p => ({ ...p, title: r.title }))} className={`p-5 rounded-2xl border-2 text-left transition-all ${isSelected ? 'border-brand-600 bg-brand-50 dark:bg-zinc-100 shadow-lg' : 'border-slate-100 dark:border-white/5 bg-slate-50 dark:bg-zinc-700 hover:border-slate-200'}`}>
+                        <div className={`text-[10px] font-bold uppercase mb-2 ${isSelected ? 'text-brand-600 dark:text-brand-600' : 'text-brand-600 dark:text-brand-400'}`}>{r.sourceName}</div>
+                        <div className={`font-bold text-sm truncate ${isSelected ? 'text-slate-800 dark:text-zinc-900' : 'text-slate-800 dark:text-zinc-100'}`}>{r.title}</div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
               <div className="space-y-4">
                 <label className="block text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest ml-1">{t.admin.link.meta.iconStrategy}</label>
                 <div className="grid grid-cols-2 gap-4">
-                  {metaPickerData.results.map(r => (
-                    <button key={r.id} onClick={() => setPickerSelection(p => ({ ...p, iconUrl: r.iconUrl }))} className={`p-5 rounded-2xl border-2 text-left flex items-center gap-4 transition-all ${pickerSelection.iconUrl === r.iconUrl ? 'border-brand-600 bg-brand-50 dark:bg-brand-900/20' : 'border-slate-100 dark:border-white/5 bg-slate-50 dark:bg-zinc-700 hover:border-slate-200'}`}>
-                      <div className="w-12 h-12 rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden bg-white shrink-0"><img src={r.iconUrl} className="w-full h-full object-cover" /></div>
-                      <div><div className="text-[10px] font-bold uppercase text-brand-600 dark:text-brand-400">{r.sourceName}</div></div>
-                    </button>
-                  ))}
+                  {metaPickerData.results.map(r => {
+                    const isSelected = pickerSelection.iconUrl === r.iconUrl;
+                    return (
+                      <button key={r.id} onClick={() => setPickerSelection(p => ({ ...p, iconUrl: r.iconUrl }))} className={`p-5 rounded-2xl border-2 text-left flex items-center gap-4 transition-all ${isSelected ? 'border-brand-600 bg-brand-50 dark:bg-zinc-100 shadow-lg' : 'border-slate-100 dark:border-white/5 bg-slate-50 dark:bg-zinc-700 hover:border-slate-200'}`}>
+                        <div className="w-12 h-12 rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden bg-white shrink-0"><img src={r.iconUrl} className="w-full h-full object-cover" /></div>
+                        <div className={`text-[10px] font-bold uppercase ${isSelected ? 'text-brand-600 dark:text-brand-600' : 'text-brand-600 dark:text-brand-400'}`}>{r.sourceName}</div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
               <div className="space-y-4">
                 <label className="block text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest ml-1">{t.admin.link.meta.descStrategy}</label>
                 <div className="grid grid-cols-2 gap-4">
-                  {metaPickerData.results.map(r => (
-                    <button key={r.id} onClick={() => setPickerSelection(p => ({ ...p, description: r.description }))} className={`p-5 rounded-2xl border-2 text-left transition-all ${pickerSelection.description === r.description ? 'border-brand-600 bg-brand-50 dark:bg-brand-900/20' : 'border-slate-100 dark:border-white/5 bg-slate-50 dark:bg-zinc-700 hover:border-slate-200'}`}>
-                      <div className="text-[10px] font-bold uppercase text-brand-600 dark:text-brand-400 mb-2">{r.sourceName}</div>
-                      <div className="text-[11px] text-slate-500 dark:text-zinc-400 line-clamp-2 leading-relaxed">{r.description || '-'}</div>
-                    </button>
-                  ))}
+                  {metaPickerData.results.map(r => {
+                    const isSelected = pickerSelection.description === r.description;
+                    return (
+                      <button key={r.id} onClick={() => setPickerSelection(p => ({ ...p, description: r.description }))} className={`p-5 rounded-2xl border-2 text-left transition-all ${isSelected ? 'border-brand-600 bg-brand-50 dark:bg-zinc-100 shadow-lg' : 'border-slate-100 dark:border-white/5 bg-slate-50 dark:bg-zinc-700 hover:border-slate-200'}`}>
+                        <div className={`text-[10px] font-bold uppercase mb-2 ${isSelected ? 'text-brand-600 dark:text-brand-600' : 'text-brand-600 dark:text-brand-400'}`}>{r.sourceName}</div>
+                        <div className={`text-[11px] line-clamp-2 leading-relaxed ${isSelected ? 'text-slate-600 dark:text-zinc-800' : 'text-slate-500 dark:text-zinc-400'}`}>{r.description || '-'}</div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
               <div className="flex gap-4 pt-6">
