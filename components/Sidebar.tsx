@@ -1,5 +1,4 @@
 
-
 import React, { useState } from 'react';
 import { Category, LinkItem, SiteConfig, Theme } from '../types';
 import { LayoutGrid, Hash, ChevronRight, Folder, GripVertical } from 'lucide-react';
@@ -36,67 +35,50 @@ const CategoryIcon = ({ icon, isActive, theme }: { icon?: string; isActive: bool
   return (
     <Folder className={`w-5 h-5 shrink-0 ${
       isCustom 
-        ? (isActive ? 'text-white' : 'text-slate-400')
-        : (isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500')
+        ? (isActive ? 'text-white' : 'text-slate-100')
+        : (isActive ? 'text-brand-600 dark:text-zinc-100' : 'text-slate-400 dark:text-zinc-500')
     }`} />
   );
 };
 
 const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, onSelectCategory, isOpen, setIsOpen, t, isEditMode, siteConfig, theme }) => {
-  
   const isCustom = theme === 'custom';
-
   const scrollToSection = (id: string) => {
     onSelectCategory(id);
     const element = document.getElementById(`category-${id}`);
     if (element) {
       element.scrollIntoView({ behavior: 'smooth' });
     }
-    if (window.innerWidth < 1024) {
-        setIsOpen(false);
-    }
+    if (window.innerWidth < 1024) setIsOpen(false);
   };
-
   const scrollToSubSection = (e: React.MouseEvent, catId: string, subId: string) => {
     e.stopPropagation();
-    // Ensure parent category is active (though it likely is if this is visible)
-    if (activeCategoryId !== catId) {
-      onSelectCategory(catId);
-    }
-    
+    if (activeCategoryId !== catId) onSelectCategory(catId);
     const element = document.getElementById(`subcat-${subId}`);
     if (element) {
       element.scrollIntoView({ behavior: 'smooth' });
     }
-    if (window.innerWidth < 1024) {
-        setIsOpen(false);
-    }
+    if (window.innerWidth < 1024) setIsOpen(false);
   };
-
   const getCategoryCount = (catId: string) => links.filter(l => l.categoryId === catId).length;
   const getSubCategoryCount = (catId: string, subId: string) => links.filter(l => l.categoryId === catId && l.subCategoryId === subId).length;
 
   return (
     <>
-      {/* Mobile Overlay */}
       {isOpen && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={() => setIsOpen(false)}
-        />
+        <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setIsOpen(false)} />
       )}
-
       <aside className={`
         fixed top-0 left-0 z-50 h-screen w-64 shadow-sm transition-transform duration-300 ease-in-out
         lg:translate-x-0 lg:static 
         ${isOpen ? 'translate-x-0' : '-translate-x-full'}
         ${isCustom 
           ? 'bg-black/40 backdrop-blur-xl border-r border-white/5 text-slate-100' 
-          : 'bg-white dark:bg-slate-900/80 dark:backdrop-blur-md border-r border-slate-200 dark:border-slate-800/50'
+          : 'bg-white dark:bg-zinc-800 dark:backdrop-blur-md border-r border-slate-200 dark:border-white/5'
         }
       `}>
-        <div className={`h-16 flex items-center px-6 ${isCustom ? 'border-b border-white/5' : 'border-b border-slate-100 dark:border-slate-800/50'}`}>
-          <div className={`flex items-center gap-2 font-bold text-xl overflow-hidden ${isCustom ? 'text-white' : 'text-indigo-600 dark:text-indigo-400'}`}>
+        <div className={`h-16 flex items-center px-6 ${isCustom ? 'border-b border-white/5' : 'border-b border-slate-100 dark:border-white/5'}`}>
+          <div className={`flex items-center gap-2 font-black text-xl overflow-hidden tracking-[0.05em] ${isCustom ? 'text-white' : 'text-brand-600 dark:text-zinc-100'}`}>
             {siteConfig?.logoUrl ? (
               <img src={siteConfig.logoUrl} alt="Logo" className="w-8 h-8 object-contain" />
             ) : (
@@ -105,7 +87,6 @@ const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, 
             <span className="truncate">{siteConfig?.title || t.app.title}</span>
           </div>
         </div>
-
         <div className="p-4 h-[calc(100vh-4rem)] overflow-y-auto">
           <Droppable droppableId="sidebar-categories" type="SIDEBAR_CATEGORY">
             {(provided) => (
@@ -113,7 +94,6 @@ const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, 
                 {categories.map((category, index) => {
                   const isActive = activeCategoryId === category.id;
                   const catCount = getCategoryCount(category.id);
-
                   return (
                     <Draggable key={category.id} draggableId={`sidebar-cat-${category.id}`} index={index} isDragDisabled={!isEditMode}>
                       {(provided) => (
@@ -127,33 +107,26 @@ const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, 
                             <button
                               onClick={() => scrollToSection(category.id)}
                               className={`
-                                flex-1 flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-all group border
+                                flex-1 flex items-center justify-between px-4 py-3 rounded-lg text-sm font-black tracking-[0.04em] transition-all group border
                                 ${isCustom 
-                                  ? (isActive 
-                                      ? 'bg-white/20 text-white shadow-sm border-white/10 backdrop-blur-sm' 
-                                      : 'text-slate-300 hover:bg-white/10 hover:text-white border-transparent')
-                                  : (isActive 
-                                      ? 'bg-indigo-50 text-indigo-600 border-transparent dark:bg-indigo-900/40 dark:text-indigo-300' 
-                                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 border-transparent dark:text-slate-400 dark:hover:bg-slate-800/50 dark:hover:text-slate-200')
+                                  ? (isActive ? 'bg-white/20 text-white shadow-sm border-white/10 backdrop-blur-sm' : 'text-slate-100 hover:bg-white/10 hover:text-white border-transparent')
+                                  : (isActive ? 'bg-brand-50 text-brand-600 border-transparent dark:bg-zinc-700 dark:text-zinc-100' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 border-transparent dark:text-zinc-400 dark:hover:bg-zinc-700/50 dark:hover:text-zinc-100')
                                 }
                               `}
                             >
                               <div className="flex items-center gap-3 overflow-hidden">
                                 <CategoryIcon icon={category.icon} isActive={isActive} theme={theme} />
-                                <span className="truncate">{category.name}</span>
+                                <span className="truncate uppercase">{category.name}</span>
                               </div>
-                              
-                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full transition-colors ${
+                              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full transition-colors ${
                                 isCustom 
-                                  ? (isActive ? 'bg-white/20 text-white' : 'bg-white/5 text-slate-400 group-hover:bg-white/10 group-hover:text-white')
-                                  : (isActive ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200' : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-500 dark:group-hover:bg-slate-700')
+                                  ? (isActive ? 'bg-white/20 text-white' : 'bg-white/5 text-slate-200 group-hover:bg-white/10 group-hover:text-white')
+                                  : (isActive ? 'bg-brand-100 text-brand-700 dark:bg-zinc-800 dark:text-zinc-400' : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200 dark:bg-zinc-900 dark:text-zinc-500 dark:group-hover:bg-zinc-800')
                               }`}>
                                 {catCount}
                               </span>
                             </button>
                           </div>
-
-                          {/* Sub Categories */}
                           {isActive && category.subCategories.length > 0 && (
                             <Droppable droppableId={`sidebar-sub-${category.id}`} type="SIDEBAR_SUBCAT">
                               {(provided) => (
@@ -164,28 +137,13 @@ const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, 
                                       <Draggable key={subCat.id} draggableId={`sidebar-sub-${subCat.id}`} index={subIndex} isDragDisabled={!isEditMode}>
                                         {(provided) => (
                                           <div ref={provided.innerRef} {...provided.draggableProps} className="flex items-center">
-                                             {isEditMode && (
-                                                <div {...provided.dragHandleProps} className="pr-1 text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing">
-                                                  <GripVertical className="w-3 h-3" />
-                                                </div>
-                                              )}
-                                              <button
-                                                onClick={(e) => scrollToSubSection(e, category.id, subCat.id)}
-                                                className={`
-                                                  flex-1 flex items-center justify-between px-3 py-2 rounded-md text-xs transition-colors group/sub
-                                                  ${isCustom 
-                                                    ? 'text-slate-400 hover:text-white hover:bg-white/10' 
-                                                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 dark:text-slate-500 dark:hover:text-slate-300 dark:hover:bg-slate-800/50'
-                                                  }
-                                                `}
-                                              >
+                                             {isEditMode && (<div {...provided.dragHandleProps} className="pr-1 text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing"><GripVertical className="w-3 h-3" /></div>)}
+                                              <button onClick={(e) => scrollToSubSection(e, category.id, subCat.id)} className={`flex-1 flex items-center justify-between px-3 py-2 rounded-md text-xs font-bold tracking-wider transition-colors group/sub ${isCustom ? 'text-slate-200 hover:text-white hover:bg-white/10' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-700/50'}`}>
                                                 <div className="flex items-center gap-2 truncate">
-                                                  <ChevronRight className={`w-3 h-3 ${isCustom ? 'text-slate-500 group-hover/sub:text-slate-300' : 'text-slate-300 group-hover/sub:text-slate-400 dark:text-slate-600 dark:group-hover/sub:text-slate-500'}`} />
-                                                  <span className="truncate">{subCat.name}</span>
+                                                  <ChevronRight className={`w-3 h-3 ${isCustom ? 'text-slate-300 group-hover/sub:text-slate-100' : 'text-slate-300 group-hover/sub:text-zinc-400 dark:text-zinc-500 dark:group-hover/sub:text-zinc-300'}`} />
+                                                  <span className="truncate uppercase">{subCat.name}</span>
                                                 </div>
-                                                <span className={`text-[10px] font-medium ${isCustom ? 'text-slate-500 group-hover/sub:text-slate-300' : 'text-slate-400 group-hover/sub:text-slate-600 dark:group-hover/sub:text-slate-400'}`}>
-                                                  {subCount}
-                                                </span>
+                                                <span className={`text-[10px] font-bold ${isCustom ? 'text-slate-300 group-hover/sub:text-slate-100' : 'text-slate-400 group-hover/sub:text-slate-600 dark:group-hover/sub:text-zinc-500'}`}>{subCount}</span>
                                               </button>
                                           </div>
                                         )}
@@ -211,5 +169,4 @@ const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, 
     </>
   );
 };
-
 export default Sidebar;

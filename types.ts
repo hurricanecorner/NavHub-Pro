@@ -31,6 +31,8 @@ export interface SiteConfig {
   logoUrl: string;
   faviconUrl: string;
   backgroundUrl?: string;
+  linkColumns?: number; // 桌面端显示的栏数
+  themeColor?: string; // 主题色方案名称
 }
 
 export interface AppData {
