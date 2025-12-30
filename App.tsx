@@ -1,6 +1,6 @@
 
-import React, { Component, useState, useEffect, ReactNode, ErrorInfo } from 'react';
-import { Menu, Search, Settings, Edit, Lock, Languages, AlertTriangle, Moon, Sun, Laptop, Image as ImageIcon, ChevronDown, PlusCircle, Plus, LayoutGrid } from 'lucide-react';
+import React, { Component, useState, useEffect, ReactNode, ErrorInfo, useRef } from 'react';
+import { Menu, Search, Settings, Edit, Lock, Languages, AlertTriangle, Moon, Sun, Laptop, Image as ImageIcon, ChevronDown, PlusCircle, Plus, LayoutGrid, Check } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { AppData, LinkItem, CloudConfig, Language, Theme, Category } from './types';
 import { loadData, saveData, loadCloudConfig, saveCloudConfig, uploadToCloud, downloadFromCloud, loadLanguage, saveLanguage, loadTheme, saveTheme } from './services/storageUtils';
@@ -11,7 +11,6 @@ import AdminModal from './components/AdminModal';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 import { ConfirmDialog } from './components/ConfirmDialog';
 
-// 定义预设色板
 export const COLOR_PALETTES: Record<string, Record<number, string>> = {
   indigo: { 50: '#eef2ff', 100: '#e0e7ff', 200: '#c7d2fe', 300: '#a5b4fc', 400: '#818cf8', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca', 800: '#3730a3', 900: '#1e1b4b', 950: '#171717' },
   blue: { 50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd', 400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', 800: '#1e40af', 900: '#1e3a8a', 950: '#172554' },
@@ -66,6 +65,7 @@ const Dashboard: React.FC = () => {
   const [activeSearchQuery, setActiveSearchQuery] = useState('');
   const [isEditMode, setIsEditMode] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<LinkItem | null>(null);
   const [initialLinkData, setInitialLinkData] = useState<{ categoryId: string; subCategoryId: string } | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -73,6 +73,7 @@ const Dashboard: React.FC = () => {
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [confirmState, setConfirmState] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void; isDangerous: boolean; }>({ isOpen: false, title: '', message: '', onConfirm: () => {}, isDangerous: false });
   const [pageReady, setPageReady] = useState(false);
+  const themeMenuRef = useRef<HTMLDivElement>(null);
 
   const t = TRANSLATIONS[lang];
 
@@ -96,6 +97,16 @@ const Dashboard: React.FC = () => {
     else if (theme === 'custom') root.classList.add('dark');
     else root.classList.add(theme);
   }, [theme]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (themeMenuRef.current && !themeMenuRef.current.contains(event.target as Node)) {
+        setIsThemeMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleUpdateData = (newData: AppData) => { 
     setData(newData); saveData(newData);
@@ -129,42 +140,28 @@ const Dashboard: React.FC = () => {
     } else if (type === 'LINK') {
       const sourceParts = source.droppableId.split('__');
       const destParts = destination.droppableId.split('__');
-      
       const sourceCatId = sourceParts[1];
       const sourceSubCatId = sourceParts[2] === 'GENERAL' ? '' : sourceParts[2];
       const destCatId = destParts[1];
       const destSubCatId = destParts[2] === 'GENERAL' ? '' : destParts[2];
-
-      // 1. 获取源容器中的链接列表并找到正在移动的项
       const sourceLinksInGroup = data.links.filter(l => l.categoryId === sourceCatId && (l.subCategoryId || '') === sourceSubCatId);
       const movedItem = sourceLinksInGroup[source.index];
       if (!movedItem) return;
-
-      // 2. 从全局链接列表中移除该项
       const remainingLinks = data.links.filter(l => l.id !== movedItem.id);
-      
-      // 3. 确定目标容器及其在全局列表中的位置
       const destLinksInGroup = remainingLinks.filter(l => l.categoryId === destCatId && (l.subCategoryId || '') === destSubCatId);
-      
       let globalInsertIndex: number;
       if (destLinksInGroup.length > 0 && destination.index < destLinksInGroup.length) {
-        // 插入到目标位置的现有链接之前
         const targetNeighbor = destLinksInGroup[destination.index];
         globalInsertIndex = remainingLinks.findIndex(l => l.id === targetNeighbor.id);
       } else if (destLinksInGroup.length > 0) {
-        // 插入到该组最后一个链接之后
         const lastNeighbor = destLinksInGroup[destLinksInGroup.length - 1];
         globalInsertIndex = remainingLinks.findIndex(l => l.id === lastNeighbor.id) + 1;
       } else {
-        // 目标容器为空，直接追加到末尾（或者可以改进为寻找分类边界）
         globalInsertIndex = remainingLinks.length;
       }
-
-      // 4. 更新链接的分类信息并执行插入
       const updatedItem = { ...movedItem, categoryId: destCatId, subCategoryId: destSubCatId };
       const newLinks = [...remainingLinks];
       newLinks.splice(globalInsertIndex, 0, updatedItem);
-      
       handleUpdateData({ ...data, links: newLinks });
     }
   };
@@ -176,13 +173,18 @@ const Dashboard: React.FC = () => {
     </button>
   );
 
+  const themeIcon = theme === 'light' ? <Sun className="w-5 h-5" /> : theme === 'dark' ? <Moon className="w-5 h-5" /> : theme === 'system' ? <Laptop className="w-5 h-5" /> : <ImageIcon className="w-5 h-5" />;
+
   if (isLoading) return null;
+  
+  // 核心修复：根据 siteConfig 动态计算列数
+  const columns = data.siteConfig?.linkColumns || 4;
   const filteredLinks = activeSearchQuery ? data.links.filter(l => l.title.toLowerCase().includes(activeSearchQuery.toLowerCase())) : data.links;
-  const gridColumns = data.siteConfig?.linkColumns || 4;
   const gridStyle = {
-    display: 'grid', gap: '1.5rem',
-    gridTemplateColumns: window.innerWidth < 640 ? 'repeat(1, minmax(0, 1fr))' : 
-                         window.innerWidth < 1024 ? 'repeat(2, minmax(0, 1fr))' : `repeat(${gridColumns}, minmax(0, 1fr))`
+    display: 'grid', 
+    gap: '1.25rem',
+    // 移动端固定为 1 列，桌面端使用用户定义的列数
+    gridTemplateColumns: window.innerWidth < 640 ? '1fr' : `repeat(${columns}, minmax(0, 1fr))`
   };
 
   return (
@@ -194,34 +196,55 @@ const Dashboard: React.FC = () => {
         </div>
         <main className={`flex-1 flex flex-col h-screen overflow-hidden relative z-10 transition-opacity duration-700 ${pageReady ? 'opacity-100' : 'opacity-0'}`}>
           <header className="h-16 flex items-center justify-between px-4 lg:px-8 z-30 sticky top-0 bg-white/80 dark:bg-zinc-800/80 backdrop-blur-md border-b border-slate-100 dark:border-white/5 animate-slide-up">
-            <div className="flex items-center gap-4 flex-1">
+            <div className="flex items-center gap-3 lg:gap-4 flex-1 min-w-0">
               <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden p-2 dark:text-zinc-100 transition-transform active:scale-90"><Menu className="w-5 h-5" /></button>
-              <div className="relative max-w-md w-full hidden sm:block group">
+              <div className="relative flex-1 lg:max-w-md group min-w-0">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-brand-500 transition-colors" />
-                <input type="text" placeholder={t.app.searchPlaceholder} value={searchInputValue} onChange={(e) => setSearchInputValue(e.target.value)} className="w-full pl-10 pr-10 py-2 bg-slate-100/50 rounded-full text-sm font-black outline-none border border-transparent focus:border-brand-500/30 focus:bg-white dark:bg-zinc-700/50 dark:text-white dark:placeholder:text-zinc-400 transition-all tracking-wider" />
+                <input type="text" placeholder={t.app.searchPlaceholder} value={searchInputValue} onChange={(e) => setSearchInputValue(e.target.value)} onKeyDown={e => e.key === 'Enter' && setActiveSearchQuery(searchInputValue)} className="w-full pl-9 pr-4 py-2 bg-slate-100/50 rounded-full text-xs lg:text-sm font-black outline-none border border-transparent focus:border-brand-500/30 focus:bg-white dark:bg-zinc-700/50 dark:text-white dark:placeholder:text-zinc-400 transition-all tracking-wider" />
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="relative group">
-                <button className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-brand-500 dark:hover:bg-zinc-700 transition-all">{theme === 'light' ? <Sun className="w-5 h-5" /> : theme === 'dark' ? <Moon className="w-5 h-5" /> : theme === 'system' ? <Laptop className="w-5 h-5" /> : <ImageIcon className="w-5 h-5" />}</button>
-                <div className="absolute right-0 top-full pt-2 opacity-0 scale-95 invisible group-hover:opacity-100 group-hover:visible group-hover:scale-100 transition-all w-32 z-50 origin-top-right">
-                  <div className="bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-100 p-1.5 dark:bg-zinc-800/90 dark:border-zinc-700">
-                    {(['light', 'dark', 'system', 'custom'] as const).map(m => (
-                      <button key={m} onClick={() => { setTheme(m as Theme); saveTheme(m as Theme); }} className={`w-full text-left px-3 py-2 text-xs font-black rounded-xl transition-all capitalize ${theme === m ? 'bg-brand-500 text-white shadow-lg' : 'text-slate-600 hover:bg-slate-100 dark:text-zinc-200 dark:hover:bg-zinc-700'}`}>{t.app.theme[m]}</button>
+            <div className="flex items-center gap-1 lg:gap-3 ml-2 relative">
+              
+              <div className="relative" ref={themeMenuRef}>
+                <button onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)} className="p-2.5 text-slate-400 dark:text-zinc-400 hover:text-slate-600 dark:hover:text-zinc-100 transition-all active:scale-95">
+                  {themeIcon}
+                </button>
+                {isThemeMenuOpen && (
+                  <div className="absolute top-[calc(100%+8px)] right-0 w-44 bg-white dark:bg-zinc-800 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-slate-100 dark:border-white/5 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200 overflow-hidden">
+                    {(['light', 'dark', 'system', 'custom'] as const).map(option => (
+                      <button 
+                        key={option} 
+                        onClick={() => { setTheme(option); saveTheme(option); setIsThemeMenuOpen(false); }} 
+                        className={`w-[calc(100%-12px)] mx-1.5 px-3 py-2 flex items-center justify-between rounded-xl text-xs font-black transition-all ${
+                          theme === option 
+                            ? 'bg-slate-50 dark:bg-zinc-700 text-slate-800 dark:text-zinc-100' 
+                            : 'text-slate-600 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-zinc-700/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          {option === 'light' ? <Sun className="w-3.5 h-3.5" /> : option === 'dark' ? <Moon className="w-3.5 h-3.5" /> : option === 'system' ? <Laptop className="w-3.5 h-3.5" /> : <ImageIcon className="w-3.5 h-3.5" />}
+                          <span className="truncate">{t.app.theme[option]}</span>
+                        </div>
+                        {theme === option && <Check className="w-3 h-3 text-brand-600 dark:text-brand-400" />}
+                      </button>
                     ))}
                   </div>
-                </div>
+                )}
               </div>
-              <button onClick={() => { const nl = lang === 'en' ? 'zh' : 'en'; setLang(nl); saveLanguage(nl); }} className="p-2 text-slate-400 flex items-center gap-1 uppercase text-sm font-black hover:text-brand-500 transition-colors tracking-widest"><Languages className="w-5 h-5" /> {lang}</button>
-              <button onClick={() => setIsEditMode(!isEditMode)} className={`p-2 rounded-lg transition-all duration-300 ${isEditMode ? 'bg-brand-600 text-white shadow-lg ring-4 ring-brand-500/20' : 'text-slate-400 hover:text-slate-600 dark:hover:text-zinc-100'}`} title={isEditMode ? "Lock" : "Edit"}>{isEditMode ? <Lock className="w-5 h-5 animate-in zoom-in-50 duration-300" /> : <Edit className="w-5 h-5 animate-in zoom-in-50 duration-300" />}</button>
-              <button onClick={() => setIsAdminModalOpen(true)} className="bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-black flex items-center gap-2 dark:bg-brand-600 hover:shadow-[0_8px_20px_-4px_rgba(var(--brand-600-rgb),0.5)] active:scale-95 transition-all tracking-wider"><Settings className="w-4 h-4" /> {t.app.admin}</button>
+
+              <button onClick={() => { const nl = lang === 'en' ? 'zh' : 'en'; setLang(nl); saveLanguage(nl); }} className="p-2 text-slate-400 flex items-center gap-1 uppercase text-xs font-black hover:text-brand-500 transition-colors tracking-widest sm:flex hidden"><Languages className="w-4 h-4 lg:w-5 lg:h-5" /> {lang}</button>
+              <button onClick={() => setIsEditMode(!isEditMode)} className={`p-2 rounded-lg transition-all duration-300 ${isEditMode ? 'bg-brand-600 text-white shadow-lg ring-4 ring-brand-500/20' : 'text-slate-400 hover:text-slate-600 dark:hover:text-zinc-100'}`} title={isEditMode ? "Lock" : "Edit"}>{isEditMode ? <Lock className="w-4 h-4 lg:w-5 lg:h-5" /> : <Edit className="w-4 h-4 lg:w-5 lg:h-5" />}</button>
+              <button onClick={() => setIsAdminModalOpen(true)} className="bg-slate-900 text-white px-3 lg:px-4 py-2 rounded-xl text-xs lg:text-sm font-black flex items-center gap-2 dark:bg-brand-600 active:scale-95 transition-all tracking-wider shadow-md"><Settings className="w-4 h-4" /> <span className="hidden xs:inline">{t.app.admin}</span></button>
             </div>
           </header>
-          <div className="flex-1 overflow-y-auto p-4 lg:p-8 space-y-12 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto p-4 lg:p-8 space-y-10 lg:space-y-12 custom-scrollbar">
             {activeSearchQuery ? (
               <section className={isEditMode ? '' : 'animate-slide-up'}>
-                <h2 className="text-2xl font-black mb-8 dark:text-white flex items-center gap-3"><LayoutGrid className="text-brand-500" />{t.app.searchResults}</h2>
-                <div style={gridStyle}>{filteredLinks.map((link, i) => <LinkCard key={link.id} item={link} isEditMode={false} onEdit={() => {}} onDelete={() => {}} t={t} />)}</div>
+                <div className="flex items-center justify-between mb-8">
+                   <h2 className="text-xl lg:text-2xl font-black dark:text-white flex items-center gap-3"><LayoutGrid className="text-brand-50" />{t.app.searchResults}: {activeSearchQuery}</h2>
+                   <button onClick={() => {setActiveSearchQuery(''); setSearchInputValue('');}} className="text-xs font-bold text-brand-600 hover:underline">Clear Search</button>
+                </div>
+                <div style={gridStyle}>{filteredLinks.map((link) => <LinkCard key={link.id} item={link} isEditMode={false} onEdit={() => {}} onDelete={() => {}} t={t} />)}</div>
               </section>
             ) : data.categories.map((category, catIdx) => {
               const isCollapsed = collapsedCategories.has(category.id);
@@ -229,13 +252,13 @@ const Dashboard: React.FC = () => {
               const generalLinks = data.links.filter(l => l.categoryId === category.id && (!l.subCategoryId || !hasSubCats));
               return (
                 <section key={category.id} id={`category-${category.id}`} className={`scroll-mt-24 ${isEditMode ? '' : 'animate-slide-up'}`} style={{ animationDelay: `${catIdx * 100}ms` }}>
-                  <div className="flex items-center gap-4 mb-8 group/title cursor-pointer select-none" onDoubleClick={() => toggleCollapse(category.id)}>
-                    <div className="p-2 bg-brand-500/5 rounded-xl dark:bg-brand-500/10 transition-colors group-hover/title:bg-brand-500/10"><ChevronDown className={`w-6 h-6 text-slate-800 transition-transform duration-500 dark:text-white ${isCollapsed ? '-rotate-90' : ''}`} /></div>
-                    <h2 className="text-3xl font-black text-slate-800 drop-shadow-sm dark:text-white uppercase tracking-[0.05em]">{category.name}</h2>
+                  <div className="flex items-center gap-4 mb-6 lg:mb-8 group/title cursor-pointer select-none" onDoubleClick={() => toggleCollapse(category.id)}>
+                    <div className="p-1.5 lg:p-2 bg-brand-500/5 rounded-xl dark:bg-brand-500/10 transition-colors group-hover/title:bg-brand-500/10"><ChevronDown className={`w-5 h-5 lg:w-6 lg:h-6 text-slate-800 transition-transform duration-500 dark:text-white ${isCollapsed ? '-rotate-90' : ''}`} /></div>
+                    <h2 className="text-2xl lg:text-3xl font-black text-slate-800 drop-shadow-sm dark:text-white uppercase tracking-tight lg:tracking-[0.05em]">{category.name}</h2>
                     <div className="flex-1 h-[2px] bg-gradient-to-r from-slate-200 to-transparent dark:from-zinc-700/50 ml-4 opacity-40"></div>
                   </div>
                   {!isCollapsed && (
-                    <div className="space-y-12">
+                    <div className="space-y-10 lg:space-y-12">
                       {(!hasSubCats || generalLinks.length > 0 || isEditMode) && (
                         <Droppable droppableId={`links__${category.id}__GENERAL`} type="LINK" direction="horizontal">
                           {(provided) => (
@@ -257,7 +280,7 @@ const Dashboard: React.FC = () => {
                       )}
                       {hasSubCats && category.subCategories.map((sub) => (
                         <div key={sub.id} id={`subcat-${sub.id}`} className="animate-fade-in">
-                          <div className="flex items-center gap-3 mb-6 group/sub"><span className="text-sm font-black text-slate-400 dark:text-zinc-500 uppercase tracking-[0.12em]"># {sub.name}</span></div>
+                          <div className="flex items-center gap-3 mb-5 lg:mb-6 group/sub"><span className="text-xs lg:text-sm font-black text-slate-400 dark:text-zinc-500 uppercase tracking-[0.12em]"># {sub.name}</span></div>
                           <Droppable droppableId={`links__${category.id}__${sub.id}`} type="LINK" direction="horizontal">
                             {(provided) => (
                               <div ref={provided.innerRef} {...provided.droppableProps} style={gridStyle} className="min-h-[50px]">

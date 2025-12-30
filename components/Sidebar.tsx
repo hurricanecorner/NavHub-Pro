@@ -66,14 +66,14 @@ const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, 
   return (
     <>
       {isOpen && (
-        <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setIsOpen(false)} />
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden animate-in fade-in duration-300" onClick={() => setIsOpen(false)} />
       )}
       <aside className={`
-        fixed top-0 left-0 z-50 h-screen w-64 shadow-sm transition-transform duration-300 ease-in-out
-        lg:translate-x-0 lg:static 
+        fixed top-0 left-0 z-50 h-screen w-4/5 sm:w-64 shadow-2xl transition-transform duration-500 ease-in-out
+        lg:translate-x-0 lg:static lg:shadow-none
         ${isOpen ? 'translate-x-0' : '-translate-x-full'}
         ${isCustom 
-          ? 'bg-black/40 backdrop-blur-xl border-r border-white/5 text-slate-100' 
+          ? 'bg-black/60 backdrop-blur-xl border-r border-white/5 text-slate-100' 
           : 'bg-white dark:bg-zinc-800 dark:backdrop-blur-md border-r border-slate-200 dark:border-white/5'
         }
       `}>
@@ -87,7 +87,7 @@ const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, 
             <span className="truncate">{siteConfig?.title || t.app.title}</span>
           </div>
         </div>
-        <div className="p-4 h-[calc(100vh-4rem)] overflow-y-auto">
+        <div className="p-4 h-[calc(100vh-4rem)] overflow-y-auto custom-scrollbar">
           <Droppable droppableId="sidebar-categories" type="SIDEBAR_CATEGORY">
             {(provided) => (
               <nav ref={provided.innerRef} {...provided.droppableProps} className="space-y-1">
@@ -107,7 +107,7 @@ const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, 
                             <button
                               onClick={() => scrollToSection(category.id)}
                               className={`
-                                flex-1 flex items-center justify-between px-4 py-3 rounded-lg text-sm font-black tracking-[0.04em] transition-all group border
+                                flex-1 flex items-center justify-between px-4 py-3 rounded-xl text-sm font-black tracking-[0.04em] transition-all group border
                                 ${isCustom 
                                   ? (isActive ? 'bg-white/20 text-white shadow-sm border-white/10 backdrop-blur-sm' : 'text-slate-100 hover:bg-white/10 hover:text-white border-transparent')
                                   : (isActive ? 'bg-brand-50 text-brand-600 border-transparent dark:bg-zinc-700 dark:text-zinc-100' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 border-transparent dark:text-zinc-400 dark:hover:bg-zinc-700/50 dark:hover:text-zinc-100')
