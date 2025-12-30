@@ -177,13 +177,11 @@ const Dashboard: React.FC = () => {
 
   if (isLoading) return null;
   
-  // 核心修复：根据 siteConfig 动态计算列数
   const columns = data.siteConfig?.linkColumns || 4;
   const filteredLinks = activeSearchQuery ? data.links.filter(l => l.title.toLowerCase().includes(activeSearchQuery.toLowerCase())) : data.links;
   const gridStyle = {
     display: 'grid', 
     gap: '1.25rem',
-    // 移动端固定为 1 列，桌面端使用用户定义的列数
     gridTemplateColumns: window.innerWidth < 640 ? '1fr' : `repeat(${columns}, minmax(0, 1fr))`
   };
 
@@ -206,7 +204,7 @@ const Dashboard: React.FC = () => {
             <div className="flex items-center gap-1 lg:gap-3 ml-2 relative">
               
               <div className="relative" ref={themeMenuRef}>
-                <button onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)} className="p-2.5 text-slate-400 dark:text-zinc-400 hover:text-slate-600 dark:hover:text-zinc-100 transition-all active:scale-95">
+                <button onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)} className="p-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-100 transition-all active:scale-95">
                   {themeIcon}
                 </button>
                 {isThemeMenuOpen && (
@@ -306,10 +304,27 @@ const Dashboard: React.FC = () => {
               );
             })}
           </div>
-          <AdminModal isOpen={isAdminModalOpen} onClose={() => { setIsAdminModalOpen(false); setEditingItem(null); setInitialLinkData(null); }} data={data} onUpdateData={handleUpdateData} cloudConfig={cloudConfig} onUpdateCloudConfig={(c) => { setCloudConfig(c); saveCloudConfig(c); }} onSyncUpload={async (c) => { setIsSyncing(true); const res = await uploadToCloud(data, c || cloudConfig); setIsSyncing(false); showToast(res.success ? 'success' : 'error', res.message); }} onSyncDownload={async (c) => { const res = await downloadFromCloud(c || cloudConfig); if(res.success && res.data) { handleUpdateData(res.data); showToast('success', t.app.success); } }} isSyncing={isSyncing} editingItem={editingItem} initialValues={initialLinkData} t={t} showToast={showToast} confirmAction={confirmAction} theme={theme} />
-          <ToastContainer toasts={toasts} removeToast={removeToast} />
-          <ConfirmDialog isOpen={confirmState.isOpen} title={confirmState.title} message={confirmState.message} onConfirm={confirmState.onConfirm} onCancel={() => setConfirmState(p => ({...p, isOpen: false}))} isDangerous={confirmState.isDangerous} />
         </main>
+        {/* MODALS OUTSIDE MAIN TO PREVENT Z-INDEX BUGS */}
+        <AdminModal 
+          isOpen={isAdminModalOpen} 
+          onClose={() => { setIsAdminModalOpen(false); setEditingItem(null); setInitialLinkData(null); }} 
+          data={data} 
+          onUpdateData={handleUpdateData} 
+          cloudConfig={cloudConfig} 
+          onUpdateCloudConfig={(c) => { setCloudConfig(c); saveCloudConfig(c); }} 
+          onSyncUpload={async (c) => { setIsSyncing(true); const res = await uploadToCloud(data, c || cloudConfig); setIsSyncing(false); showToast(res.success ? 'success' : 'error', res.message); }} 
+          onSyncDownload={async (c) => { const res = await downloadFromCloud(c || cloudConfig); if(res.success && res.data) { handleUpdateData(res.data); showToast('success', t.app.success); } }} 
+          isSyncing={isSyncing} 
+          editingItem={editingItem} 
+          initialValues={initialLinkData} 
+          t={t} 
+          showToast={showToast} 
+          confirmAction={confirmAction} 
+          theme={theme} 
+        />
+        <ToastContainer toasts={toasts} removeToast={removeToast} />
+        <ConfirmDialog isOpen={confirmState.isOpen} title={confirmState.title} message={confirmState.message} onConfirm={confirmState.onConfirm} onCancel={() => setConfirmState(p => ({...p, isOpen: false}))} isDangerous={confirmState.isDangerous} />
       </div>
     </DragDropContext>
   );
