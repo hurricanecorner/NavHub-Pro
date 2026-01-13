@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Plus, PlusCircle, Upload, Edit2, Trash2, Folder, ListPlus, Download, Cloud, Settings, Wand2, Loader2, Image as ImageIcon, Globe, Tag, ExternalLink, ChevronDown, CheckCircle2, Cpu, Hash, Search, Save, Check, MousePointer2, Apple, Chrome, Play, LayoutGrid, Palette, Send } from 'lucide-react';
+import { X, Plus, PlusCircle, Upload, Edit2, Trash2, Folder, ListPlus, Download, Cloud, Settings, Wand2, Loader2, Image as ImageIcon, Globe, Tag, ExternalLink, ChevronDown, CheckCircle2, Cpu, Hash, Search, Save, Check, MousePointer2, Apple, Chrome, Play, LayoutGrid, Palette, Send, Sparkles, Wand, Info } from 'lucide-react';
 import { AppData, Category, LinkItem, CloudConfig, SiteConfig, SubCategory, Theme } from '../types';
 import { ToastType } from './Toast';
-import { COLOR_PALETTES } from '../App';
+import { COLOR_COLLECTIONS, COLOR_PALETTES } from '../App';
 import { publishToNotion, uploadToCloud, downloadFromCloud } from '../services/storageUtils';
+import { GoogleGenAI } from "@google/genai";
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -94,6 +95,15 @@ const AdminModal: React.FC<AdminModalProps> = ({
   const [tagSearchQuery, setTagSearchQuery] = useState('');
   const [renamingTag, setRenamingTag] = useState<{ old: string; new: string } | null>(null);
 
+  // 配色体系选择
+  const [paletteCollection, setPaletteCollection] = useState<keyof typeof COLOR_COLLECTIONS>('macaron');
+
+  // AI Icon States
+  const [isAILabOpen, setIsAILabOpen] = useState(false);
+  const [aiRefIcon, setAiRefIcon] = useState<string>('');
+  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+  const [aiTargetLinks, setAiTargetLinks] = useState<string[]>([]);
+
   const globalTags = useMemo(() => {
     const counts: Record<string, number> = {};
     data.links.forEach(l => { (l.tags || []).forEach(tag => { counts[tag] = (counts[tag] || 0) + 1; }); });
@@ -106,14 +116,21 @@ const AdminModal: React.FC<AdminModalProps> = ({
       else if (initialValues) { setLinkForm({ title: '', url: '', description: '', iconUrl: '', tags: [], categoryId: initialValues.categoryId, subCategoryId: initialValues.subCategoryId }); setLinkMode('single'); }
       else { setLinkForm({ title: '', url: '', description: '', categoryId: data.categories[0]?.id || '', subCategoryId: '', iconUrl: '', tags: [] }); }
       setLocalCloud(cloudConfig);
+      
+      const savedThemeColor = data.siteConfig?.themeColor || 'indigo';
       setSiteForm({ 
         title: data.siteConfig?.title || t.app.title, 
         logoUrl: data.siteConfig?.logoUrl || '', 
         faviconUrl: data.siteConfig?.faviconUrl || '', 
         backgroundUrl: data.siteConfig?.backgroundUrl || '',
         linkColumns: data.siteConfig?.linkColumns || 4,
-        themeColor: data.siteConfig?.themeColor || 'indigo'
+        themeColor: savedThemeColor
       });
+      
+      // 自动识别当前所属配色体系
+      if (Object.keys(COLOR_COLLECTIONS.morandi).includes(savedThemeColor)) setPaletteCollection('morandi');
+      else if (Object.keys(COLOR_COLLECTIONS.traditional).includes(savedThemeColor)) setPaletteCollection('traditional');
+      else setPaletteCollection('macaron');
     }
   }, [isOpen, editingItem, initialValues, data, cloudConfig, t]);
 
@@ -128,14 +145,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
       }
     };
     reader.readAsDataURL(file);
-  };
-
-  const handleAddTag = () => {
-    const tag = tagInput.trim();
-    if (tag && !linkForm.tags?.includes(tag)) {
-      setLinkForm({ ...linkForm, tags: [...(linkForm.tags || []), tag] });
-      setTagInput('');
-    }
   };
 
   const handleFetchMetadata = async () => {
@@ -190,6 +199,16 @@ const AdminModal: React.FC<AdminModalProps> = ({
     showToast('success', t.admin.link.meta.success);
   };
 
+  const handleAddTag = () => {
+    const tag = tagInput.trim();
+    if (!tag) return;
+    const currentTags = linkForm.tags || [];
+    if (!currentTags.includes(tag)) {
+      setLinkForm(prev => ({ ...prev, tags: [...(prev.tags || []), tag] }));
+    }
+    setTagInput('');
+  };
+
   const handleSaveLink = () => {
     if (!linkForm.title?.trim() || !linkForm.url?.trim()) { showToast('error', 'Required fields empty'); return; }
     const newItem: LinkItem = {
@@ -209,7 +228,49 @@ const AdminModal: React.FC<AdminModalProps> = ({
     else onClose();
   };
 
-  const currentThemePalette = COLOR_PALETTES[siteForm.themeColor || 'indigo'];
+  const handleAIGenerateIcons = async () => {
+    if (!aiRefIcon) { showToast('error', '请先提供参考图'); return; }
+    if (aiTargetLinks.length === 0) { showToast('error', '请先选择目标链接'); return; }
+    
+    setIsGeneratingAI(true);
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const newLinks = [...data.links];
+    
+    try {
+      const base64Ref = aiRefIcon.split(',')[1];
+      for (const linkId of aiTargetLinks) {
+        const link = newLinks.find(l => l.id === linkId);
+        if (!link) continue;
+        
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash-image',
+          contents: {
+            parts: [
+              { inlineData: { data: base64Ref, mimeType: 'image/png' } },
+              { text: `Generate a unified, minimalistic app icon for a website named "${link.title}". The icon must follow the EXACT art style, color palette, lighting, and composition of the provided reference image. Output should be a high-quality icon on a clean background.` }
+            ]
+          }
+        });
+
+        for (const part of response.candidates[0].content.parts) {
+          if (part.inlineData) {
+            link.iconUrl = `data:image/png;base64,${part.inlineData.data}`;
+          }
+        }
+      }
+      onUpdateData({ ...data, links: newLinks });
+      showToast('success', 'AI 图标风格同步完成');
+      setIsAILabOpen(false);
+    } catch (e) {
+      console.error(e);
+      showToast('error', 'AI 生成失败，请检查 API 配置');
+    } finally {
+      setIsGeneratingAI(false);
+    }
+  };
+
+  // 防御性配色获取，确保预览不会因 undefined[shade] 崩溃
+  const currentThemePalette = COLOR_PALETTES[siteForm.themeColor || 'indigo'] || COLOR_PALETTES['indigo'];
 
   if (!isOpen) return null;
 
@@ -263,22 +324,19 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
                 {linkMode === 'single' && (
                   <div className="space-y-8 lg:space-y-10 max-w-3xl">
-                    {/* 1. 链接地址 */}
                     <div className="space-y-3">
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.link.url} <span className="text-red-500">*</span></label>
                       <div className="flex gap-4">
-                        <input type="text" value={linkForm.url} onChange={e => setLinkForm({ ...linkForm, url: e.target.value })} className="flex-1 px-6 py-4 bg-slate-50/50 dark:bg-zinc-700/50 border border-slate-200 dark:border-white/5 rounded-2xl outline-none focus:border-brand-500 transition-colors font-bold text-base dark:text-white" placeholder="https://example.com" />
+                        <input type="text" value={linkForm.url} onChange={e => setLinkForm({ ...linkForm, url: e.target.value })} className="flex-1 px-6 py-4 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none focus:border-brand-500 transition-colors font-bold text-base dark:text-white" placeholder="https://example.com" />
                         <button onClick={handleFetchMetadata} disabled={isFetchingMeta} className="w-14 lg:w-20 bg-brand-600 text-white rounded-2xl hover:bg-brand-700 transition-colors shrink-0 flex items-center justify-center disabled:bg-brand-400 shadow-lg">{isFetchingMeta ? <Loader2 className="w-5 h-5 lg:w-6 lg:h-6 animate-spin" /> : <Wand2 className="w-5 h-5 lg:w-6 lg:h-6" />}</button>
                       </div>
                     </div>
 
-                    {/* 2. 标题 */}
                     <div className="space-y-3">
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.link.title} <span className="text-red-500">*</span></label>
-                      <input type="text" value={linkForm.title} onChange={e => setLinkForm({ ...linkForm, title: e.target.value })} className="w-full px-6 py-4 bg-slate-50/50 dark:bg-zinc-700/50 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-base focus:border-brand-500 dark:text-white" />
+                      <input type="text" value={linkForm.title} onChange={e => setLinkForm({ ...linkForm, title: e.target.value })} className="w-full px-6 py-4 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-base focus:border-brand-500 dark:text-white" />
                     </div>
 
-                    {/* 3. 分类 */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
                       <div className="space-y-3">
                         <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.link.category}</label>
@@ -290,11 +348,10 @@ const AdminModal: React.FC<AdminModalProps> = ({
                       </div>
                     </div>
 
-                    {/* 4. 图标 */}
                     <div className="space-y-3">
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.link.icon}</label>
                       <div className="flex items-center gap-6 p-6 bg-slate-50/30 dark:bg-zinc-900/10 border border-slate-100 dark:border-white/5 rounded-[2rem]">
-                        <div className="w-20 h-20 lg:w-24 lg:h-24 rounded-2xl border border-slate-200 bg-white dark:bg-zinc-800 dark:border-white/10 flex items-center justify-center shrink-0 shadow-inner overflow-hidden">
+                        <div className="w-20 h-20 lg:w-24 lg:h-24 rounded-2xl border border-slate-100 bg-white dark:bg-zinc-800 dark:border-white/10 flex items-center justify-center shrink-0 shadow-inner overflow-hidden">
                           {linkForm.iconUrl ? <img src={linkForm.iconUrl} className="w-full h-full object-cover" /> : <Globe className="w-10 h-10 text-slate-200" />}
                         </div>
                         <div className="flex-1 space-y-3">
@@ -306,7 +363,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                       </div>
                     </div>
                     
-                    {/* 5. 标签 */}
                     <div className="space-y-3">
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.link.tags}</label>
                       <div className="space-y-4">
@@ -324,7 +380,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                       </div>
                     </div>
 
-                    {/* 6. 描述 */}
                     <div className="space-y-3">
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.link.description}</label>
                       <textarea value={linkForm.description} onChange={e => setLinkForm({ ...linkForm, description: e.target.value })} rows={3} className="w-full px-6 py-4 bg-slate-50/50 dark:bg-zinc-700/50 border border-slate-200 dark:border-white/5 rounded-2xl outline-none resize-none font-bold text-base dark:text-white" />
@@ -334,7 +389,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                   </div>
                 )}
 
-                {/* Bulk Import & Batch Icons Modes Remain Unchanged (Full Functional) */}
                 {linkMode === 'bulk' && (
                   <div className="space-y-8 animate-in fade-in duration-300">
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -344,12 +398,12 @@ const AdminModal: React.FC<AdminModalProps> = ({
                       </div>
                       <div className="space-y-3">
                         <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.link.subCategory}</label>
-                        <select value={linkForm.subCategoryId} onChange={e => setLinkForm({ ...linkForm, subCategoryId: e.target.value })} className="w-full px-6 py-4 bg-slate-50/50 rounded-2xl border border-slate-200 outline-none font-bold text-lg dark:bg-zinc-700 dark:text-white"><option value="">{t.admin.link.general}</option>{data.categories.find(c => c.id === linkForm.categoryId)?.subCategories.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+                        <select value={linkForm.subCategoryId} onChange={e => setLinkForm({ ...linkForm, subCategoryId: e.target.value })} className="w-full px-6 py-4 bg-slate-50/50 rounded-2xl border border-slate-200 outline-none font-bold text-lg dark:text-white"><option value="">{t.admin.link.general}</option>{data.categories.find(c => c.id === linkForm.categoryId)?.subCategories.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
                       </div>
                     </div>
                     <div className="space-y-3">
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.link.bulk.defaultTitle}</label>
-                      <input type="text" value={bulkDefaultTitle} onChange={e => setBulkDefaultTitle(e.target.value)} className="w-full px-6 py-4 bg-slate-50/50 rounded-2xl border border-slate-200 outline-none font-bold text-lg dark:bg-zinc-700 dark:text-white" placeholder={t.admin.link.bulk.defaultTitlePlaceholder} />
+                      <input type="text" value={bulkDefaultTitle} onChange={e => setBulkDefaultTitle(e.target.value)} className="w-full px-6 py-4 bg-slate-50/50 rounded-2xl border border-slate-200 outline-none font-bold text-lg dark:text-white" placeholder={t.admin.link.bulk.defaultTitlePlaceholder} />
                     </div>
                     <div className="space-y-3">
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.link.bulk.label}</label>
@@ -364,22 +418,28 @@ const AdminModal: React.FC<AdminModalProps> = ({
                     }} className="w-full py-5 lg:py-6 bg-brand-600 text-white rounded-[2rem] font-black text-lg hover:opacity-90 shadow-xl active:scale-95 transition-all tracking-widest">立即导入全部链接</button>
                   </div>
                 )}
-                {/* Batch Icons mode remains fully functional as per previous complete version */}
+
                 {linkMode === 'icons' && (
                   <div className="flex flex-col lg:flex-row gap-6 lg:gap-10 lg:h-[600px] animate-in fade-in duration-300">
                     <div className="w-full lg:w-1/3 flex flex-col gap-6">
-                      <label className="h-40 lg:flex-1 cursor-pointer border-2 border-dashed border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-zinc-700 rounded-3xl flex flex-col items-center justify-center text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-700 transition-colors group">
-                        <Upload className="w-10 h-10 mb-2 text-slate-300 dark:text-zinc-500" />
-                        <span className="text-[10px] font-bold uppercase tracking-widest">上传图标</span>
-                        <input type="file" multiple className="hidden" accept="image/*" onChange={e => {
-                          const files = Array.from(e.target.files || []);
-                          files.forEach(f => {
-                            const r = new FileReader();
-                            r.onload = async (ev) => { const res = ev.target?.result as string; if (res) { const comp = await compressImage(res); setLinkBulkIcons(p => [...p, { id: `bi-${Date.now()}-${Math.random()}`, preview: comp, assignedId: null }]); } };
-                            r.readAsDataURL(f as Blob);
-                          });
-                        }} />
-                      </label>
+                      <div className="flex gap-2">
+                        <label className="flex-1 h-32 cursor-pointer border-2 border-dashed border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-zinc-700 rounded-3xl flex flex-col items-center justify-center text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-700 transition-colors group">
+                          <Upload className="w-8 h-8 mb-1 text-slate-300 dark:text-zinc-500" />
+                          <span className="text-[10px] font-bold uppercase tracking-widest">上传图标</span>
+                          <input type="file" multiple className="hidden" accept="image/*" onChange={e => {
+                            const files = Array.from(e.target.files || []);
+                            files.forEach(f => {
+                              const r = new FileReader();
+                              r.onload = async (ev) => { const res = ev.target?.result as string; if (res) { const comp = await compressImage(res); setLinkBulkIcons(p => [...p, { id: `bi-${Date.now()}-${Math.random()}`, preview: comp, assignedId: null }]); } };
+                              r.readAsDataURL(f as Blob);
+                            });
+                          }} />
+                        </label>
+                        <button onClick={() => setIsAILabOpen(true)} className="flex-1 h-32 bg-brand-600/5 dark:bg-brand-600/10 border-2 border-dashed border-brand-200 dark:border-brand-500/20 rounded-3xl flex flex-col items-center justify-center text-brand-600 transition-all hover:bg-brand-600/10 group">
+                           <Sparkles className="w-8 h-8 mb-1 text-brand-500 group-hover:scale-110 transition-transform" />
+                           <span className="text-[10px] font-bold uppercase tracking-widest">AI 风格统一</span>
+                        </button>
+                      </div>
                       <div className="h-40 lg:h-[300px] bg-slate-50 dark:bg-zinc-700 border border-slate-200 rounded-3xl p-4 overflow-y-auto grid grid-cols-4 lg:grid-cols-3 gap-3 custom-scrollbar shadow-inner">
                         {linkBulkIcons.map(icon => (
                           <button key={icon.id} onClick={() => setSelectedBulkIconId(icon.id)} className={`aspect-square border-2 rounded-xl p-1.5 transition-colors ${selectedBulkIconId === icon.id ? 'border-brand-600 bg-brand-50' : 'border-transparent bg-white dark:bg-zinc-600 hover:border-slate-300 shadow-sm'}`}><img src={icon.preview} className="w-full h-full object-contain" /></button>
@@ -411,86 +471,73 @@ const AdminModal: React.FC<AdminModalProps> = ({
               </div>
             )}
 
-            {activeTab === 'cloud' && (
-              <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in pt-4 pb-12">
-                {/* Provider Tab Switching */}
-                <div className="grid grid-cols-3 gap-4">
-                  {(['github', 'notion', 'webdav'] as const).map(p => (
-                    <button 
-                      key={p} 
-                      onClick={() => setLocalCloud({ ...localCloud, activeProvider: p })} 
-                      className={`py-5 text-sm font-black uppercase tracking-[0.15em] rounded-xl border-2 transition-all active:scale-95 ${
-                        localCloud.activeProvider === p 
-                          ? 'bg-white dark:bg-zinc-800 text-brand-600 border-brand-600 shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:shadow-none' 
-                          : 'border-transparent bg-slate-50 dark:bg-zinc-700 text-slate-400 dark:text-zinc-500 hover:text-slate-600'
-                      }`}
-                    >
-                      {p}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="space-y-8 pt-4">
-                    {localCloud.activeProvider === 'github' && (
-                        <div className="space-y-8 animate-in fade-in duration-300">
-                            <div className="space-y-2">
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">GITHUB 访问令牌</label>
-                                <input type="password" value={localCloud.githubToken} onChange={e => setLocalCloud({ ...localCloud, githubToken: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="••••••••••••••••••••••••••••••••" />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">GIST ID</label>
-                                <input type="text" value={localCloud.gistId} onChange={e => setLocalCloud({ ...localCloud, gistId: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="01dafe233bfc3ae5c3efcb93a322c7cf" />
-                            </div>
-                        </div>
-                    )}
-                    {localCloud.activeProvider === 'notion' && (
-                        <div className="space-y-8 animate-in fade-in duration-300">
-                            <div className="space-y-2">
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">集成令牌 (TOKEN)</label>
-                                <input type="password" value={localCloud.notionToken} onChange={e => setLocalCloud({ ...localCloud, notionToken: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="secret_••••••••••••••••••••••••••••••••" />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">页面 ID (PAGE ID)</label>
-                                <input type="text" value={localCloud.notionPageId} onChange={e => setLocalCloud({ ...localCloud, notionPageId: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">API 代理地址 (CORS)</label>
-                                <input type="text" value={localCloud.notionApiUrl} onChange={e => setLocalCloud({ ...localCloud, notionApiUrl: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="https://cors-proxy.org/https://api.notion.com/v1" />
-                            </div>
-                            <p className="text-[11px] font-bold text-slate-400 px-1 leading-relaxed">由于浏览器 CORS 限制，直连 Notion API 可能失效，必须配置反向代理才能在浏览器正常使用。</p>
-                            <button onClick={async () => { setIsPublishing(true); const r = await publishToNotion(data, localCloud); showToast(r.success ? 'success' : 'error', r.message); setIsPublishing(false); }} disabled={isPublishing} className="w-full py-5 border-2 border-dashed border-brand-200 text-brand-600 rounded-2xl text-xs font-black hover:bg-brand-50 transition-all flex items-center justify-center gap-3 active:scale-[0.98]">
-                               {isPublishing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-                               立即同步追加到页面
-                            </button>
-                        </div>
-                    )}
-                    {localCloud.activeProvider === 'webdav' && (
-                        <div className="space-y-8 animate-in fade-in duration-300">
-                            <div className="space-y-2">
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">服务器地址</label>
-                                <input type="text" value={localCloud.webdavUrl} onChange={e => setLocalCloud({ ...localCloud, webdavUrl: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="https://dav.jianguoyun.com/dav/" />
-                            </div>
-                            <div className="grid grid-cols-2 gap-6">
-                                <div className="space-y-2">
-                                    <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">账户邮箱</label>
-                                    <input type="text" value={localCloud.webdavUsername} onChange={e => setLocalCloud({ ...localCloud, webdavUsername: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="Email" />
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">应用密码</label>
-                                    <input type="password" value={localCloud.webdavPassword} onChange={e => setLocalCloud({ ...localCloud, webdavPassword: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="App Password" />
-                                </div>
-                            </div>
-                            <p className="text-[11px] font-bold text-slate-400 px-1 leading-relaxed">WebDAV 适用于坚果云等支持该协议的服务。请确保服务器已开启 CORS 跨域支持或使用代理服务器。</p>
-                        </div>
-                    )}
-                    
-                    <div className="flex flex-col gap-5 pt-6">
-                        <button onClick={() => { onUpdateCloudConfig(localCloud); showToast('success', t.app.configSaved); }} className="w-full py-5 bg-brand-600 text-white rounded-[2rem] font-black tracking-[0.2em] hover:opacity-90 transition-all uppercase text-sm shadow-xl shadow-brand-100 active:scale-95">保存当前配置</button>
-                        <div className="flex gap-4">
-                            <button onClick={() => onSyncUpload(localCloud)} disabled={isSyncing} className="flex-1 py-5 bg-slate-900 text-white rounded-[2rem] font-black flex items-center justify-center gap-3 hover:opacity-90 disabled:bg-slate-400 transition-all uppercase text-xs shadow-lg active:scale-95"><Upload className="w-5 h-5" /> 上传同步</button>
-                            <button onClick={() => onSyncDownload(localCloud)} disabled={isSyncing} className="flex-1 py-5 bg-slate-100 dark:bg-zinc-700 border border-slate-200 text-slate-800 dark:text-zinc-100 rounded-[2rem] font-black flex items-center justify-center gap-3 hover:bg-slate-200 transition-all uppercase text-xs active:scale-95"><Download className="w-5 h-5" /> 下回本地</button>
-                        </div>
+            {/* AI风格统一对话框 */}
+            {isAILabOpen && (
+              <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
+                <div className="absolute inset-0 bg-zinc-900/80 backdrop-blur-md" onClick={() => !isGeneratingAI && setIsAILabOpen(false)} />
+                <div className="bg-white dark:bg-zinc-800 rounded-[3rem] w-full max-w-4xl max-h-[85vh] overflow-hidden relative z-[260] border border-slate-200 shadow-2xl animate-in zoom-in-95">
+                  <div className="p-8 lg:p-12 h-full flex flex-col gap-10 overflow-y-auto custom-scrollbar">
+                    <div className="flex justify-between items-start">
+                      <div className="space-y-2">
+                        <h4 className="text-3xl font-black text-slate-800 dark:text-white flex items-center gap-3"><Sparkles className="w-8 h-8 text-brand-500" /> AI 风格实验室</h4>
+                        <p className="text-sm text-slate-400 font-bold">由 Nano-Banana 强力驱动：基于参考图标重绘全站图标，实现视觉极致统一</p>
+                      </div>
+                      <button onClick={() => setIsAILabOpen(false)} className="p-2 text-slate-400 hover:text-slate-600"><X className="w-8 h-8" /></button>
                     </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+                      <div className="space-y-4">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">1. 提供风格参考图 (THEME REFERENCE)</label>
+                        <div className="aspect-square rounded-[2rem] border-4 border-dashed border-slate-100 dark:border-zinc-700 bg-slate-50/50 dark:bg-zinc-900/50 flex flex-col items-center justify-center overflow-hidden group relative">
+                          {aiRefIcon ? (
+                            <>
+                              <img src={aiRefIcon} className="w-full h-full object-contain p-8" />
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <button onClick={() => setAiRefIcon('')} className="bg-white text-red-600 px-4 py-2 rounded-xl text-xs font-bold shadow-lg">清除参考图</button>
+                              </div>
+                            </>
+                          ) : (
+                            <label className="cursor-pointer flex flex-col items-center gap-3">
+                              <div className="w-16 h-16 bg-white dark:bg-zinc-700 rounded-2xl flex items-center justify-center shadow-lg"><Plus className="w-8 h-8 text-brand-500" /></div>
+                              <span className="text-xs font-bold text-slate-500">上传您喜欢的图标作为样板</span>
+                              <input type="file" className="hidden" accept="image/*" onChange={e => handleImageUpload(e, false, setAiRefIcon)} />
+                            </label>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="space-y-4 flex flex-col">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">2. 选择需要重绘的目标链接</label>
+                        <div className="flex-1 bg-slate-50/50 dark:bg-zinc-900/50 rounded-[2rem] border border-slate-100 dark:border-white/5 p-4 overflow-y-auto max-h-[300px] custom-scrollbar">
+                           <div className="grid grid-cols-2 gap-2">
+                              {data.links.map(l => (
+                                <button 
+                                  key={l.id} 
+                                  onClick={() => setAiTargetLinks(prev => prev.includes(l.id) ? prev.filter(id => id !== l.id) : [...prev, l.id])}
+                                  className={`flex items-center gap-2 p-2 rounded-xl border-2 transition-all ${aiTargetLinks.includes(l.id) ? 'bg-brand-50 border-brand-500' : 'bg-white dark:bg-zinc-800 border-transparent shadow-sm'}`}
+                                >
+                                   <div className="w-6 h-6 rounded-full overflow-hidden bg-slate-100"><img src={l.iconUrl} className="w-full h-full object-cover" /></div>
+                                   <span className="text-[10px] font-bold truncate">{l.title}</span>
+                                </button>
+                              ))}
+                           </div>
+                        </div>
+                        <div className="pt-4 flex gap-2">
+                           <button onClick={() => setAiTargetLinks(data.links.map(l => l.id))} className="flex-1 py-2 bg-slate-100 dark:bg-zinc-700 rounded-lg text-[10px] font-black">全选链接</button>
+                           <button onClick={() => setAiTargetLinks([])} className="flex-1 py-2 bg-slate-100 dark:bg-zinc-700 rounded-lg text-[10px] font-black">清空选择</button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button 
+                      onClick={handleAIGenerateIcons}
+                      disabled={isGeneratingAI}
+                      className="w-full py-6 bg-brand-600 text-white rounded-[2rem] font-black text-lg hover:opacity-90 transition-all shadow-xl shadow-brand-200 flex items-center justify-center gap-4 active:scale-95 disabled:bg-slate-300"
+                    >
+                      {isGeneratingAI ? <Loader2 className="w-7 h-7 animate-spin" /> : <Wand className="w-7 h-7" />}
+                      {isGeneratingAI ? 'AI 深度绘图中，请稍候...' : '启动 AI 全球图标同步计划'}
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -500,7 +547,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                 <div className="flex justify-end">
                   <button onClick={() => { setCatForm({ id: null, name: '', icon: '' }); setCatEditingId('new'); }} className="px-8 py-4 bg-brand-600 text-white rounded-[1.5rem] font-bold text-sm flex items-center gap-3 hover:opacity-90 shadow-lg active:scale-95 transition-all"><Plus className="w-5 h-5" /> {t.admin.category.new}</button>
                 </div>
-                {/* Categories and Subcategories management code remains fully functional */}
                 <div className="space-y-6">
                   {data.categories.map(cat => (
                     <div key={cat.id} className="bg-white dark:bg-zinc-700/40 border border-slate-200 dark:border-white/5 rounded-3xl overflow-hidden shadow-sm">
@@ -534,7 +580,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
               </div>
             )}
 
-            {/* Tags Tab remains fully functional */}
             {activeTab === 'tags' && (
               <div className="max-w-4xl space-y-10 animate-in fade-in duration-300">
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
@@ -576,7 +621,100 @@ const AdminModal: React.FC<AdminModalProps> = ({
               </div>
             )}
 
-            {/* Data Backup and Settings Tab remains fully functional */}
+            {activeTab === 'cloud' && (
+              <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in pt-4 pb-12">
+                {/* 提供商选择 */}
+                <div className="grid grid-cols-3 gap-4">
+                  {(['github', 'notion', 'webdav'] as const).map(p => (
+                    <button 
+                      key={p} 
+                      onClick={() => setLocalCloud({ ...localCloud, activeProvider: p })} 
+                      className={`py-5 text-sm font-black uppercase tracking-[0.15em] rounded-xl border-2 transition-all active:scale-95 ${
+                        localCloud.activeProvider === p 
+                          ? 'bg-white dark:bg-zinc-800 text-brand-600 border-brand-600 shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:shadow-none' 
+                          : 'border-transparent bg-slate-50 dark:bg-zinc-700 text-slate-400 dark:text-zinc-500 hover:text-slate-600'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="space-y-8 pt-4">
+                    {localCloud.activeProvider === 'github' && (
+                        <div className="space-y-8 animate-in fade-in duration-300">
+                            <div className="space-y-2">
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">GITHUB 访问令牌</label>
+                                <input type="password" value={localCloud.githubToken} onChange={e => setLocalCloud({ ...localCloud, githubToken: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="••••••••••••••••••••••••••••••••" />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">GIST ID</label>
+                                <input type="text" value={localCloud.gistId} onChange={e => setLocalCloud({ ...localCloud, gistId: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="01dafe233bfc3ae5c3efcb93a322c7cf" />
+                            </div>
+                        </div>
+                    )}
+                    {localCloud.activeProvider === 'notion' && (
+                        <div className="space-y-8 animate-in fade-in duration-300">
+                            <div className="bg-brand-50/50 dark:bg-brand-900/10 p-5 rounded-2xl border border-brand-100 dark:border-brand-500/20 flex gap-4 items-start mb-2">
+                                <Info className="w-5 h-5 text-brand-600 shrink-0 mt-0.5" />
+                                <p className="text-xs font-bold text-brand-700 dark:text-brand-300 leading-relaxed">
+                                   {t.admin.cloud.notion.help}
+                                </p>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">集成令牌 (TOKEN)</label>
+                                <input type="password" value={localCloud.notionToken} onChange={e => setLocalCloud({ ...localCloud, notionToken: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="secret_••••••••••••••••••••••••••••••••" />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">页面 ID (PAGE ID)</label>
+                                <input type="text" value={localCloud.notionPageId} onChange={e => setLocalCloud({ ...localCloud, notionPageId: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">API 代理地址 (CORS)</label>
+                                <input type="text" value={localCloud.notionApiUrl} onChange={e => setLocalCloud({ ...localCloud, notionApiUrl: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="https://cors-proxy.org/https://api.notion.com/v1" />
+                            </div>
+                            <button onClick={async () => { setIsPublishing(true); const r = await publishToNotion(data, localCloud); showToast(r.success ? 'success' : 'error', r.message); setIsPublishing(false); }} disabled={isPublishing} className="w-full py-5 border-2 border-dashed border-brand-200 text-brand-600 rounded-2xl text-xs font-black hover:bg-brand-50 transition-all flex items-center justify-center gap-3 active:scale-[0.98]">
+                               {isPublishing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                               {t.admin.cloud.notion.publish}
+                            </button>
+                        </div>
+                    )}
+                    {localCloud.activeProvider === 'webdav' && (
+                        <div className="space-y-8 animate-in fade-in duration-300">
+                             <div className="bg-brand-50/50 dark:bg-brand-900/10 p-5 rounded-2xl border border-brand-100 dark:border-brand-500/20 flex gap-4 items-start mb-2">
+                                <Info className="w-5 h-5 text-brand-600 shrink-0 mt-0.5" />
+                                <p className="text-xs font-bold text-brand-700 dark:text-brand-300 leading-relaxed">
+                                   {t.admin.cloud.webdav.help}
+                                </p>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">服务器地址</label>
+                                <input type="text" value={localCloud.webdavUrl} onChange={e => setLocalCloud({ ...localCloud, webdavUrl: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="https://dav.jianguoyun.com/dav/" />
+                            </div>
+                            <div className="grid grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                    <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">账户邮箱</label>
+                                    <input type="text" value={localCloud.webdavUsername} onChange={e => setLocalCloud({ ...localCloud, webdavUsername: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="Email" />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">应用密码</label>
+                                    <input type="password" value={localCloud.webdavPassword} onChange={e => setLocalCloud({ ...localCloud, webdavPassword: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="App Password" />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    <div className="flex flex-col gap-5 pt-6">
+                        <button onClick={() => { onUpdateCloudConfig(localCloud); showToast('success', t.app.configSaved); }} className="w-full py-5 bg-brand-600 text-white rounded-[2rem] font-black tracking-[0.2em] hover:opacity-90 transition-all uppercase text-sm shadow-xl shadow-brand-100 active:scale-95">保存当前配置</button>
+                        <div className="flex gap-4">
+                            <button onClick={() => onSyncUpload(localCloud)} disabled={isSyncing} className="flex-1 py-5 bg-slate-900 text-white rounded-[2rem] font-black flex items-center justify-center gap-3 hover:opacity-90 disabled:bg-slate-400 transition-all uppercase text-xs shadow-lg active:scale-95"><Upload className="w-5 h-5" /> {t.admin.cloud.upload}</button>
+                            <button onClick={() => onSyncDownload(localCloud)} disabled={isSyncing} className="flex-1 py-5 bg-slate-100 dark:bg-zinc-700 border border-slate-200 text-slate-800 dark:text-zinc-100 rounded-[2rem] font-black flex items-center justify-center gap-3 hover:bg-slate-200 transition-all uppercase text-xs active:scale-95"><Download className="w-5 h-5" /> {t.admin.cloud.download}</button>
+                        </div>
+                    </div>
+                </div>
+              </div>
+            )}
+
             {activeTab === 'data' && (
               <div className="max-w-4xl grid grid-cols-1 lg:grid-cols-2 gap-8 pt-4 animate-in fade-in duration-300">
                 <div className="p-8 lg:p-10 bg-white dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-[2rem] text-center flex flex-col items-center shadow-sm">
@@ -625,15 +763,33 @@ const AdminModal: React.FC<AdminModalProps> = ({
                 <div className="space-y-4">
                   <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Palette className="w-4 h-4" /> 配色方案预览 (THEME COLOR)</label>
                   <div className="p-8 lg:p-10 bg-slate-50/30 dark:bg-zinc-700/50 border border-slate-200 dark:border-white/5 rounded-[2.5rem] space-y-12 shadow-inner">
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 lg:gap-8">
-                      {Object.keys(COLOR_PALETTES).map(paletteName => {
-                        const palette = COLOR_PALETTES[paletteName];
+                    
+                    {/* 配色体系分段器 */}
+                    <div className="flex gap-1 p-1 bg-slate-200/50 dark:bg-zinc-800 rounded-xl max-w-md mx-auto">
+                      {(['macaron', 'morandi', 'traditional'] as const).map(coll => (
+                        <button 
+                          key={coll}
+                          onClick={() => setPaletteCollection(coll)}
+                          className={`flex-1 py-2 px-4 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${
+                            paletteCollection === coll 
+                              ? 'bg-white dark:bg-zinc-700 text-brand-600 shadow-sm' 
+                              : 'text-slate-400 hover:text-slate-600'
+                          }`}
+                        >
+                          {{macaron: '马卡龙', morandi: '莫兰迪', traditional: '国风'}[coll]}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-4 lg:gap-6">
+                      {Object.keys(COLOR_COLLECTIONS[paletteCollection]).map(paletteName => {
+                        const palette = COLOR_COLLECTIONS[paletteCollection][paletteName];
                         const isSelected = siteForm.themeColor === paletteName;
                         return (
                           <button 
                             key={paletteName} 
                             onClick={() => setSiteForm({ ...siteForm, themeColor: paletteName })} 
-                            className={`group relative aspect-square rounded-[2rem] overflow-hidden border-4 transition-all ${isSelected ? 'border-brand-500 scale-105 shadow-xl' : 'border-white dark:border-zinc-700 hover:border-brand-200'}`}
+                            className={`group relative aspect-square rounded-2xl overflow-hidden border-4 transition-all ${isSelected ? 'border-brand-500 scale-110 shadow-xl z-10' : 'border-white dark:border-zinc-700 hover:border-brand-200'}`}
                           >
                             <div className="absolute inset-0 grid grid-cols-2 grid-rows-2">
                                <div style={{ backgroundColor: palette[400] }}></div>
@@ -643,7 +799,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                             </div>
                             {isSelected && (
                               <div className="absolute inset-0 flex items-center justify-center bg-black/10">
-                                <Check className="w-10 h-10 text-white drop-shadow-md" />
+                                <Check className="w-8 h-8 text-white drop-shadow-md" />
                               </div>
                             )}
                           </button>
@@ -651,13 +807,13 @@ const AdminModal: React.FC<AdminModalProps> = ({
                       })}
                     </div>
                     <div className="pt-8 border-t border-slate-200 dark:border-white/5 flex flex-col items-center gap-6">
-                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">当前配色方案预览 (SHADES PREVIEW)</span>
+                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">当前方案色阶预览 (SHADES PREVIEW)</span>
                        <div className="flex w-full max-w-lg h-12 lg:h-14 rounded-2xl overflow-hidden shadow-inner border border-slate-100 dark:border-white/5">
                           {[100, 200, 400, 600, 950].map(shade => (
                              <div 
                                key={shade} 
                                className="flex-1 transition-colors duration-500" 
-                               style={{ backgroundColor: currentThemePalette[shade] }}
+                               style={{ backgroundColor: currentThemePalette?.[shade] || '#ccc' }}
                              />
                           ))}
                        </div>
@@ -666,7 +822,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                 </div>
 
                 <div className="space-y-4">
-                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">桌面端链接栏数</label>
+                  <label className="block text-xs font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest ml-1">桌面端链接栏数</label>
                   <div className="flex items-center gap-6 p-6 lg:p-8 bg-slate-50/50 dark:bg-zinc-900/20 border border-slate-200 dark:border-white/5 rounded-[2.5rem] shadow-sm">
                     <div className="flex-1 flex items-center relative h-12">
                         <div className="absolute inset-y-0 my-auto h-3 w-full bg-slate-200 dark:bg-zinc-700 rounded-full" />
@@ -723,7 +879,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
         </div>
       </div>
 
-      {/* Popovers remain fully functional and visually consistent */}
+      {/* Popovers for categories remain functional */}
       {(catEditingId || subCatEditingId) && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-6">
           <div className="absolute inset-0 bg-zinc-900/60 backdrop-blur-sm" onClick={() => { setCatEditingId(null); setSubCatEditingId(null); }} />
@@ -754,7 +910,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                   <button onClick={() => setIsMetaPickerOpen(false)} className="p-2 text-slate-400 hover:text-slate-600 active:scale-90 transition-all"><X className="w-8 h-8" /></button>
                </div>
                <div className="space-y-8">
-                  {/* Title Strategy */}
                   <div className="space-y-3">
                     <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">{t.admin.link.meta.titleStrategy}</label>
                     <div className="grid grid-cols-2 gap-4">
@@ -767,7 +922,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                       ))}
                     </div>
                   </div>
-                  {/* Icon Strategy */}
                   <div className="space-y-3">
                     <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">{t.admin.link.meta.iconStrategy}</label>
                     <div className="grid grid-cols-2 gap-4">
@@ -782,7 +936,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                       ))}
                     </div>
                   </div>
-                  {/* Description Optimization */}
                   <div className="space-y-3">
                     <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">{t.admin.link.meta.descStrategy}</label>
                     <div className="grid grid-cols-2 gap-4">
