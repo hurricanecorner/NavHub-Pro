@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, Plus, PlusCircle, Upload, Edit2, Trash2, Folder, ListPlus, Download, Cloud, Settings, Wand2, Loader2, Image as ImageIcon, Globe, Tag, ExternalLink, ChevronDown, CheckCircle2, Cpu, Hash, Search, Save, Check, MousePointer2, Apple, Chrome, Play, LayoutGrid, Palette, Send, Sparkles, Wand, Info } from 'lucide-react';
 import { AppData, Category, LinkItem, CloudConfig, SiteConfig, SubCategory, Theme } from '../types';
@@ -233,7 +232,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
     if (aiTargetLinks.length === 0) { showToast('error', '请先选择目标链接'); return; }
     
     setIsGeneratingAI(true);
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
     const newLinks = [...data.links];
     
     try {
@@ -247,23 +246,26 @@ const AdminModal: React.FC<AdminModalProps> = ({
           contents: {
             parts: [
               { inlineData: { data: base64Ref, mimeType: 'image/png' } },
-              { text: `Generate a unified, minimalistic app icon for a website named "${link.title}". The icon must follow the EXACT art style, color palette, lighting, and composition of the provided reference image. Output should be a high-quality icon on a clean background.` }
+              { text: `Generate a unified icon for "${link.title}" following the reference style.` }
             ]
           }
         });
 
-        for (const part of response.candidates[0].content.parts) {
-          if (part.inlineData) {
-            link.iconUrl = `data:image/png;base64,${part.inlineData.data}`;
+        const candidate = response.candidates?.[0];
+        if (candidate?.content?.parts) {
+          for (const part of candidate.content.parts) {
+            if (part.inlineData) {
+              link.iconUrl = `data:image/png;base64,${part.inlineData.data}`;
+            }
           }
         }
       }
       onUpdateData({ ...data, links: newLinks });
-      showToast('success', 'AI 图标风格同步完成');
+      showToast('success', 'AI 同步完成');
       setIsAILabOpen(false);
     } catch (e) {
       console.error(e);
-      showToast('error', 'AI 生成失败，请检查 API 配置');
+      showToast('error', 'AI 生成失败');
     } finally {
       setIsGeneratingAI(false);
     }
