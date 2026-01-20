@@ -4,7 +4,6 @@ import { AppData, Category, LinkItem, CloudConfig, SiteConfig, SubCategory, Them
 import { ToastType } from './Toast';
 import { COLOR_COLLECTIONS, COLOR_PALETTES } from '../App';
 import { publishToNotion, uploadToCloud, downloadFromCloud } from '../services/storageUtils';
-import { GoogleGenAI } from "@google/genai";
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -96,12 +95,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
   // 配色体系选择
   const [paletteCollection, setPaletteCollection] = useState<keyof typeof COLOR_COLLECTIONS>('macaron');
-
-  // AI Icon States
-  const [isAILabOpen, setIsAILabOpen] = useState(false);
-  const [aiRefIcon, setAiRefIcon] = useState<string>('');
-  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
-  const [aiTargetLinks, setAiTargetLinks] = useState<string[]>([]);
 
   const globalTags = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -225,50 +218,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
     showToast('success', t.app.saved);
     if (!linkForm.id) { setLinkForm({ title: '', url: '', description: '', categoryId: linkForm.categoryId, subCategoryId: linkForm.subCategoryId, iconUrl: '', tags: [] }); setTagInput(''); }
     else onClose();
-  };
-
-  const handleAIGenerateIcons = async () => {
-    if (!aiRefIcon) { showToast('error', '请先提供参考图'); return; }
-    if (aiTargetLinks.length === 0) { showToast('error', '请先选择目标链接'); return; }
-    
-    setIsGeneratingAI(true);
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-    const newLinks = [...data.links];
-    
-    try {
-      const base64Ref = aiRefIcon.split(',')[1];
-      for (const linkId of aiTargetLinks) {
-        const link = newLinks.find(l => l.id === linkId);
-        if (!link) continue;
-        
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash-image',
-          contents: {
-            parts: [
-              { inlineData: { data: base64Ref, mimeType: 'image/png' } },
-              { text: `Generate a unified icon for "${link.title}" following the reference style.` }
-            ]
-          }
-        });
-
-        const candidate = response.candidates?.[0];
-        if (candidate?.content?.parts) {
-          for (const part of candidate.content.parts) {
-            if (part.inlineData) {
-              link.iconUrl = `data:image/png;base64,${part.inlineData.data}`;
-            }
-          }
-        }
-      }
-      onUpdateData({ ...data, links: newLinks });
-      showToast('success', 'AI 同步完成');
-      setIsAILabOpen(false);
-    } catch (e) {
-      console.error(e);
-      showToast('error', 'AI 生成失败');
-    } finally {
-      setIsGeneratingAI(false);
-    }
   };
 
   // 防御性配色获取，确保预览不会因 undefined[shade] 崩溃
@@ -437,10 +386,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                             });
                           }} />
                         </label>
-                        <button onClick={() => setIsAILabOpen(true)} className="flex-1 h-32 bg-brand-600/5 dark:bg-brand-600/10 border-2 border-dashed border-brand-200 dark:border-brand-500/20 rounded-3xl flex flex-col items-center justify-center text-brand-600 transition-all hover:bg-brand-600/10 group">
-                           <Sparkles className="w-8 h-8 mb-1 text-brand-500 group-hover:scale-110 transition-transform" />
-                           <span className="text-[10px] font-bold uppercase tracking-widest">AI 风格统一</span>
-                        </button>
                       </div>
                       <div className="h-40 lg:h-[300px] bg-slate-50 dark:bg-zinc-700 border border-slate-200 rounded-3xl p-4 overflow-y-auto grid grid-cols-4 lg:grid-cols-3 gap-3 custom-scrollbar shadow-inner">
                         {linkBulkIcons.map(icon => (
@@ -470,77 +415,6 @@ const AdminModal: React.FC<AdminModalProps> = ({
                     </div>
                   </div>
                 )}
-              </div>
-            )}
-
-            {/* AI风格统一对话框 */}
-            {isAILabOpen && (
-              <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
-                <div className="absolute inset-0 bg-zinc-900/80 backdrop-blur-md" onClick={() => !isGeneratingAI && setIsAILabOpen(false)} />
-                <div className="bg-white dark:bg-zinc-800 rounded-[3rem] w-full max-w-4xl max-h-[85vh] overflow-hidden relative z-[260] border border-slate-200 shadow-2xl animate-in zoom-in-95">
-                  <div className="p-8 lg:p-12 h-full flex flex-col gap-10 overflow-y-auto custom-scrollbar">
-                    <div className="flex justify-between items-start">
-                      <div className="space-y-2">
-                        <h4 className="text-3xl font-black text-slate-800 dark:text-white flex items-center gap-3"><Sparkles className="w-8 h-8 text-brand-500" /> AI 风格实验室</h4>
-                        <p className="text-sm text-slate-400 font-bold">由 Nano-Banana 强力驱动：基于参考图标重绘全站图标，实现视觉极致统一</p>
-                      </div>
-                      <button onClick={() => setIsAILabOpen(false)} className="p-2 text-slate-400 hover:text-slate-600"><X className="w-8 h-8" /></button>
-                    </div>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-                      <div className="space-y-4">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">1. 提供风格参考图 (THEME REFERENCE)</label>
-                        <div className="aspect-square rounded-[2rem] border-4 border-dashed border-slate-100 dark:border-zinc-700 bg-slate-50/50 dark:bg-zinc-900/50 flex flex-col items-center justify-center overflow-hidden group relative">
-                          {aiRefIcon ? (
-                            <>
-                              <img src={aiRefIcon} className="w-full h-full object-contain p-8" />
-                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                <button onClick={() => setAiRefIcon('')} className="bg-white text-red-600 px-4 py-2 rounded-xl text-xs font-bold shadow-lg">清除参考图</button>
-                              </div>
-                            </>
-                          ) : (
-                            <label className="cursor-pointer flex flex-col items-center gap-3">
-                              <div className="w-16 h-16 bg-white dark:bg-zinc-700 rounded-2xl flex items-center justify-center shadow-lg"><Plus className="w-8 h-8 text-brand-500" /></div>
-                              <span className="text-xs font-bold text-slate-500">上传您喜欢的图标作为样板</span>
-                              <input type="file" className="hidden" accept="image/*" onChange={e => handleImageUpload(e, false, setAiRefIcon)} />
-                            </label>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="space-y-4 flex flex-col">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">2. 选择需要重绘的目标链接</label>
-                        <div className="flex-1 bg-slate-50/50 dark:bg-zinc-900/50 rounded-[2rem] border border-slate-100 dark:border-white/5 p-4 overflow-y-auto max-h-[300px] custom-scrollbar">
-                           <div className="grid grid-cols-2 gap-2">
-                              {data.links.map(l => (
-                                <button 
-                                  key={l.id} 
-                                  onClick={() => setAiTargetLinks(prev => prev.includes(l.id) ? prev.filter(id => id !== l.id) : [...prev, l.id])}
-                                  className={`flex items-center gap-2 p-2 rounded-xl border-2 transition-all ${aiTargetLinks.includes(l.id) ? 'bg-brand-50 border-brand-500' : 'bg-white dark:bg-zinc-800 border-transparent shadow-sm'}`}
-                                >
-                                   <div className="w-6 h-6 rounded-full overflow-hidden bg-slate-100"><img src={l.iconUrl} className="w-full h-full object-cover" /></div>
-                                   <span className="text-[10px] font-bold truncate">{l.title}</span>
-                                </button>
-                              ))}
-                           </div>
-                        </div>
-                        <div className="pt-4 flex gap-2">
-                           <button onClick={() => setAiTargetLinks(data.links.map(l => l.id))} className="flex-1 py-2 bg-slate-100 dark:bg-zinc-700 rounded-lg text-[10px] font-black">全选链接</button>
-                           <button onClick={() => setAiTargetLinks([])} className="flex-1 py-2 bg-slate-100 dark:bg-zinc-700 rounded-lg text-[10px] font-black">清空选择</button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <button 
-                      onClick={handleAIGenerateIcons}
-                      disabled={isGeneratingAI}
-                      className="w-full py-6 bg-brand-600 text-white rounded-[2rem] font-black text-lg hover:opacity-90 transition-all shadow-xl shadow-brand-200 flex items-center justify-center gap-4 active:scale-95 disabled:bg-slate-300"
-                    >
-                      {isGeneratingAI ? <Loader2 className="w-7 h-7 animate-spin" /> : <Wand className="w-7 h-7" />}
-                      {isGeneratingAI ? 'AI 深度绘图中，请稍候...' : '启动 AI 全球图标同步计划'}
-                    </button>
-                  </div>
-                </div>
               </div>
             )}
 
@@ -732,7 +606,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                   }} className="w-full py-4 bg-brand-600 text-white rounded-[1.5rem] font-bold text-base hover:opacity-90 transition-all shadow-lg active:scale-95">{t.admin.data.exportBtn}</button>
                 </div>
                 <div className="p-8 lg:p-10 border-2 border-dashed border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-zinc-700/50 rounded-[2rem] text-center flex flex-col items-center">
-                  <div className="w-16 h-16 bg-amber-50 dark:bg-amber-900/20 rounded-2xl flex items-center justify-center mb-6"><Upload className="w-8 h-8 text-amber-500" /></div>
+                  <div className="w-16 h-16 bg-brand-50 dark:bg-brand-900/20 rounded-2xl flex items-center justify-center mb-6"><Upload className="w-8 h-8 text-brand-600" /></div>
                   <h4 className="font-bold text-xl mb-3 dark:text-zinc-100">{t.admin.data.importTitle}</h4>
                   <p className="text-xs text-slate-400 mb-8 font-medium">{t.admin.data.importDesc}</p>
                   <label className="w-full py-4 bg-white dark:bg-zinc-700 border border-slate-200 text-slate-800 dark:text-zinc-200 rounded-[1.5rem] font-bold cursor-pointer text-base hover:bg-slate-100 transition-colors flex items-center justify-center shadow-sm active:scale-95">
