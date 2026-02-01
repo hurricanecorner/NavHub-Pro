@@ -247,8 +247,8 @@ const AdminModal: React.FC<AdminModalProps> = ({
   const getPreviewShapeClass = (shape?: LogoShape) => {
     switch(shape) {
       case 'circle': return 'rounded-full';
-      case 'rounded': return 'rounded-[20px]'; 
-      case 'square': return 'rounded-none'; 
+      case 'rounded': return 'rounded-[38%]'; // Xiaomi superellipse style
+      case 'square': return 'rounded-none'; // Default Square
       default: return 'rounded-none'; // Default Square
     }
   };
@@ -257,7 +257,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
   const getShapeIconClass = (shape: LogoShape) => {
     switch(shape) {
       case 'circle': return 'rounded-full';
-      case 'rounded': return 'rounded-[12px]'; 
+      case 'rounded': return 'rounded-[38%]'; // Xiaomi superellipse style
       case 'square': return 'rounded-none'; 
       default: return 'rounded-none';
     }

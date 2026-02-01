@@ -65,7 +65,7 @@ const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, 
   const getLogoShapeClass = (shape?: string) => {
     switch(shape) {
       case 'circle': return 'rounded-full';
-      case 'rounded': return 'rounded-lg';
+      case 'rounded': return 'rounded-[38%]'; // Xiaomi superellipse style
       case 'square': return 'rounded-none';
       default: return 'rounded-none';
     }

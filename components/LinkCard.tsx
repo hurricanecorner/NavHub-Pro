@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { LinkItem, LogoShape } from '../types';
 import { ExternalLink, Edit2, Trash2, Globe } from 'lucide-react';
@@ -31,7 +30,7 @@ const LinkCard: React.FC<LinkCardProps> = ({ item, isEditMode, isDragging, onEdi
   const getShapeClass = (s: string) => {
     switch (s) {
       case 'circle': return 'rounded-full';
-      case 'rounded': return 'rounded-xl'; // Adjusted for better visual balance
+      case 'rounded': return 'rounded-[38%]'; // Xiaomi superellipse style
       case 'square': return 'rounded-none'; // Sharp square as requested
       default: return 'rounded-none';
     }
