@@ -365,18 +365,29 @@ const AdminModal: React.FC<AdminModalProps> = ({
                              <div className="relative w-8 h-8 rounded-lg overflow-hidden border border-slate-200 dark:border-white/10 shadow-sm shrink-0">
                                 <input 
                                    type="color" 
-                                   value={linkForm.iconBgColor || '#ffffff'} 
+                                   value={
+                                     // Ensure valid hex for color input, otherwise fallback to white to avoid warnings
+                                     /^#[0-9A-F]{6}$/i.test(linkForm.iconBgColor || '') 
+                                       ? linkForm.iconBgColor 
+                                       : '#ffffff'
+                                   } 
                                    onChange={e => setLinkForm({...linkForm, iconBgColor: e.target.value})}
                                    className="absolute -top-1/2 -left-1/2 w-[200%] h-[200%] p-0 m-0 cursor-pointer border-0"
                                 />
                              </div>
-                             <input 
-                                type="text" 
-                                value={linkForm.iconBgColor || ''}
-                                onChange={e => setLinkForm({...linkForm, iconBgColor: e.target.value})}
-                                placeholder={t.admin.link.iconBg}
-                                className="flex-1 px-4 py-2 bg-white dark:bg-zinc-700 border border-slate-200 dark:border-white/10 rounded-lg text-xs font-mono font-bold dark:text-white"
-                             />
+                             <div className="flex-1 relative">
+                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-mono text-xs font-bold">#</span>
+                                 <input 
+                                    type="text" 
+                                    value={linkForm.iconBgColor?.replace(/^#/, '') || ''}
+                                    onChange={e => {
+                                        const clean = e.target.value.replace(/#/g, '');
+                                        setLinkForm({...linkForm, iconBgColor: clean ? `#${clean}` : ''});
+                                    }}
+                                    placeholder="FFFFFF"
+                                    className="w-full pl-7 pr-4 py-2 bg-white dark:bg-zinc-700 border border-slate-200 dark:border-white/10 rounded-lg text-xs font-mono font-bold dark:text-white uppercase"
+                                 />
+                             </div>
                              <button 
                                 onClick={() => setLinkForm({...linkForm, iconBgColor: ''})}
                                 className="px-3 py-2 bg-slate-100 dark:bg-zinc-700 rounded-lg text-[10px] font-bold text-slate-500 hover:bg-slate-200"
