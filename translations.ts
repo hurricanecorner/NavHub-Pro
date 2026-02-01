@@ -79,7 +79,24 @@ export const TRANSLATIONS = {
         placeholderUrl: "https://...",
         upload: "Upload",
         save: "Save Settings",
-        success: "Settings updated!"
+        success: "Settings updated!",
+        themeColorTitle: "Theme Color Preview",
+        themeShadesTitle: "Palette Shades Preview",
+        themeCollections: {
+          macaron: "Macaron",
+          morandi: "Morandi",
+          traditional: "Traditional"
+        },
+        logoStyle: {
+          title: "Logo Appearance",
+          shape: "Logo Shape",
+          bgColor: "Logo Background (Transparent PNG)",
+          shapes: {
+            square: "Square",
+            rounded: "Rounded",
+            circle: "Circle"
+          }
+        }
       },
       data: {
         exportTitle: "Export Bookmarks (HTML)",
@@ -103,7 +120,9 @@ export const TRANSLATIONS = {
         tagsPlaceholder: "Type new tag...",
         addTag: "Add",
         icon: "Icon",
+        iconBg: "Icon Background (Optional)",
         uploadOrPaste: "Upload & Compress",
+        imageCompressed: "Compressed: {from} -> {to}",
         selectCategory: "-- Select --",
         create: "Create Link",
         save: "Save Changes",
@@ -133,9 +152,9 @@ export const TRANSLATIONS = {
           success: "Successfully imported {count} links"
         },
         icons: {
-          upload: "Click to upload icons",
-          apply: "Apply & Clear",
-          hint: "Select icon then click link"
+          upload: "Upload Icon",
+          apply: "Apply Changes",
+          hint: "Select icon above then click link below"
         }
       },
       category: {
@@ -255,7 +274,24 @@ export const TRANSLATIONS = {
         placeholderUrl: "https://...",
         upload: "上传图片",
         save: "保存所有设置",
-        success: "设置已更新！"
+        success: "设置已更新！",
+        themeColorTitle: "配色方案预览 (THEME COLOR)",
+        themeShadesTitle: "当前方案色阶预览 (SHADES PREVIEW)",
+        themeCollections: {
+          macaron: "马卡龙",
+          morandi: "莫兰迪",
+          traditional: "国风"
+        },
+        logoStyle: {
+          title: "Logo 外观",
+          shape: "Logo 形状",
+          bgColor: "Logo 底色 (透明图片透出)",
+          shapes: {
+            square: "方形",
+            rounded: "圆角矩形",
+            circle: "圆形"
+          }
+        }
       },
       data: {
         exportTitle: "导出书签 (HTML)",
@@ -279,7 +315,9 @@ export const TRANSLATIONS = {
         tagsPlaceholder: "输入新标签并按回车...",
         addTag: "添加",
         icon: "图标",
+        iconBg: "图标底色 (选填, 用于透明图标)",
         uploadOrPaste: "上传并自动压缩图片",
+        imageCompressed: "图片已压缩：{from} -> {to}",
         selectCategory: "-- 请选择 --",
         create: "创建链接",
         save: "保存修改",
@@ -309,9 +347,9 @@ export const TRANSLATIONS = {
           success: "成功导入 {count} 条链接"
         },
         icons: {
-          upload: "点击上传图标",
-          apply: "应用并清空",
-          hint: "先选择上方图标，再点击下方链接即可应用"
+          upload: "上传图标",
+          apply: "应用修改",
+          hint: "选中上方图标后点击下方链接"
         }
       },
       category: {

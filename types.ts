@@ -21,10 +21,13 @@ export interface LinkItem {
   url: string;
   description: string;
   iconUrl?: string; // URL or Base64
+  iconBgColor?: string; // 自定义图标底色
   categoryId: string;
   subCategoryId: string;
   tags?: string[];
 }
+
+export type LogoShape = 'circle' | 'rounded' | 'square';
 
 export interface SiteConfig {
   title: string;
@@ -33,6 +36,8 @@ export interface SiteConfig {
   backgroundUrl?: string;
   linkColumns?: number; // 桌面端显示的栏数
   themeColor?: string; // 主题色方案名称
+  logoShape?: LogoShape;
+  logoBackgroundColor?: string;
 }
 
 export interface AppData {

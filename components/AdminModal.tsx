@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, Plus, PlusCircle, Upload, Edit2, Trash2, Folder, ListPlus, Download, Cloud, Settings, Wand2, Loader2, Image as ImageIcon, Globe, Tag, ExternalLink, ChevronDown, CheckCircle2, Cpu, Hash, Search, Save, Check, MousePointer2, Apple, Chrome, Play, LayoutGrid, Palette, Send, Sparkles, Wand, Info } from 'lucide-react';
-import { AppData, Category, LinkItem, CloudConfig, SiteConfig, SubCategory, Theme } from '../types';
+import { AppData, Category, LinkItem, CloudConfig, SiteConfig, SubCategory, Theme, LogoShape } from '../types';
 import { ToastType } from './Toast';
 import { COLOR_COLLECTIONS, COLOR_PALETTES } from '../App';
 import { publishToNotion, uploadToCloud, downloadFromCloud } from '../services/storageUtils';
@@ -64,12 +64,21 @@ const compressImage = async (input: string, maxWidth: number = 128, quality = 0.
   });
 };
 
+const formatBytes = (bytes: number, decimals = 2) => {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+};
+
 const AdminModal: React.FC<AdminModalProps> = ({ 
   isOpen, onClose, data, onUpdateData, cloudConfig, onUpdateCloudConfig, onSyncUpload, onSyncDownload, isSyncing, editingItem, initialValues, t, showToast, confirmAction, theme
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('link');
   const [linkMode, setLinkMode] = useState<LinkMode>('single');
-  const [linkForm, setLinkForm] = useState<Partial<LinkItem>>({ title: '', url: '', description: '', categoryId: '', subCategoryId: '', iconUrl: '', tags: [] });
+  const [linkForm, setLinkForm] = useState<Partial<LinkItem>>({ title: '', url: '', description: '', categoryId: '', subCategoryId: '', iconUrl: '', iconBgColor: '', tags: [] });
   const [tagInput, setTagInput] = useState('');
   
   const [isFetchingMeta, setIsFetchingMeta] = useState(false);
@@ -88,7 +97,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
   const [subCatEditingId, setSubCatEditingId] = useState<string | null>(null);
   const [subCatForm, setSubCatForm] = useState<{ parentId: string; id: string | null; name: string }>({ parentId: '', id: null, name: '' });
   
-  const [siteForm, setSiteForm] = useState<SiteConfig>({ title: '', logoUrl: '', faviconUrl: '', backgroundUrl: '', linkColumns: 4, themeColor: 'indigo' });
+  const [siteForm, setSiteForm] = useState<SiteConfig>({ title: '', logoUrl: '', faviconUrl: '', backgroundUrl: '', linkColumns: 4, themeColor: 'indigo', logoShape: 'square', logoBackgroundColor: '' });
   const [localCloud, setLocalCloud] = useState<CloudConfig>(cloudConfig);
   const [tagSearchQuery, setTagSearchQuery] = useState('');
   const [renamingTag, setRenamingTag] = useState<{ old: string; new: string } | null>(null);
@@ -105,8 +114,8 @@ const AdminModal: React.FC<AdminModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       if (editingItem) { setLinkForm({ ...editingItem, tags: editingItem.tags || [] }); setLinkMode('single'); }
-      else if (initialValues) { setLinkForm({ title: '', url: '', description: '', iconUrl: '', tags: [], categoryId: initialValues.categoryId, subCategoryId: initialValues.subCategoryId }); setLinkMode('single'); }
-      else { setLinkForm({ title: '', url: '', description: '', categoryId: data.categories[0]?.id || '', subCategoryId: '', iconUrl: '', tags: [] }); }
+      else if (initialValues) { setLinkForm({ title: '', url: '', description: '', iconUrl: '', iconBgColor: '', tags: [], categoryId: initialValues.categoryId, subCategoryId: initialValues.subCategoryId }); setLinkMode('single'); }
+      else { setLinkForm({ title: '', url: '', description: '', categoryId: data.categories[0]?.id || '', subCategoryId: '', iconUrl: '', iconBgColor: '', tags: [] }); }
       setLocalCloud(cloudConfig);
       
       const savedThemeColor = data.siteConfig?.themeColor || 'indigo';
@@ -116,7 +125,9 @@ const AdminModal: React.FC<AdminModalProps> = ({
         faviconUrl: data.siteConfig?.faviconUrl || '', 
         backgroundUrl: data.siteConfig?.backgroundUrl || '',
         linkColumns: data.siteConfig?.linkColumns || 4,
-        themeColor: savedThemeColor
+        themeColor: savedThemeColor,
+        logoShape: data.siteConfig?.logoShape || 'square',
+        logoBackgroundColor: data.siteConfig?.logoBackgroundColor || ''
       });
       
       // 自动识别当前所属配色体系
@@ -128,11 +139,22 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, compress: boolean, callback: (res: string) => void) => {
     const file = e.target.files?.[0]; if (!file) return;
+    const originalSize = file.size;
+
     const reader = new FileReader();
     reader.onload = async (ev) => { 
       const res = ev.target?.result as string; 
       if (res) {
         const finalRes = compress ? await compressImage(res) : await compressImage(res, 1920, 0.7);
+        
+        // Calculate compressed size from Base64 string length
+        // Size in bytes ≈ (length * 3) / 4 - padding
+        const base64Str = finalRes.split(',')[1] || '';
+        const padding = (base64Str.match(/=+$/) || [])[0]?.length || 0;
+        const compressedSize = (base64Str.length * 3 / 4) - padding;
+
+        showToast('success', t.admin.link.imageCompressed.replace('{from}', formatBytes(originalSize)).replace('{to}', formatBytes(compressedSize)));
+        
         callback(finalRes); 
       }
     };
@@ -209,6 +231,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
       url: linkForm.url.trim(),
       description: linkForm.description?.trim() || '',
       iconUrl: linkForm.iconUrl || '',
+      iconBgColor: linkForm.iconBgColor || '',
       categoryId: linkForm.categoryId || data.categories[0]?.id || '',
       subCategoryId: linkForm.subCategoryId || '',
       tags: linkForm.tags || []
@@ -216,8 +239,28 @@ const AdminModal: React.FC<AdminModalProps> = ({
     const newLinks = linkForm.id ? data.links.map(l => l.id === linkForm.id ? newItem : l) : [...data.links, newItem];
     onUpdateData({ ...data, links: newLinks });
     showToast('success', t.app.saved);
-    if (!linkForm.id) { setLinkForm({ title: '', url: '', description: '', categoryId: linkForm.categoryId, subCategoryId: linkForm.subCategoryId, iconUrl: '', tags: [] }); setTagInput(''); }
+    if (!linkForm.id) { setLinkForm({ title: '', url: '', description: '', categoryId: linkForm.categoryId, subCategoryId: linkForm.subCategoryId, iconUrl: '', iconBgColor: '', tags: [] }); setTagInput(''); }
     else onClose();
+  };
+
+  // Helper to determine the preview class for the large logo preview
+  const getPreviewShapeClass = (shape?: LogoShape) => {
+    switch(shape) {
+      case 'circle': return 'rounded-full';
+      case 'rounded': return 'rounded-[20px]'; 
+      case 'square': return 'rounded-none'; 
+      default: return 'rounded-none'; // Default Square
+    }
+  };
+
+  // Helper for small shape schematic icons
+  const getShapeIconClass = (shape: LogoShape) => {
+    switch(shape) {
+      case 'circle': return 'rounded-full';
+      case 'rounded': return 'rounded-[12px]'; 
+      case 'square': return 'rounded-none'; 
+      default: return 'rounded-none';
+    }
   };
 
   // 防御性配色获取，确保预览不会因 undefined[shade] 崩溃
@@ -302,14 +345,45 @@ const AdminModal: React.FC<AdminModalProps> = ({
                     <div className="space-y-3">
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.link.icon}</label>
                       <div className="flex items-center gap-6 p-6 bg-slate-50/30 dark:bg-zinc-900/10 border border-slate-100 dark:border-white/5 rounded-[2rem]">
-                        <div className="w-20 h-20 lg:w-24 lg:h-24 rounded-2xl border border-slate-100 bg-white dark:bg-zinc-800 dark:border-white/10 flex items-center justify-center shrink-0 shadow-inner overflow-hidden">
+                        <div 
+                          className="w-20 h-20 lg:w-24 lg:h-24 rounded-2xl border border-slate-100 dark:border-white/10 flex items-center justify-center shrink-0 shadow-inner overflow-hidden"
+                          style={linkForm.iconBgColor ? { backgroundColor: linkForm.iconBgColor } : {}}
+                        >
                           {linkForm.iconUrl ? <img src={linkForm.iconUrl} className="w-full h-full object-cover" /> : <Globe className="w-10 h-10 text-slate-200" />}
                         </div>
-                        <div className="flex-1 space-y-3">
-                          <input type="text" value={linkForm.iconUrl} onChange={e => setLinkForm({ ...linkForm, iconUrl: e.target.value })} className="w-full px-5 py-4 bg-white dark:bg-zinc-700 border border-slate-200 dark:border-white/10 rounded-xl text-sm font-bold outline-none focus:border-brand-500 dark:text-white shadow-sm" placeholder="https://..." />
-                          <label className="inline-flex items-center justify-center px-6 py-2.5 bg-white dark:bg-zinc-800 border border-slate-200 rounded-xl text-xs font-black text-slate-600 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-700 cursor-pointer shadow-sm active:scale-95 transition-all">
-                             {t.admin.link.uploadOrPaste} <input type="file" className="hidden" accept="image/*" onChange={e => handleImageUpload(e, true, (res) => setLinkForm({ ...linkForm, iconUrl: res }))} />
-                          </label>
+                        <div className="flex-1 space-y-4">
+                          {/* Icon URL Input */}
+                          <div className="space-y-2">
+                             <input type="text" value={linkForm.iconUrl} onChange={e => setLinkForm({ ...linkForm, iconUrl: e.target.value })} className="w-full px-5 py-3 bg-white dark:bg-zinc-700 border border-slate-200 dark:border-white/10 rounded-xl text-sm font-bold outline-none focus:border-brand-500 dark:text-white shadow-sm" placeholder="https://..." />
+                             <label className="inline-flex items-center justify-center px-6 py-2.5 bg-white dark:bg-zinc-800 border border-slate-200 rounded-xl text-xs font-black text-slate-600 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-700 cursor-pointer shadow-sm active:scale-95 transition-all">
+                                {t.admin.link.uploadOrPaste} <input type="file" className="hidden" accept="image/*" onChange={e => handleImageUpload(e, true, (res) => setLinkForm({ ...linkForm, iconUrl: res }))} />
+                             </label>
+                          </div>
+                          
+                          {/* NEW: Link Icon BG Color Picker */}
+                          <div className="flex items-center gap-3 pt-2 border-t border-slate-200 dark:border-white/10">
+                             <div className="relative w-8 h-8 rounded-lg overflow-hidden border border-slate-200 dark:border-white/10 shadow-sm shrink-0">
+                                <input 
+                                   type="color" 
+                                   value={linkForm.iconBgColor || '#ffffff'} 
+                                   onChange={e => setLinkForm({...linkForm, iconBgColor: e.target.value})}
+                                   className="absolute -top-1/2 -left-1/2 w-[200%] h-[200%] p-0 m-0 cursor-pointer border-0"
+                                />
+                             </div>
+                             <input 
+                                type="text" 
+                                value={linkForm.iconBgColor || ''}
+                                onChange={e => setLinkForm({...linkForm, iconBgColor: e.target.value})}
+                                placeholder={t.admin.link.iconBg}
+                                className="flex-1 px-4 py-2 bg-white dark:bg-zinc-700 border border-slate-200 dark:border-white/10 rounded-lg text-xs font-mono font-bold dark:text-white"
+                             />
+                             <button 
+                                onClick={() => setLinkForm({...linkForm, iconBgColor: ''})}
+                                className="px-3 py-2 bg-slate-100 dark:bg-zinc-700 rounded-lg text-[10px] font-bold text-slate-500 hover:bg-slate-200"
+                             >
+                                X
+                             </button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -376,7 +450,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                       <div className="flex gap-2">
                         <label className="flex-1 h-32 cursor-pointer border-2 border-dashed border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-zinc-700 rounded-3xl flex flex-col items-center justify-center text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-700 transition-colors group">
                           <Upload className="w-8 h-8 mb-1 text-slate-300 dark:text-zinc-500" />
-                          <span className="text-[10px] font-bold uppercase tracking-widest">上传图标</span>
+                          <span className="text-[10px] font-bold uppercase tracking-widest">{t.admin.link.icons.upload}</span>
                           <input type="file" multiple className="hidden" accept="image/*" onChange={e => {
                             const files = Array.from(e.target.files || []);
                             files.forEach(f => {
@@ -395,11 +469,11 @@ const AdminModal: React.FC<AdminModalProps> = ({
                     </div>
                     <div className="flex-1 border border-slate-200 dark:border-white/5 rounded-3xl overflow-hidden flex flex-col bg-white dark:bg-zinc-800 h-[400px] lg:h-full shadow-sm">
                       <div className="p-4 lg:p-6 border-b border-slate-200 dark:border-white/5 flex justify-between items-center bg-slate-50 dark:bg-zinc-700/50">
-                        <h5 className="text-[10px] font-black uppercase text-slate-400 dark:text-zinc-400 tracking-widest">选中上方图标后点击下方链接</h5>
+                        <h5 className="text-[10px] font-black uppercase text-slate-400 dark:text-zinc-400 tracking-widest">{t.admin.link.icons.hint}</h5>
                         <button onClick={() => { 
                             const updatedLinks = data.links.map(l => { const assigned = linkBulkIcons.find(bi => bi.assignedId === l.id); return assigned ? { ...l, iconUrl: assigned.preview } : l; });
                             onUpdateData({ ...data, links: updatedLinks }); showToast('success', t.app.success); setLinkBulkIcons([]); setSelectedBulkIconId(null); 
-                        }} className="px-5 lg:px-8 py-2 bg-brand-600 text-white rounded-xl text-[10px] font-black hover:bg-brand-700 active:scale-95 transition-all shadow-md">应用修改</button>
+                        }} className="px-5 lg:px-8 py-2 bg-brand-600 text-white rounded-xl text-[10px] font-black hover:bg-brand-700 active:scale-95 transition-all shadow-md">{t.admin.link.icons.apply}</button>
                       </div>
                       <div className="flex-1 overflow-y-auto p-4 lg:p-6 grid grid-cols-2 lg:grid-cols-2 gap-3 custom-scrollbar">
                         {data.links.map(l => {
@@ -499,7 +573,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
             {activeTab === 'cloud' && (
               <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in pt-4 pb-12">
-                {/* 提供商选择 */}
+                {/* Provider Selection */}
                 <div className="grid grid-cols-3 gap-4">
                   {(['github', 'notion', 'webdav'] as const).map(p => (
                     <button 
@@ -520,11 +594,11 @@ const AdminModal: React.FC<AdminModalProps> = ({
                     {localCloud.activeProvider === 'github' && (
                         <div className="space-y-8 animate-in fade-in duration-300">
                             <div className="space-y-2">
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">GITHUB 访问令牌</label>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.cloud.github.token}</label>
                                 <input type="password" value={localCloud.githubToken} onChange={e => setLocalCloud({ ...localCloud, githubToken: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="••••••••••••••••••••••••••••••••" />
                             </div>
                             <div className="space-y-2">
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">GIST ID</label>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.cloud.github.gistId}</label>
                                 <input type="text" value={localCloud.gistId} onChange={e => setLocalCloud({ ...localCloud, gistId: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="01dafe233bfc3ae5c3efcb93a322c7cf" />
                             </div>
                         </div>
@@ -538,15 +612,15 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                 </p>
                             </div>
                             <div className="space-y-2">
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">集成令牌 (TOKEN)</label>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.cloud.notion.token}</label>
                                 <input type="password" value={localCloud.notionToken} onChange={e => setLocalCloud({ ...localCloud, notionToken: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="secret_••••••••••••••••••••••••••••••••" />
                             </div>
                             <div className="space-y-2">
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">页面 ID (PAGE ID)</label>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.cloud.notion.pageId}</label>
                                 <input type="text" value={localCloud.notionPageId} onChange={e => setLocalCloud({ ...localCloud, notionPageId: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
                             </div>
                             <div className="space-y-2">
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">API 代理地址 (CORS)</label>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.cloud.notion.proxy}</label>
                                 <input type="text" value={localCloud.notionApiUrl} onChange={e => setLocalCloud({ ...localCloud, notionApiUrl: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="https://cors-proxy.org/https://api.notion.com/v1" />
                             </div>
                             <button onClick={async () => { setIsPublishing(true); const r = await publishToNotion(data, localCloud); showToast(r.success ? 'success' : 'error', r.message); setIsPublishing(false); }} disabled={isPublishing} className="w-full py-5 border-2 border-dashed border-brand-200 text-brand-600 rounded-2xl text-xs font-black hover:bg-brand-50 transition-all flex items-center justify-center gap-3 active:scale-[0.98]">
@@ -564,16 +638,16 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                 </p>
                             </div>
                             <div className="space-y-2">
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">服务器地址</label>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.cloud.webdav.url}</label>
                                 <input type="text" value={localCloud.webdavUrl} onChange={e => setLocalCloud({ ...localCloud, webdavUrl: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="https://dav.jianguoyun.com/dav/" />
                             </div>
                             <div className="grid grid-cols-2 gap-6">
                                 <div className="space-y-2">
-                                    <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">账户邮箱</label>
+                                    <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.cloud.webdav.user}</label>
                                     <input type="text" value={localCloud.webdavUsername} onChange={e => setLocalCloud({ ...localCloud, webdavUsername: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="Email" />
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">应用密码</label>
+                                    <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.cloud.webdav.pass}</label>
                                     <input type="password" value={localCloud.webdavPassword} onChange={e => setLocalCloud({ ...localCloud, webdavPassword: e.target.value })} className="w-full px-6 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-2xl outline-none font-bold text-lg dark:text-white" placeholder="App Password" />
                                 </div>
                             </div>
@@ -635,9 +709,68 @@ const AdminModal: React.FC<AdminModalProps> = ({
                   <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.settings.siteName}</label>
                   <input type="text" value={siteForm.title} onChange={e => setSiteForm({ ...siteForm, title: e.target.value })} className="w-full px-8 py-5 bg-slate-50/50 dark:bg-zinc-700 border border-slate-200 dark:border-white/10 rounded-2xl text-xl font-black tracking-tight outline-none focus:border-brand-500 transition-all dark:text-white shadow-sm" placeholder={t.app.title} />
                 </div>
+                
+                {/* Logo Customization Section - Split Layout */}
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                     <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.settings.logoStyle.title}</label>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Card 1: Logo Upload */}
+                    <div className="p-8 bg-slate-50/50 dark:bg-zinc-900/20 border border-slate-200 dark:border-white/5 rounded-[2.5rem] shadow-sm flex flex-col justify-center space-y-6">
+                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block text-center">{t.admin.settings.logo}</label>
+                       <div className="flex flex-col items-center gap-6">
+                          {/* Live Preview Container using dynamic shape class */}
+                          <div className={`w-24 h-24 bg-white dark:bg-zinc-800 border-2 border-slate-100 dark:border-white/10 flex items-center justify-center p-2 shadow-sm overflow-hidden transition-all duration-300 ${getPreviewShapeClass(siteForm.logoShape)}`}>
+                             {siteForm.logoUrl ? <img src={siteForm.logoUrl} className="w-full h-full object-cover" /> : <LayoutGrid className="w-10 h-10 text-slate-200" />}
+                          </div>
+                          <div className="w-full flex gap-3">
+                             <input type="text" value={siteForm.logoUrl} onChange={e => setSiteForm({ ...siteForm, logoUrl: e.target.value })} className="flex-1 px-5 py-3 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs font-bold dark:text-white shadow-sm outline-none focus:border-brand-500" placeholder="https://..." />
+                             <label className="p-3 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 text-slate-400 hover:text-brand-600 rounded-xl flex items-center justify-center shrink-0 cursor-pointer shadow-sm active:scale-90 transition-all">
+                                <Upload className="w-5 h-5" />
+                                <input type="file" className="hidden" accept="image/*" onChange={e => handleImageUpload(e, false, (res) => setSiteForm({ ...siteForm, logoUrl: res }))} />
+                             </label>
+                          </div>
+                       </div>
+                    </div>
+
+                    {/* Card 2: Logo Style (Shape Only - Schematic Outside) */}
+                    <div className="p-8 bg-slate-50/50 dark:bg-zinc-900/20 border border-slate-200 dark:border-white/5 rounded-[2.5rem] shadow-sm flex flex-col justify-center space-y-8">
+                        {/* Shape Selector */}
+                        <div className="space-y-6">
+                           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block text-center">{t.admin.settings.logoStyle.shape}</label>
+                           <div className="flex justify-center gap-6">
+                              {(['square', 'rounded', 'circle'] as LogoShape[]).map(shape => (
+                                 <div 
+                                    key={shape} 
+                                    className="flex flex-col items-center gap-3 cursor-pointer group"
+                                    onClick={() => setSiteForm({...siteForm, logoShape: shape})}
+                                 >
+                                    {/* Schematic Diagram - Outside */}
+                                    <div className={`w-12 h-12 border-2 border-dashed transition-colors ${
+                                       siteForm.logoShape === shape ? 'border-brand-500 opacity-100' : 'border-slate-300 opacity-50 group-hover:border-slate-400 dark:border-white/20'
+                                    } ${getShapeIconClass(shape)}`} />
+                                    
+                                    {/* Selection Box */}
+                                    <div className={`px-6 py-3 border-2 rounded-xl flex items-center gap-2 transition-all shadow-sm ${
+                                       siteForm.logoShape === shape 
+                                          ? 'border-brand-500 bg-brand-50 text-brand-600' 
+                                          : 'border-slate-200 bg-white dark:bg-zinc-800 dark:border-white/10 text-slate-500 hover:border-brand-200'
+                                    }`}>
+                                       {siteForm.logoShape === shape && <CheckCircle2 className="w-4 h-4" />}
+                                       <span className="text-xs font-bold">{t.admin.settings.logoStyle.shapes[shape]}</span>
+                                    </div>
+                                 </div>
+                              ))}
+                           </div>
+                        </div>
+                    </div>
+                  </div>
+                </div>
 
                 <div className="space-y-4">
-                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Palette className="w-4 h-4" /> 配色方案预览 (THEME COLOR)</label>
+                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Palette className="w-4 h-4" /> {t.admin.settings.themeColorTitle}</label>
                   <div className="p-8 lg:p-10 bg-slate-50/30 dark:bg-zinc-700/50 border border-slate-200 dark:border-white/5 rounded-[2.5rem] space-y-12 shadow-inner">
                     
                     {/* 配色体系分段器 */}
@@ -652,7 +785,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                               : 'text-slate-400 hover:text-slate-600'
                           }`}
                         >
-                          {{macaron: '马卡龙', morandi: '莫兰迪', traditional: '国风'}[coll]}
+                          {t.admin.settings.themeCollections[coll]}
                         </button>
                       ))}
                     </div>
@@ -683,7 +816,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                       })}
                     </div>
                     <div className="pt-8 border-t border-slate-200 dark:border-white/5 flex flex-col items-center gap-6">
-                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">当前方案色阶预览 (SHADES PREVIEW)</span>
+                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t.admin.settings.themeShadesTitle}</span>
                        <div className="flex w-full max-w-lg h-12 lg:h-14 rounded-2xl overflow-hidden shadow-inner border border-slate-100 dark:border-white/5">
                           {[100, 200, 400, 600, 950].map(shade => (
                              <div 
@@ -698,7 +831,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                 </div>
 
                 <div className="space-y-4">
-                  <label className="block text-xs font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest ml-1">桌面端链接栏数</label>
+                  <label className="block text-xs font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest ml-1">{t.admin.settings.linkColumns}</label>
                   <div className="flex items-center gap-6 p-6 lg:p-8 bg-slate-50/50 dark:bg-zinc-900/20 border border-slate-200 dark:border-white/5 rounded-[2.5rem] shadow-sm">
                     <div className="flex-1 flex items-center relative h-12">
                         <div className="absolute inset-y-0 my-auto h-3 w-full bg-slate-200 dark:bg-zinc-700 rounded-full" />
@@ -722,14 +855,13 @@ const AdminModal: React.FC<AdminModalProps> = ({
                     </div>
                     <div className="px-6 py-4 bg-white dark:bg-zinc-800 rounded-2xl border border-slate-100 dark:border-white/10 font-black text-slate-800 dark:text-zinc-100 min-w-[100px] lg:min-w-[120px] text-center shadow-[0_4px_12px_rgba(0,0,0,0.05)]">
                       <span className="text-xl lg:text-3xl">{siteForm.linkColumns}</span> 
-                      <span className="text-sm ml-1 text-slate-400 tracking-normal">栏</span>
+                      <span className="text-sm ml-1 text-slate-400 tracking-normal">{t.admin.settings.columnsUnit}</span>
                     </div>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 gap-8">
                   {[
-                    { key: 'logoUrl', label: t.admin.settings.logo, icon: ImageIcon },
                     { key: 'faviconUrl', label: t.admin.settings.favicon, icon: Globe },
                     { key: 'backgroundUrl', label: t.admin.settings.background, icon: LayoutGrid },
                   ].map((field) => (
@@ -747,7 +879,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                 </div>
 
                 <button onClick={() => { onUpdateData({ ...data, siteConfig: siteForm }); showToast('success', t.admin.settings.success); }} className="w-full py-6 bg-brand-600 text-white rounded-[2rem] font-black text-lg hover:opacity-90 shadow-xl shadow-brand-100 uppercase tracking-[0.2em] active:scale-95 transition-all">
-                  保存所有显示设置
+                  {t.admin.settings.save}
                 </button>
               </div>
             )}
@@ -767,85 +899,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                 if (catEditingId) { const newCats = catForm.id ? data.categories.map(c => c.id === catForm.id ? { ...c, name: catForm.name } : c) : [...data.categories, { id: `c-${Date.now()}`, name: catForm.name, subCategories: [] }]; onUpdateData({ ...data, categories: newCats }); setCatEditingId(null); } 
                 else { const newCats = data.categories.map(c => c.id === subCatForm.parentId ? { ...c, subCategories: subCatForm.id ? c.subCategories.map(s => s.id === subCatForm.id ? { ...s, name: subCatForm.name } : s) : [...c.subCategories, { id: `sc-${Date.now()}`, name: subCatForm.name }] } : c); onUpdateData({ ...data, categories: newCats }); setSubCatEditingId(null); }
                 showToast('success', t.app.saved);
-              }} className="w-full py-4 bg-brand-600 text-white rounded-2xl font-black text-base hover:opacity-90 shadow-lg active:scale-95 transition-all">完成保存并返回</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isMetaPickerOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-zinc-900/60 backdrop-blur-md animate-in fade-in" />
-          <div className="bg-white dark:bg-zinc-800 rounded-[2.5rem] w-full max-w-2xl shadow-2xl relative z-[210] overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100 dark:border-white/5">
-            <div className="p-10">
-               <div className="flex justify-between items-start mb-8">
-                  <div className="space-y-1">
-                    <h4 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">{t.admin.link.meta.pickerTitle}</h4>
-                    <p className="text-xs text-slate-400 font-bold">{t.admin.link.meta.pickerDesc}</p>
-                  </div>
-                  <button onClick={() => setIsMetaPickerOpen(false)} className="p-2 text-slate-400 hover:text-slate-600 active:scale-90 transition-all"><X className="w-8 h-8" /></button>
-               </div>
-               <div className="space-y-8">
-                  <div className="space-y-3">
-                    <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">{t.admin.link.meta.titleStrategy}</label>
-                    <div className="grid grid-cols-2 gap-4">
-                      {([['apple', 'APP STORE'], ['web', 'WEB']] as const).map(([src, label]) => (
-                        <button key={src} onClick={() => setMetaSelections(p => ({...p, title: src}))} disabled={!fetchedMetas[src]} className={`p-5 rounded-2xl border-2 text-left transition-all relative ${metaSelections.title === src ? 'border-brand-500 bg-brand-50/50' : 'border-slate-100 hover:border-slate-200'} ${!fetchedMetas[src] && 'opacity-30 grayscale cursor-not-allowed'}`}>
-                          <div className="text-[10px] font-black text-brand-600 mb-1 tracking-wider uppercase">{label}</div>
-                          <div className="text-xs font-bold truncate">{fetchedMetas[src]?.title || '无可用信息'}</div>
-                          {metaSelections.title === src && <CheckCircle2 className="absolute top-5 right-5 w-5 h-5 text-brand-600" />}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">{t.admin.link.meta.iconStrategy}</label>
-                    <div className="grid grid-cols-2 gap-4">
-                      {([['apple', 'APP STORE'], ['web', 'WEB']] as const).map(([src, label]) => (
-                        <button key={src} onClick={() => setMetaSelections(p => ({...p, icon: src}))} disabled={!fetchedMetas[src]} className={`p-4 rounded-2xl border-2 text-left transition-all flex items-center gap-4 relative ${metaSelections.icon === src ? 'border-brand-500 bg-brand-50/50' : 'border-slate-100 hover:border-slate-200'} ${!fetchedMetas[src] && 'opacity-30 grayscale cursor-not-allowed'}`}>
-                          <div className="w-14 h-14 rounded-2xl bg-white border-2 flex items-center justify-center overflow-hidden shrink-0 shadow-sm">
-                             {fetchedMetas[src]?.iconUrl ? <img src={fetchedMetas[src]?.iconUrl} className="w-full h-full object-cover" /> : <Globe className="w-7 h-7 text-slate-200" />}
-                          </div>
-                          <div><div className="text-[10px] font-black text-brand-600 tracking-wider uppercase">{label}</div></div>
-                          {metaSelections.icon === src && <CheckCircle2 className="absolute top-5 right-5 w-5 h-5 text-brand-600" />}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">{t.admin.link.meta.descStrategy}</label>
-                    <div className="grid grid-cols-2 gap-4">
-                      {([['apple', 'APP STORE'], ['web', 'WEB']] as const).map(([src, label]) => (
-                        <button key={src} onClick={() => setMetaSelections(p => ({...p, description: src}))} disabled={!fetchedMetas[src]} className={`p-5 rounded-2xl border-2 text-left transition-all relative ${metaSelections.description === src ? 'border-brand-500 bg-brand-50/50' : 'border-slate-100 hover:border-slate-200'} ${!fetchedMetas[src] && 'opacity-30 grayscale cursor-not-allowed'}`}>
-                          <div className="text-[10px] font-black text-brand-600 mb-2 tracking-wider uppercase">{label}</div>
-                          <div className="text-[11px] font-bold line-clamp-2 leading-relaxed h-9 text-slate-600 dark:text-zinc-400">{fetchedMetas[src]?.description || '该来源未抓取到简介信息'}</div>
-                          {metaSelections.description === src && <CheckCircle2 className="absolute top-5 right-5 w-5 h-5 text-brand-600" />}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-               </div>
-               <div className="mt-12 flex gap-5">
-                  <button onClick={() => setIsMetaPickerOpen(false)} className="flex-1 py-5 bg-slate-50 dark:bg-zinc-700 rounded-2xl font-black text-sm uppercase tracking-widest active:scale-95 transition-all">放弃修改</button>
-                  <button onClick={applyMetaSelection} className="flex-[2] py-5 bg-brand-600 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-brand-100 active:scale-95 transition-all">确认并应用此方案</button>
-               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {renamingTag && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center p-6">
-          <div className="absolute inset-0 bg-zinc-900/60 backdrop-blur-sm" onClick={() => setRenamingTag(null)} />
-          <div className="bg-white dark:bg-zinc-800 rounded-[2.5rem] p-10 w-full max-w-md relative z-[160] border border-slate-200 dark:border-white/10 animate-in zoom-in-95 duration-200 shadow-2xl">
-            <h4 className="font-black text-2xl mb-8 text-slate-800 dark:text-zinc-100">{t.admin.tags.rename}</h4>
-            <div className="space-y-6">
-              <input type="text" value={renamingTag.new} onChange={e => setRenamingTag({ ...renamingTag, new: e.target.value })} className="w-full px-8 py-5 bg-slate-50 dark:bg-zinc-700 border border-slate-200 rounded-2xl outline-none font-black text-xl tracking-tight focus:border-brand-500 dark:text-white" autoFocus />
-              <button onClick={() => { 
-                if (!renamingTag.new.trim() || renamingTag.old === renamingTag.new) { setRenamingTag(null); return; }
-                onUpdateData({ ...data, links: data.links.map(l => l.tags?.includes(renamingTag.old) ? { ...l, tags: Array.from(new Set(l.tags.map(t => t === renamingTag.old ? renamingTag.new.trim() : t))) } : l) });
-                setRenamingTag(null); showToast('success', t.admin.tags.renameSuccess);
-              }} className="w-full py-5 bg-brand-600 text-white rounded-2xl font-black text-lg hover:opacity-90 shadow-lg active:scale-95 transition-all">确认重命名</button>
+              }} className="w-full py-4 bg-brand-600 text-white rounded-2xl font-black text-base hover:opacity-90 shadow-lg active:scale-95 transition-all">{t.admin.category.saveDone}</button>
             </div>
           </div>
         </div>

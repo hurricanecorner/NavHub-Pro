@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Category, LinkItem, SiteConfig, Theme } from '../types';
 import { LayoutGrid, Hash, ChevronRight, Folder, GripVertical } from 'lucide-react';
@@ -63,6 +62,15 @@ const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, 
   const getCategoryCount = (catId: string) => links.filter(l => l.categoryId === catId).length;
   const getSubCategoryCount = (catId: string, subId: string) => links.filter(l => l.categoryId === catId && l.subCategoryId === subId).length;
 
+  const getLogoShapeClass = (shape?: string) => {
+    switch(shape) {
+      case 'circle': return 'rounded-full';
+      case 'rounded': return 'rounded-lg';
+      case 'square': return 'rounded-none';
+      default: return 'rounded-none';
+    }
+  };
+
   return (
     <>
       {isOpen && (
@@ -78,9 +86,13 @@ const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, 
         }
       `}>
         <div className={`h-16 flex items-center px-6 ${isCustom ? 'border-b border-white/5' : 'border-b border-slate-100 dark:border-white/5'}`}>
-          <div className={`flex items-center gap-2 font-black text-xl overflow-hidden tracking-[0.05em] ${isCustom ? 'text-white' : 'text-brand-600 dark:text-zinc-100'}`}>
+          <div className={`flex items-center gap-3 font-black text-xl overflow-hidden tracking-[0.05em] ${isCustom ? 'text-white' : 'text-brand-600 dark:text-zinc-100'}`}>
             {siteConfig?.logoUrl ? (
-              <img src={siteConfig.logoUrl} alt="Logo" className="w-8 h-8 object-contain" />
+              <div 
+                className={`w-8 h-8 flex items-center justify-center shrink-0 overflow-hidden shadow-sm bg-white dark:bg-zinc-700 ${getLogoShapeClass(siteConfig.logoShape)}`}
+              >
+                <img src={siteConfig.logoUrl} alt="Logo" className="w-full h-full object-cover" />
+              </div>
             ) : (
               <LayoutGrid className="w-6 h-6 shrink-0" />
             )}
@@ -127,10 +139,15 @@ const Sidebar: React.FC<SidebarProps> = ({ categories, links, activeCategoryId, 
                               </span>
                             </button>
                           </div>
-                          {isActive && category.subCategories.length > 0 && (
+                          {(isActive && (category.subCategories.length > 0 || isEditMode)) && (
                             <Droppable droppableId={`sidebar-sub-${category.id}`} type="SIDEBAR_SUBCAT">
-                              {(provided) => (
-                                <div ref={provided.innerRef} {...provided.droppableProps} className="pl-11 pr-2 space-y-0.5 animate-fadeIn">
+                              {(provided, snapshot) => (
+                                <div 
+                                  ref={provided.innerRef} 
+                                  {...provided.droppableProps} 
+                                  className={`pl-11 pr-2 space-y-0.5 animate-fadeIn ${category.subCategories.length === 0 && !snapshot.isDraggingOver && !isEditMode ? 'hidden' : ''}`}
+                                  style={{minHeight: isEditMode || snapshot.isDraggingOver ? '10px' : '0'}}
+                                >
                                   {category.subCategories.map((subCat, subIndex) => {
                                     const subCount = getSubCategoryCount(category.id, subCat.id);
                                     return (

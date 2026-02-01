@@ -1,3 +1,4 @@
+// ... (imports remain same)
 
 import React, { Component, useState, useEffect, ReactNode, ErrorInfo, useRef } from 'react';
 import { Menu, Search, Settings, Edit, Lock, Languages, AlertTriangle, Moon, Sun, Laptop, Image as ImageIcon, ChevronDown, PlusCircle, Plus, LayoutGrid, Check } from 'lucide-react';
@@ -11,7 +12,7 @@ import AdminModal from './components/AdminModal';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 import { ConfirmDialog } from './components/ConfirmDialog';
 
-// 定义三大色系集合
+// ... (COLOR_COLLECTIONS and other consts remain same)
 export const COLOR_COLLECTIONS: Record<string, Record<string, Record<number, string>>> = {
   macaron: {
     // 马卡龙：保留原有的亮色，并扩充甜美色系
@@ -60,7 +61,6 @@ export const COLOR_COLLECTIONS: Record<string, Record<string, Record<number, str
   }
 };
 
-// 扁平化所有配色以便通过 ID 查找
 export const COLOR_PALETTES: Record<string, Record<number, string>> = Object.values(COLOR_COLLECTIONS).reduce((acc, curr) => ({ ...acc, ...curr }), {});
 
 export const applyThemeColor = (colorName: string) => {
@@ -178,6 +178,35 @@ const Dashboard: React.FC = () => {
       const [moved] = newCats.splice(source.index, 1);
       newCats.splice(destination.index, 0, moved);
       handleUpdateData({ ...data, categories: newCats });
+    } else if (type === 'SIDEBAR_SUBCAT') {
+      const sourceCatId = source.droppableId.replace('sidebar-sub-', '');
+      const destCatId = destination.droppableId.replace('sidebar-sub-', '');
+
+      const newCategories = data.categories.map(cat => ({
+        ...cat,
+        subCategories: [...cat.subCategories]
+      }));
+
+      const sourceCat = newCategories.find(c => c.id === sourceCatId);
+      const destCat = newCategories.find(c => c.id === destCatId);
+
+      if (!sourceCat || !destCat) return;
+
+      const [movedSub] = sourceCat.subCategories.splice(source.index, 1);
+      destCat.subCategories.splice(destination.index, 0, movedSub);
+
+      let newLinks = data.links;
+      // If moved to a different category, update all links in this subcategory
+      if (sourceCatId !== destCatId) {
+        newLinks = data.links.map(l => {
+          if (l.categoryId === sourceCatId && l.subCategoryId === movedSub.id) {
+            return { ...l, categoryId: destCatId };
+          }
+          return l;
+        });
+      }
+
+      handleUpdateData({ ...data, categories: newCategories, links: newLinks });
     } else if (type === 'LINK') {
       const sourceParts = source.droppableId.split('__');
       const destParts = destination.droppableId.split('__');
@@ -283,7 +312,7 @@ const Dashboard: React.FC = () => {
                    <h2 className="text-xl lg:text-2xl font-black dark:text-white flex items-center gap-3"><LayoutGrid className="text-brand-50" />{t.app.searchResults}: {activeSearchQuery}</h2>
                    <button onClick={() => {setActiveSearchQuery(''); setSearchInputValue('');}} className="text-xs font-bold text-brand-600 hover:underline">Clear Search</button>
                 </div>
-                <div style={gridStyle}>{filteredLinks.map((link) => <LinkCard key={link.id} item={link} isEditMode={false} onEdit={() => {}} onDelete={() => {}} t={t} />)}</div>
+                <div style={gridStyle}>{filteredLinks.map((link) => <LinkCard key={link.id} item={link} isEditMode={false} onEdit={() => {}} onDelete={() => {}} t={t} shape={data.siteConfig?.logoShape} />)}</div>
               </section>
             ) : data.categories.map((category, catIdx) => {
               const isCollapsed = collapsedCategories.has(category.id);
@@ -306,7 +335,7 @@ const Dashboard: React.FC = () => {
                                 <Draggable key={link.id} draggableId={link.id} index={index} isDragDisabled={!isEditMode}>
                                   {(provided, snapshot) => (
                                     <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} className={snapshot.isDragging ? "z-[999]" : "hover:z-10"}>
-                                      <LinkCard item={link} isEditMode={isEditMode} isDragging={snapshot.isDragging} onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} t={t} />
+                                      <LinkCard item={link} isEditMode={isEditMode} isDragging={snapshot.isDragging} onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} t={t} shape={data.siteConfig?.logoShape} />
                                     </div>
                                   )}
                                 </Draggable>
@@ -327,7 +356,7 @@ const Dashboard: React.FC = () => {
                                   <Draggable key={link.id} draggableId={link.id} index={index} isDragDisabled={!isEditMode}>
                                     {(provided, snapshot) => (
                                       <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} className={snapshot.isDragging ? "z-[999]" : "hover:z-10"}>
-                                        <LinkCard item={link} isEditMode={isEditMode} isDragging={snapshot.isDragging} onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} t={t} />
+                                        <LinkCard item={link} isEditMode={isEditMode} isDragging={snapshot.isDragging} onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} t={t} shape={data.siteConfig?.logoShape} />
                                       </div>
                                     )}
                                   </Draggable>

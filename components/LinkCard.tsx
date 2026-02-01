@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { LinkItem } from '../types';
+import { LinkItem, LogoShape } from '../types';
 import { ExternalLink, Edit2, Trash2, Globe } from 'lucide-react';
 
 interface LinkCardProps {
@@ -10,13 +10,14 @@ interface LinkCardProps {
   onEdit: (item: LinkItem) => void;
   onDelete: (id: string) => void;
   t: any;
+  shape?: LogoShape;
 }
 
-const LinkCard: React.FC<LinkCardProps> = ({ item, isEditMode, isDragging, onEdit, onDelete, t }) => {
+const LinkCard: React.FC<LinkCardProps> = ({ item, isEditMode, isDragging, onEdit, onDelete, t, shape = 'square' }) => {
   const [imgError, setImgError] = useState(false);
   const IconFallback = () => (
-    <div className="w-10 h-10 lg:w-12 lg:h-12 rounded-full bg-brand-50 text-brand-500 flex items-center justify-center shrink-0 border border-brand-100 dark:border-transparent dark:bg-brand-900/40 dark:text-brand-400 transition-colors">
-      <Globe className="w-5 h-5 lg:w-6 lg:h-6" />
+    <div className="w-full h-full flex items-center justify-center">
+      <Globe className="w-5 h-5 lg:w-6 lg:h-6 text-brand-500 dark:text-brand-400" />
     </div>
   );
   
@@ -25,6 +26,20 @@ const LinkCard: React.FC<LinkCardProps> = ({ item, isEditMode, isDragging, onEdi
     dark:bg-zinc-700/30 dark:backdrop-blur-md dark:border-white/5 dark:shadow-none
     ${isDragging ? 'opacity-90 shadow-2xl scale-105 !transition-none' : 'transition-all duration-500'}
     ${isEditMode && !isDragging ? 'cursor-default' : 'hover:shadow-[0_20px_40px_-12px_rgba(0,0,0,0.1)] hover:-translate-y-1.5 hover:border-brand-500/20 dark:hover:bg-zinc-700/60'}`;
+
+  // Calculate border radius based on shape prop
+  const getShapeClass = (s: string) => {
+    switch (s) {
+      case 'circle': return 'rounded-full';
+      case 'rounded': return 'rounded-xl'; // Adjusted for better visual balance
+      case 'square': return 'rounded-none'; // Sharp square as requested
+      default: return 'rounded-none';
+    }
+  };
+
+  // If we have a custom bg color, use it. Otherwise use the default class names.
+  const iconContainerStyle = item.iconBgColor ? { backgroundColor: item.iconBgColor } : {};
+  const iconContainerClasses = `w-10 h-10 lg:w-12 lg:h-12 ${getShapeClass(shape)} overflow-hidden shrink-0 border border-slate-100 dark:border-white/5 flex items-center justify-center shadow-inner transition-transform ${isDragging ? '!transition-none' : 'group-hover:scale-110 duration-500'} ${!item.iconBgColor ? 'bg-white dark:bg-zinc-800' : ''}`;
 
   return (
     <div className={cardClasses}>
@@ -42,7 +57,7 @@ const LinkCard: React.FC<LinkCardProps> = ({ item, isEditMode, isDragging, onEdi
         </div>
       )}
       
-      <div className={`w-10 h-10 lg:w-12 lg:h-12 rounded-full overflow-hidden shrink-0 border border-slate-100 bg-white dark:border-white/5 dark:bg-zinc-800 flex items-center justify-center shadow-inner transition-transform ${isDragging ? '!transition-none' : 'group-hover:scale-110 duration-500'}`}>
+      <div className={iconContainerClasses} style={iconContainerStyle}>
         {item.iconUrl && !imgError ? (
           <img src={item.iconUrl} alt={item.title} className={`w-full h-full object-cover scale-[1.1] transition-transform ${isDragging ? '!transition-none' : 'duration-700 group-hover:scale-[1.2]'}`} onError={() => setImgError(true)} />
         ) : ( <IconFallback /> )}
