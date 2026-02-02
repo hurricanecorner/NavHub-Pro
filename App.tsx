@@ -1,5 +1,4 @@
-// ... (imports remain same)
-
+// ... (previous imports)
 import React, { Component, useState, useEffect, ReactNode, ErrorInfo, useRef } from 'react';
 import { Menu, Search, Settings, Edit, Lock, Languages, AlertTriangle, Moon, Sun, Laptop, Image as ImageIcon, ChevronDown, PlusCircle, Plus, LayoutGrid, Check } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
@@ -12,16 +11,15 @@ import AdminModal from './components/AdminModal';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 import { ConfirmDialog } from './components/ConfirmDialog';
 
-// ... (COLOR_COLLECTIONS and other consts remain same)
+// ... (COLOR_COLLECTIONS and COLOR_PALETTES consts remain same - collapsed for brevity)
 export const COLOR_COLLECTIONS: Record<string, Record<string, Record<number, string>>> = {
   macaron: {
-    // 马卡龙：保留原有的亮色，并扩充甜美色系
-    indigo: { 50: '#eef2ff', 100: '#e0e7ff', 200: '#c7d2fe', 300: '#a5b4fc', 400: '#818cf8', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca', 800: '#3730a3', 900: '#1e1b4b', 950: '#171717' }, // 原版 1
-    blue: { 50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd', 400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', 800: '#1e40af', 900: '#1e3a8a', 950: '#172554' }, // 原版 2
-    cyan: { 50: '#ecfeff', 100: '#cffafe', 200: '#a5f3fc', 300: '#67e8f9', 400: '#22d3ee', 500: '#06b6d4', 600: '#0891b2', 700: '#0e7490', 800: '#155e75', 900: '#164e63', 950: '#083344' }, // 原版 3
-    emerald: { 50: '#ecfdf5', 100: '#d1fae5', 200: '#a7f3d0', 300: '#6ee7b7', 400: '#34d399', 500: '#10b981', 600: '#059669', 700: '#047857', 800: '#065f46', 900: '#064e3b', 950: '#022c22' }, // 原版 4
-    rose: { 50: '#fff1f2', 100: '#ffe4e6', 200: '#fecdd3', 300: '#fda4af', 400: '#fb7185', 500: '#f43f5e', 600: '#e11d48', 700: '#be123c', 800: '#9f1239', 900: '#881337', 950: '#4c0519' }, // 原版 5
-    violet: { 50: '#f5f3ff', 100: '#ede9fe', 200: '#ddd6fe', 300: '#c4b5fd', 400: '#a78bfa', 500: '#8b5cf6', 600: '#7c3aed', 700: '#6d28d9', 800: '#5b21b6', 900: '#4c1d95', 950: '#2e1065' }, // 原版 6
+    indigo: { 50: '#eef2ff', 100: '#e0e7ff', 200: '#c7d2fe', 300: '#a5b4fc', 400: '#818cf8', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca', 800: '#3730a3', 900: '#1e1b4b', 950: '#171717' },
+    blue: { 50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd', 400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', 800: '#1e40af', 900: '#1e3a8a', 950: '#172554' },
+    cyan: { 50: '#ecfeff', 100: '#cffafe', 200: '#a5f3fc', 300: '#67e8f9', 400: '#22d3ee', 500: '#06b6d4', 600: '#0891b2', 700: '#0e7490', 800: '#155e75', 900: '#164e63', 950: '#083344' },
+    emerald: { 50: '#ecfdf5', 100: '#d1fae5', 200: '#a7f3d0', 300: '#6ee7b7', 400: '#34d399', 500: '#10b981', 600: '#059669', 700: '#047857', 800: '#065f46', 900: '#064e3b', 950: '#022c22' },
+    rose: { 50: '#fff1f2', 100: '#ffe4e6', 200: '#fecdd3', 300: '#fda4af', 400: '#fb7185', 500: '#f43f5e', 600: '#e11d48', 700: '#be123c', 800: '#9f1239', 900: '#881337', 950: '#4c0519' },
+    violet: { 50: '#f5f3ff', 100: '#ede9fe', 200: '#ddd6fe', 300: '#c4b5fd', 400: '#a78bfa', 500: '#8b5cf6', 600: '#7c3aed', 700: '#6d28d9', 800: '#5b21b6', 900: '#4c1d95', 950: '#2e1065' },
     lemon: { 50: '#fefce8', 100: '#fef9c3', 200: '#fef08a', 300: '#fde047', 400: '#facc15', 500: '#eab308', 600: '#ca8a04', 700: '#a16207', 800: '#854d0e', 900: '#713f12', 950: '#422006' },
     mint: { 50: '#f0fdf4', 100: '#dcfce7', 200: '#bbf7d0', 300: '#86efac', 400: '#4ade80', 500: '#22c55e', 600: '#16a34a', 700: '#15803d', 800: '#166534', 900: '#14532d', 950: '#052e16' },
     peach: { 50: '#fff5f1', 100: '#ffede5', 200: '#ffd6c4', 300: '#ffb394', 400: '#ff8357', 500: '#ff5c26', 600: '#f23a00', 700: '#c93000', 800: '#a12700', 900: '#862000', 950: '#491100' },
@@ -30,23 +28,21 @@ export const COLOR_COLLECTIONS: Record<string, Record<string, Record<number, str
     fuchsia: { 50: '#fdf4ff', 100: '#fae8ff', 200: '#f5d0fe', 300: '#f0abfc', 400: '#e879f9', 500: '#d946ef', 600: '#c026d3', 700: '#a21caf', 800: '#86198f', 900: '#701a75', 950: '#4a044e' }
   },
   morandi: {
-    // 莫兰迪：低饱和度、灰调美学，保留原有的 Slate 并衍生其他灰调
-    slate: { 50: '#f8fafc', 100: '#f1f5f9', 200: '#e2e8f0', 300: '#cbd5e1', 400: '#94a3b8', 500: '#64748b', 600: '#475569', 700: '#334155', 800: '#1e293b', 900: '#0f172a', 950: '#020617' }, // 原版 7
+    slate: { 50: '#f8fafc', 100: '#f1f5f9', 200: '#e2e8f0', 300: '#cbd5e1', 400: '#94a3b8', 500: '#64748b', 600: '#475569', 700: '#334155', 800: '#1e293b', 900: '#0f172a', 950: '#020617' },
     m_sage: { 50: '#f4f7f4', 100: '#e8ece8', 200: '#d1d9d1', 300: '#abb9ab', 400: '#8fa18f', 500: '#738773', 600: '#5c6d5c', 700: '#4c594c', 800: '#3f493f', 900: '#353e35', 950: '#1d221d' },
     m_dust: { 50: '#f6f7f9', 100: '#edeff3', 200: '#d6dae3', 300: '#b2bccd', 400: '#8b9ab4', 500: '#6f81a1', 600: '#586785', 700: '#48546d', 800: '#3f475a', 900: '#373e4d', 950: '#262a34' },
     m_clay: { 50: '#f8f6f4', 100: '#f1ede9', 200: '#e3dad2', 300: '#cebcaf', 400: '#b49988', 500: '#a28371', 600: '#957261', 700: '#7c5f51', 800: '#654f44', 900: '#53423a', 950: '#2c231f' },
     m_mist: { 50: '#f6f7f8', 100: '#edeff0', 200: '#d9dde1', 300: '#bac2c9', 400: '#99a6b1', 500: '#7d8e9d', 600: '#657381', 700: '#535e69', 800: '#475058', 900: '#3e464c', 950: '#212529' },
     m_moss: { 50: '#f7f8f6', 100: '#edf0ec', 200: '#dae1d9', 300: '#bacab8', 400: '#97af94', 500: '#7b9578', 600: '#61785f', 700: '#50634e', 800: '#425141', 900: '#394538', 950: '#1e251e' },
     m_plum: { 50: '#f8f6f7', 100: '#f1edef', 200: '#e3dae0', 300: '#cebcce', 400: '#b499b4', 500: '#9e819e', 600: '#8c708c', 700: '#755d75', 800: '#614d61', 900: '#514151', 950: '#2c222c' },
-    m_sky: { 50: '#f5f8fa', 100: '#ecf1f5', 200: '#d5e0eb', 300: '#b0c7db', 400: '#86a8c7', 500: '#698db0', 600: '#537292', 700: '#455e78', 800: '#3c4f64', 900: '#354557', 950: '#1d252e' },
+    m_sky: { 50: '#f5f8fa', 100: '#ecf1f5', 200: '#d5e0eb', 300: '#b0c7db', 400: '#86a8c7', 500: '#698db0', 600: '#537292', 700: '#455e78', 800: '#3c4f64', 900: '#354557', 950: '#1d2526' },
     m_teal: { 50: '#f5f8f8', 100: '#ecf1f2', 200: '#d5e0e1', 300: '#b0c7c9', 400: '#86a8ac', 500: '#698d91', 600: '#537276', 700: '#455e61', 800: '#3c4f51', 900: '#354547', 950: '#1d2526' },
     m_stone: { 50: '#f7f7f7', 100: '#efefef', 200: '#dfdfdf', 300: '#c5c5c5', 400: '#a7a7a7', 500: '#8c8c8c', 600: '#717171', 700: '#5d5d5d', 800: '#4d4d4d', 900: '#444444', 950: '#262626' },
     m_sand: { 50: '#f9f8f6', 100: '#f3f1ed', 200: '#e7e3da', 300: '#d5ccba', 400: '#bcad93', 500: '#a69477', 600: '#978468', 700: '#7e6e56', 800: '#665947', 900: '#544a3b', 950: '#2d2720' },
     m_rose: { 50: '#f9f6f6', 100: '#f3eded', 200: '#e7dada', 300: '#d5bcbc', 400: '#bc9999', 500: '#a68181', 600: '#977272', 700: '#7e5d5d', 800: '#664d4d', 900: '#544141', 950: '#2d2222' }
   },
   traditional: {
-    // 国风：沉稳、有张力，保留原有的 Amber (演变为赭黄)
-    amber: { 50: '#fffbeb', 100: '#fef3c7', 200: '#fde68a', 300: '#fcd34d', 400: '#fbbf24', 500: '#f59e0b', 600: '#d97706', 700: '#b45309', 800: '#92400e', 900: '#78350f', 950: '#451a03' }, // 原版 8
+    amber: { 50: '#fffbeb', 100: '#fef3c7', 200: '#fde68a', 300: '#fcd34d', 400: '#fbbf24', 500: '#f59e0b', 600: '#d97706', 700: '#b45309', 800: '#92400e', 900: '#78350f', 950: '#451a03' },
     zhusha: { 50: '#fff1f0', 100: '#ffdfde', 200: '#ffc5c2', 300: '#ff9e99', 400: '#ff6961', 500: '#ff3d33', 600: '#f52218', 700: '#cf130a', 800: '#a80b00', 900: '#820800', 950: '#4d0400' },
     dailan: { 50: '#f0f5f9', 100: '#dfeaf2', 200: '#c5d9e8', 300: '#9dbcd6', 400: '#6c99bd', 500: '#4177a3', 600: '#315e85', 700: '#274b6b', 800: '#1f3c54', 900: '#182f42', 950: '#0d1a24' },
     bishan: { 50: '#f0fdf6', 100: '#defceb', 200: '#bff7d6', 300: '#8ef2b5', 400: '#56e38b', 500: '#2dcc6b', 600: '#1ba854', 700: '#168545', 800: '#126b38', 900: '#0e572e', 950: '#08331b' },
@@ -312,7 +308,7 @@ const Dashboard: React.FC = () => {
                    <h2 className="text-xl lg:text-2xl font-black dark:text-white flex items-center gap-3"><LayoutGrid className="text-brand-50" />{t.app.searchResults}: {activeSearchQuery}</h2>
                    <button onClick={() => {setActiveSearchQuery(''); setSearchInputValue('');}} className="text-xs font-bold text-brand-600 hover:underline">Clear Search</button>
                 </div>
-                <div style={gridStyle}>{filteredLinks.map((link) => <LinkCard key={link.id} item={link} isEditMode={false} onEdit={() => {}} onDelete={() => {}} t={t} shape={data.siteConfig?.logoShape} />)}</div>
+                <div style={gridStyle}>{filteredLinks.map((link) => <LinkCard key={link.id} item={link} isEditMode={false} onEdit={() => {}} onDelete={() => {}} t={t} shape={data.siteConfig?.logoShape} theme={theme} />)}</div>
               </section>
             ) : data.categories.map((category, catIdx) => {
               const isCollapsed = collapsedCategories.has(category.id);
@@ -335,7 +331,7 @@ const Dashboard: React.FC = () => {
                                 <Draggable key={link.id} draggableId={link.id} index={index} isDragDisabled={!isEditMode}>
                                   {(provided, snapshot) => (
                                     <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} className={snapshot.isDragging ? "z-[999]" : "hover:z-10"}>
-                                      <LinkCard item={link} isEditMode={isEditMode} isDragging={snapshot.isDragging} onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} t={t} shape={data.siteConfig?.logoShape} />
+                                      <LinkCard item={link} isEditMode={isEditMode} isDragging={snapshot.isDragging} onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} t={t} shape={data.siteConfig?.logoShape} theme={theme} />
                                     </div>
                                   )}
                                 </Draggable>
@@ -356,7 +352,7 @@ const Dashboard: React.FC = () => {
                                   <Draggable key={link.id} draggableId={link.id} index={index} isDragDisabled={!isEditMode}>
                                     {(provided, snapshot) => (
                                       <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} className={snapshot.isDragging ? "z-[999]" : "hover:z-10"}>
-                                        <LinkCard item={link} isEditMode={isEditMode} isDragging={snapshot.isDragging} onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} t={t} shape={data.siteConfig?.logoShape} />
+                                        <LinkCard item={link} isEditMode={isEditMode} isDragging={snapshot.isDragging} onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} t={t} shape={data.siteConfig?.logoShape} theme={theme} />
                                       </div>
                                     )}
                                   </Draggable>

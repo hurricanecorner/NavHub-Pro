@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LinkItem, LogoShape } from '../types';
+import { LinkItem, LogoShape, Theme } from '../types';
 import { ExternalLink, Edit2, Trash2, Globe } from 'lucide-react';
 
 interface LinkCardProps {
@@ -10,9 +10,10 @@ interface LinkCardProps {
   onDelete: (id: string) => void;
   t: any;
   shape?: LogoShape;
+  theme?: Theme;
 }
 
-const LinkCard: React.FC<LinkCardProps> = ({ item, isEditMode, isDragging, onEdit, onDelete, t, shape = 'square' }) => {
+const LinkCard: React.FC<LinkCardProps> = ({ item, isEditMode, isDragging, onEdit, onDelete, t, shape = 'square', theme }) => {
   const [imgError, setImgError] = useState(false);
   const IconFallback = () => (
     <div className="w-full h-full flex items-center justify-center">
@@ -20,11 +21,19 @@ const LinkCard: React.FC<LinkCardProps> = ({ item, isEditMode, isDragging, onEdi
     </div>
   );
   
+  const isCustom = theme === 'custom';
+
   const cardClasses = `group relative rounded-[1.25rem] lg:rounded-[1.5rem] border shadow-sm p-4 lg:p-5 flex gap-4 lg:gap-5 items-center 
     bg-white border-slate-100/60
-    dark:bg-zinc-700/30 dark:backdrop-blur-md dark:border-white/5 dark:shadow-none
+    ${isCustom 
+      ? 'dark:bg-zinc-900/60 dark:backdrop-blur-md dark:border-white/10' 
+      : 'dark:bg-zinc-700/30 dark:backdrop-blur-md dark:border-white/5'
+    }
+    dark:shadow-none
     ${isDragging ? 'opacity-90 shadow-2xl scale-105 !transition-none' : 'transition-all duration-500'}
-    ${isEditMode && !isDragging ? 'cursor-default' : 'hover:shadow-[0_20px_40px_-12px_rgba(0,0,0,0.1)] hover:-translate-y-1.5 hover:border-brand-500/20 dark:hover:bg-zinc-700/60'}`;
+    ${isEditMode && !isDragging 
+      ? 'cursor-default' 
+      : `hover:shadow-[0_20px_40px_-12px_rgba(0,0,0,0.1)] hover:-translate-y-1.5 hover:border-brand-500/20 ${isCustom ? 'dark:hover:bg-zinc-900/80' : 'dark:hover:bg-zinc-700/60'}`}`;
 
   // Calculate border radius based on shape prop
   const getShapeClass = (s: string) => {
