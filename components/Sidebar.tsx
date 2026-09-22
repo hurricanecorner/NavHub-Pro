@@ -3,6 +3,7 @@ import { Category, LinkItem, SiteConfig, Theme } from '../types';
 import { LayoutGrid, Hash, ChevronRight, Folder, GripVertical, Tag, Tags, X, Flame, TrendingUp } from 'lucide-react';
 import { Droppable, Draggable } from '@hello-pangea/dnd';
 import { normalizeIconForDisplay } from '../services/highResIconService';
+import { CategoryIconDisplay } from '../services/categoryIconService';
 
 interface SidebarProps {
   categories: Category[];
@@ -21,29 +22,6 @@ interface SidebarProps {
   theme?: Theme;
 }
 
-const CategoryIcon = ({ icon, isActive, theme }: { icon?: string; isActive: boolean; theme?: Theme }) => {
-  const [error, setError] = useState(false);
-  const isCustom = theme === 'custom';
-
-  if (icon && !error) {
-    return (
-      <img 
-        src={icon} 
-        alt="" 
-        className="w-5 h-5 object-contain shrink-0"
-        onError={() => setError(true)}
-      />
-    );
-  }
-
-  return (
-    <Folder className={`w-5 h-5 shrink-0 ${
-      isCustom 
-        ? (isActive ? 'text-white' : 'text-slate-100')
-        : (isActive ? 'text-brand-600 dark:text-zinc-100' : 'text-slate-400 dark:text-zinc-500')
-    }`} />
-  );
-};
 
 const Sidebar: React.FC<SidebarProps> = ({ 
   categories, 
@@ -232,7 +210,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                               `}
                             >
                               <div className="flex items-center gap-3 overflow-hidden">
-                                <CategoryIcon icon={category.icon} isActive={isActive} theme={theme} />
+                                <CategoryIconDisplay category={category} isActive={isActive} theme={theme} className="w-5 h-5 shrink-0" />
                                 <span className="truncate uppercase">{category.name}</span>
                               </div>
                               <span className={`text-[10px] font-black px-2 py-0.5 rounded-full transition-colors ${

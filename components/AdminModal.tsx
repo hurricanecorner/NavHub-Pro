@@ -14,6 +14,8 @@ import { HdIconEnhanceModal } from './HdIconEnhanceModal';
 import { LetterIconCustomizerModal } from './LetterIconCustomizerModal';
 import { isLikelyLowResIcon, extractCleanHostname, enhanceIconByAlgorithm } from '../utils/iconEnhancer';
 import { fetchHighResolutionIcon, generateLetterIcon, normalizeIconForDisplay } from '../services/highResIconService';
+import { CategoryIconPickerModal } from './CategoryIconPickerModal';
+import { CategoryIconDisplay, resolveCategoryIcon } from '../services/categoryIconService';
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -187,6 +189,13 @@ const AdminModal: React.FC<AdminModalProps> = ({
   
   const [catEditingId, setCatEditingId] = useState<string | null>(null);
   const [catForm, setCatForm] = useState<{ id: string | null; name: string; icon: string }>({ id: null, name: '', icon: '' });
+  const [catIconPickerTarget, setCatIconPickerTarget] = useState<{
+    id: string | null;
+    name: string;
+    icon: string;
+    subCategoryNames?: string[];
+    isStandalone?: boolean;
+  } | null>(null);
   const [subCatEditingId, setSubCatEditingId] = useState<string | null>(null);
   const [subCatForm, setSubCatForm] = useState<{ parentId: string; id: string | null; name: string }>({ parentId: '', id: null, name: '' });
   
@@ -2062,18 +2071,67 @@ const AdminModal: React.FC<AdminModalProps> = ({
                   <button onClick={() => { setCatForm({ id: null, name: '', icon: '' }); setCatEditingId('new'); }} className="px-8 py-4 bg-brand-600 text-white rounded-[1.5rem] font-bold text-sm flex items-center gap-3 hover:opacity-90 shadow-lg active:scale-95 transition-all"><Plus className="w-5 h-5" /> {t.admin.category.new}</button>
                 </div>
                 <div className="space-y-6">
-                  {data.categories.map(cat => (
-                    <div key={cat.id} className="bg-white dark:bg-zinc-700/40 border border-slate-200 dark:border-white/5 rounded-3xl overflow-hidden shadow-sm">
-                      <div className="px-6 py-4 flex items-center justify-between border-b border-slate-100 dark:border-white/5 bg-slate-50 dark:bg-zinc-700/50">
-                        <div className="flex items-center gap-4">
-                          <Folder className="w-5 h-5 text-brand-600" />
-                          <span className="font-bold text-lg dark:text-zinc-100">{cat.name}</span>
+                  {data.categories.map(cat => {
+                    const resolved = resolveCategoryIcon(cat);
+                    return (
+                      <div key={cat.id} className="bg-white dark:bg-zinc-700/40 border border-slate-200 dark:border-white/5 rounded-3xl overflow-hidden shadow-sm">
+                        <div className="px-6 py-4 flex items-center justify-between border-b border-slate-100 dark:border-white/5 bg-slate-50 dark:bg-zinc-700/50 flex-wrap gap-3">
+                          <div className="flex items-center gap-3.5">
+                            <button
+                              type="button"
+                              onClick={() => setCatIconPickerTarget({
+                                id: cat.id,
+                                name: cat.name,
+                                icon: cat.icon || '',
+                                subCategoryNames: cat.subCategories.map(s => s.name),
+                                isStandalone: true
+                              })}
+                              className="w-10 h-10 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 flex items-center justify-center hover:border-brand-500 hover:scale-105 transition-all shadow-xs group/catbtn cursor-pointer"
+                              title="点击更换或自定义此分类图标"
+                            >
+                              <CategoryIconDisplay category={cat} className="w-5 h-5 text-brand-600 dark:text-brand-400 group-hover/catbtn:scale-110 transition-transform" />
+                            </button>
+                            <div className="flex flex-col">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-lg text-slate-800 dark:text-zinc-100">{cat.name}</span>
+                                <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-full bg-brand-50 text-brand-600 dark:bg-brand-950/60 dark:text-brand-400 border border-brand-200/60 dark:border-brand-800/40">
+                                  #{resolved.code}
+                                </span>
+                                {resolved.isAutoAssigned ? (
+                                  <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-full border border-amber-200/60 dark:border-amber-800/40">
+                                    智能分配
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/40 px-2 py-0.5 rounded-full border border-purple-200/60 dark:border-purple-800/40">
+                                    {resolved.type === 'custom' ? '自定义图片' : '自选图标'}
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[11px] text-slate-400 dark:text-zinc-400">
+                                {cat.subCategories.length} 个子分类 · {data.links.filter(l => l.categoryId === cat.id).length} 个书签
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex gap-2 items-center">
+                            <button
+                              type="button"
+                              onClick={() => setCatIconPickerTarget({
+                                id: cat.id,
+                                name: cat.name,
+                                icon: cat.icon || '',
+                                subCategoryNames: cat.subCategories.map(s => s.name),
+                                isStandalone: true
+                              })}
+                              className="px-3 py-1.5 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 hover:border-brand-500 rounded-xl text-xs font-bold text-slate-600 dark:text-zinc-200 flex items-center gap-1.5 transition-all shadow-2xs hover:text-brand-600 cursor-pointer"
+                              title="更换或自定义图标"
+                            >
+                              <Sliders className="w-3.5 h-3.5" />
+                              <span>设置图标</span>
+                            </button>
+                            <button onClick={() => { setCatForm({ id: cat.id, name: cat.name, icon: cat.icon || '' }); setCatEditingId(cat.id); }} className="p-2 text-brand-600 hover:bg-white dark:hover:bg-zinc-600 rounded-lg transition-colors cursor-pointer"><Edit2 className="w-4 h-4" /></button>
+                            <button onClick={() => confirmAction(t.admin.category.edit, t.admin.category.deleteConfirm, () => onUpdateData({ ...data, categories: data.categories.filter(c => c.id !== cat.id) }), true)} className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors cursor-pointer"><Trash2 className="w-4 h-4" /></button>
+                          </div>
                         </div>
-                        <div className="flex gap-2">
-                          <button onClick={() => { setCatForm({ id: cat.id, name: cat.name, icon: cat.icon || '' }); setCatEditingId(cat.id); }} className="p-2 text-brand-600 hover:bg-white dark:hover:bg-zinc-600 rounded-lg transition-colors"><Edit2 className="w-4 h-4" /></button>
-                          <button onClick={() => confirmAction(t.admin.category.edit, t.admin.category.deleteConfirm, () => onUpdateData({ ...data, categories: data.categories.filter(c => c.id !== cat.id) }), true)} className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
-                        </div>
-                      </div>
                       <div className="p-6">
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                           {cat.subCategories.map(sub => (
@@ -2089,7 +2147,8 @@ const AdminModal: React.FC<AdminModalProps> = ({
                         </div>
                       </div>
                     </div>
-                  ))}
+                  );
+                })}
                 </div>
               </div>
             )}
@@ -2884,18 +2943,117 @@ const AdminModal: React.FC<AdminModalProps> = ({
       {(catEditingId || subCatEditingId) && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-6">
           <div className="absolute inset-0 bg-zinc-900/60 backdrop-blur-sm" onClick={() => { setCatEditingId(null); setSubCatEditingId(null); }} />
-          <div className="bg-white dark:bg-zinc-800 rounded-[2.5rem] p-10 w-full max-w-md relative z-[160] border border-slate-200 dark:border-white/10 animate-in zoom-in-95 duration-200 shadow-2xl">
-            <h4 className="font-black text-2xl mb-8 text-slate-800 dark:text-zinc-100">{catEditingId ? (catEditingId === 'new' ? t.admin.category.new : t.admin.category.edit) : (subCatEditingId === 'new' ? t.admin.category.newSub : t.admin.category.editSub)}</h4>
+          <div className="bg-white dark:bg-zinc-800 rounded-[2.5rem] p-8 lg:p-10 w-full max-w-md relative z-[160] border border-slate-200 dark:border-white/10 animate-in zoom-in-95 duration-200 shadow-2xl">
+            <h4 className="font-black text-2xl mb-6 text-slate-800 dark:text-zinc-100">{catEditingId ? (catEditingId === 'new' ? t.admin.category.new : t.admin.category.edit) : (subCatEditingId === 'new' ? t.admin.category.newSub : t.admin.category.editSub)}</h4>
             <div className="space-y-6">
-              <input type="text" placeholder={t.admin.category.name} value={catEditingId ? catForm.name : subCatForm.name} onChange={e => catEditingId ? setCatForm({ ...catForm, name: e.target.value }) : setSubCatForm({ ...subCatForm, name: e.target.value })} className="w-full px-6 py-5 bg-slate-50 dark:bg-zinc-700 border border-slate-200 rounded-2xl outline-none font-bold text-lg dark:text-white" autoFocus />
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-2">
+                  {catEditingId ? '分类名称' : '子分类名称'}
+                </label>
+                <input
+                  type="text"
+                  placeholder={t.admin.category.name}
+                  value={catEditingId ? catForm.name : subCatForm.name}
+                  onChange={e => catEditingId ? setCatForm({ ...catForm, name: e.target.value }) : setSubCatForm({ ...subCatForm, name: e.target.value })}
+                  className="w-full px-6 py-4 bg-slate-50 dark:bg-zinc-700 border border-slate-200 dark:border-white/10 rounded-2xl outline-none font-bold text-lg dark:text-white focus:border-brand-500 shadow-xs"
+                  autoFocus
+                />
+              </div>
+
+              {/* 主分类专属：图标配置面板 */}
+              {catEditingId && (() => {
+                const resolved = resolveCategoryIcon({ name: catForm.name, icon: catForm.icon });
+                return (
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-zinc-700/40 border border-slate-200/80 dark:border-white/10 space-y-3">
+                    <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">
+                      分类导航图标 (智能分配与自定)
+                    </label>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 flex items-center justify-center shadow-xs overflow-hidden shrink-0">
+                          <CategoryIconDisplay category={{ name: catForm.name, icon: catForm.icon }} className="w-6 h-6 text-brand-600 dark:text-brand-400" />
+                        </div>
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-bold text-slate-700 dark:text-zinc-200">{resolved.name}</span>
+                            <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-brand-50 text-brand-600 dark:bg-brand-950/60 dark:text-brand-400 border border-brand-200/60">
+                              #{resolved.code}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 dark:text-zinc-400">
+                            {resolved.isAutoAssigned ? '系统智能分配（随名称动态推荐）' : (resolved.type === 'custom' ? '自定义上传图片' : '已从图标库选用')}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setCatIconPickerTarget({
+                          id: catForm.id,
+                          name: catForm.name,
+                          icon: catForm.icon,
+                          isStandalone: false
+                        })}
+                        className="px-3.5 py-2 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 hover:border-brand-500 rounded-xl text-xs font-bold text-brand-600 dark:text-brand-400 hover:bg-brand-50/50 transition-all shadow-2xs shrink-0 cursor-pointer active:scale-95"
+                      >
+                        更换图标
+                      </button>
+                    </div>
+
+                    {catForm.icon && (
+                      <div className="flex justify-end pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setCatForm(prev => ({ ...prev, icon: '' }))}
+                          className="text-[11px] text-slate-400 hover:text-brand-600 underline cursor-pointer"
+                        >
+                          恢复系统智能分配
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               <button onClick={() => { 
-                if (catEditingId) { const newCats = catForm.id ? data.categories.map(c => c.id === catForm.id ? { ...c, name: catForm.name } : c) : [...data.categories, { id: `c-${Date.now()}`, name: catForm.name, subCategories: [] }]; onUpdateData({ ...data, categories: newCats }); setCatEditingId(null); } 
-                else { const newCats = data.categories.map(c => c.id === subCatForm.parentId ? { ...c, subCategories: subCatForm.id ? c.subCategories.map(s => s.id === subCatForm.id ? { ...s, name: subCatForm.name } : s) : [...c.subCategories, { id: `sc-${Date.now()}`, name: subCatForm.name }] } : c); onUpdateData({ ...data, categories: newCats }); setSubCatEditingId(null); }
+                if (catEditingId) { 
+                  const newCats = catForm.id 
+                    ? data.categories.map(c => c.id === catForm.id ? { ...c, name: catForm.name, icon: catForm.icon } : c) 
+                    : [...data.categories, { id: `c-${Date.now()}`, name: catForm.name, icon: catForm.icon, subCategories: [] }]; 
+                  onUpdateData({ ...data, categories: newCats }); 
+                  setCatEditingId(null); 
+                } else { 
+                  const newCats = data.categories.map(c => c.id === subCatForm.parentId ? { ...c, subCategories: subCatForm.id ? c.subCategories.map(s => s.id === subCatForm.id ? { ...s, name: subCatForm.name } : s) : [...c.subCategories, { id: `sc-${Date.now()}`, name: subCatForm.name }] } : c); 
+                  onUpdateData({ ...data, categories: newCats }); 
+                  setSubCatEditingId(null); 
+                }
                 showToast('success', t.app.saved);
-              }} className="w-full py-4 bg-brand-600 text-white rounded-2xl font-black text-base hover:opacity-90 shadow-lg active:scale-95 transition-all">{t.admin.category.saveDone}</button>
+              }} className="w-full py-4 bg-brand-600 text-white rounded-2xl font-black text-base hover:opacity-90 shadow-lg active:scale-95 transition-all cursor-pointer">{t.admin.category.saveDone}</button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Category Icon Picker Modal */}
+      {catIconPickerTarget && (
+        <CategoryIconPickerModal
+          isOpen={true}
+          onClose={() => setCatIconPickerTarget(null)}
+          categoryName={catIconPickerTarget.name}
+          subCategoryNames={catIconPickerTarget.subCategoryNames}
+          currentIcon={catIconPickerTarget.icon}
+          onApplyIcon={(newIcon) => {
+            if (catIconPickerTarget.isStandalone && catIconPickerTarget.id) {
+              const updatedCats = data.categories.map(c => c.id === catIconPickerTarget.id ? { ...c, icon: newIcon } : c);
+              onUpdateData({ ...data, categories: updatedCats });
+              showToast('success', '分类图标已成功保存！');
+            } else {
+              setCatForm(prev => ({ ...prev, icon: newIcon }));
+              showToast('success', '已为当前分类选用新图标！');
+            }
+            setCatIconPickerTarget(null);
+          }}
+        />
       )}
 
       {/* HD Icon Studio Modal */}

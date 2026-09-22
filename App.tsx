@@ -13,6 +13,7 @@ import { HdIconEnhanceModal } from './components/HdIconEnhanceModal';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import WeeklyTrendsSection from './components/WeeklyTrendsSection';
+import { CategoryIconDisplay } from './services/categoryIconService';
 
 // ... (COLOR_COLLECTIONS and COLOR_PALETTES consts remain same - collapsed for brevity)
 export const COLOR_COLLECTIONS: Record<string, Record<string, Record<number, string>>> = {
@@ -1390,6 +1391,9 @@ const Dashboard: React.FC = () => {
                           onClick={(e) => { e.stopPropagation(); toggleCollapse(category.id); }}
                         >
                           <ChevronDown className={`w-5 h-5 lg:w-6 lg:h-6 text-slate-800 transition-transform duration-500 dark:text-white ${isCollapsed ? '-rotate-90' : ''}`} />
+                        </div>
+                        <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-2xl bg-brand-50 dark:bg-zinc-800/80 border border-brand-200/60 dark:border-white/10 flex items-center justify-center shrink-0 shadow-xs">
+                          <CategoryIconDisplay category={category} className="w-5 h-5 lg:w-6 lg:h-6 text-brand-600 dark:text-brand-400" />
                         </div>
                         <h2 className="text-2xl lg:text-3xl font-black text-slate-800 drop-shadow-sm dark:text-white uppercase tracking-tight lg:tracking-[0.05em]">{category.name}</h2>
                         <div className="flex-1 h-[2px] bg-gradient-to-r from-slate-200 to-transparent dark:from-zinc-700/50 ml-4 opacity-40"></div>
