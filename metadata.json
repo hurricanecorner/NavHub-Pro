@@ -1,5 +1,8 @@
 {
   "name": "NavHub Pro - Customizable Navigation",
-  "description": "A premium, customizable navigation dashboard inspired by gongke.net. Features category management, link organization, and Notion integration capabilities.",
-  "requestFramePermissions": []
+  "description": "A premium, customizable navigation dashboard inspired by gongke.net. Features category management, link organization, 7-day weekly trends click visualization with Recharts, and Notion integration capabilities.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

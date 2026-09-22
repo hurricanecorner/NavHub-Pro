@@ -1,15 +1,18 @@
 // ... (previous imports)
-import React, { Component, useState, useEffect, ReactNode, ErrorInfo, useRef } from 'react';
-import { Menu, Search, Settings, Edit, Lock, Languages, AlertTriangle, Moon, Sun, Laptop, Image as ImageIcon, ChevronDown, PlusCircle, Plus, LayoutGrid, Check } from 'lucide-react';
+import React, { Component, useState, useEffect, ReactNode, ErrorInfo, useRef, useMemo } from 'react';
+import { Menu, Search, Settings, Edit, Lock, Languages, AlertTriangle, Moon, Sun, Laptop, Image as ImageIcon, ChevronDown, PlusCircle, Plus, LayoutGrid, Check, Tags, Tag, X, GripVertical, Flame, Pin, Activity, RefreshCw, ShieldCheck, RotateCcw, Clock, Eye } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
-import { AppData, LinkItem, CloudConfig, Language, Theme, Category } from './types';
-import { loadData, saveData, loadCloudConfig, saveCloudConfig, uploadToCloud, downloadFromCloud, loadLanguage, saveLanguage, loadTheme, saveTheme } from './services/storageUtils';
+import { AppData, LinkItem, CloudConfig, Language, Theme, Category, LinkHealth, HealthCheckCycle, SiteConfig } from './types';
+import { loadData, saveData, loadCloudConfig, saveCloudConfig, uploadToCloud, downloadFromCloud, loadLanguage, saveLanguage, loadTheme, saveTheme, recordClickStat, mergeClickStatsIntoLinks } from './services/storageUtils';
+import { normalizeHealthUrl, loadHealthCache, saveHealthCache, checkBatchUrlsApi, checkSingleUrlApi, toggleTrustUrl, isUrlTrusted, clearHealthCache, loadTrustedUrls, saveTrustedUrls, getHealthCheckCycle, setHealthCheckCycle, getLastHealthCheckTime, setLastHealthCheckTime, isHealthCheckDue, getCycleDurationMs } from './linkHealthService';
 import { TRANSLATIONS } from './translations';
 import Sidebar from './components/Sidebar';
 import LinkCard from './components/LinkCard';
 import AdminModal from './components/AdminModal';
+import { HdIconEnhanceModal } from './components/HdIconEnhanceModal';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import WeeklyTrendsSection from './components/WeeklyTrendsSection';
 
 // ... (COLOR_COLLECTIONS and COLOR_PALETTES consts remain same - collapsed for brevity)
 export const COLOR_COLLECTIONS: Record<string, Record<string, Record<number, string>>> = {
@@ -100,6 +103,7 @@ const Dashboard: React.FC = () => {
   const [activeCategoryId, setActiveCategoryId] = useState('');
   const [searchInputValue, setSearchInputValue] = useState('');
   const [activeSearchQuery, setActiveSearchQuery] = useState('');
+  const [activeTagFilter, setActiveTagFilter] = useState('');
   const [isEditMode, setIsEditMode] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
@@ -110,7 +114,26 @@ const Dashboard: React.FC = () => {
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [confirmState, setConfirmState] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void; isDangerous: boolean; }>({ isOpen: false, title: '', message: '', onConfirm: () => {}, isDangerous: false });
   const [pageReady, setPageReady] = useState(false);
+  const [hdEnhanceLink, setHdEnhanceLink] = useState<LinkItem | null>(null);
   const themeMenuRef = useRef<HTMLDivElement>(null);
+
+  // Link Health State
+  const [healthMap, setHealthMap] = useState<Record<string, LinkHealth>>({});
+  const [isCheckingHealth, setIsCheckingHealth] = useState(false);
+  const [isHealthMenuOpen, setIsHealthMenuOpen] = useState(false);
+  const [filterOfflineOnly, setFilterOfflineOnly] = useState(false);
+  const [currentHealthCycle, setCurrentHealthCycle] = useState<HealthCheckCycle>(() => getHealthCheckCycle());
+  const [lastHealthCheckTime, setLastHealthCheckTimeState] = useState<number>(() => getLastHealthCheckTime());
+  const healthMenuRef = useRef<HTMLDivElement>(null);
+
+  // Quick View Mode State
+  const [isQuickView, setIsQuickView] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('navhub_quick_view_mode') === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   const t = TRANSLATIONS[lang];
 
@@ -120,10 +143,21 @@ const Dashboard: React.FC = () => {
     setCloudConfig(loadCloudConfig()); 
     setLang(loadLanguage()); 
     setTheme(loadTheme());
+    const cachedHealth = loadHealthCache();
+    if (Object.keys(cachedHealth).length > 0) {
+      setHealthMap(cachedHealth);
+    }
+    if (loadedData.siteConfig?.healthCheckCycle) {
+      setCurrentHealthCycle(loadedData.siteConfig.healthCheckCycle);
+      setHealthCheckCycle(loadedData.siteConfig.healthCheckCycle);
+    }
     if (loadedData.siteConfig?.themeColor) applyThemeColor(loadedData.siteConfig.themeColor);
     if (loadedData.categories.length > 0) setActiveCategoryId(loadedData.categories[0].id);
     setIsLoading(false);
-    const timer = setTimeout(() => setPageReady(true), 100);
+    const timer = setTimeout(() => {
+      setPageReady(true);
+      window.dispatchEvent(new CustomEvent('navhub-ready'));
+    }, 120);
     return () => clearTimeout(timer);
   }, []);
 
@@ -140,14 +174,267 @@ const Dashboard: React.FC = () => {
       if (themeMenuRef.current && !themeMenuRef.current.contains(event.target as Node)) {
         setIsThemeMenuOpen(false);
       }
+      if (healthMenuRef.current && !healthMenuRef.current.contains(event.target as Node)) {
+        setIsHealthMenuOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const formatLastCheckedText = (timestamp: number): string => {
+    if (!timestamp) return '尚未全量检测';
+    const diff = Date.now() - timestamp;
+    if (diff < 60 * 1000) return '刚刚完成检测';
+    const mins = Math.floor(diff / (60 * 1000));
+    if (mins < 60) return `${mins} 分钟前检测`;
+    const hours = Math.floor(diff / (60 * 60 * 1000));
+    if (hours < 24) return `${hours} 小时前检测`;
+    const days = Math.floor(diff / (24 * 60 * 60 * 1000));
+    return `${days} 天前检测`;
+  };
+
+  const handleUpdateHealthCycle = (cycle: HealthCheckCycle) => {
+    setCurrentHealthCycle(cycle);
+    setHealthCheckCycle(cycle);
+    const baseConfig: SiteConfig = data.siteConfig || {
+      title: t.app?.title || 'NavHub Pro',
+      logoUrl: '',
+      faviconUrl: '',
+    };
+    handleUpdateData({
+      ...data,
+      siteConfig: {
+        ...baseConfig,
+        healthCheckCycle: cycle,
+      }
+    });
+    const cycleNames: Record<HealthCheckCycle, string> = {
+      '12h': '每 12 小时',
+      '24h': '每天一次 (24小时)',
+      '3d': '每 3 天',
+      '7d': '每周一次 (7天)',
+      'manual': '仅手动检测'
+    };
+    showToast('success', `检测周期已设为: ${cycleNames[cycle]}`);
+  };
+
+  // Background Link Health Checking Runner
+  const runHealthCheck = async (force = false) => {
+    if (isCheckingHealth || !data.links || data.links.length === 0) return;
+    const activeCycle = data.siteConfig?.healthCheckCycle || currentHealthCycle;
+
+    // In manual mode, only run when explicitly forced by user
+    if (activeCycle === 'manual' && !force) {
+      return;
+    }
+
+    const allUrls = Array.from(new Set(data.links.map(l => normalizeHealthUrl(l.url)).filter(Boolean)));
+    const now = Date.now();
+    const cycleMs = getCycleDurationMs(activeCycle);
+    
+    // Check URLs that are:
+    // 1. Force requested (user clicked recheck)
+    // 2. Never checked before (!healthMap[u])
+    // 3. Or older than the current cycleMs
+    const toCheck = allUrls.filter(u => force || !healthMap[u] || (now - (healthMap[u]?.checkedAt || 0) > cycleMs));
+
+    if (toCheck.length === 0) {
+      setIsCheckingHealth(false);
+      return;
+    }
+
+    setIsCheckingHealth(true);
+
+    setHealthMap(prev => {
+      const next = { ...prev };
+      toCheck.forEach(u => {
+        next[u] = {
+          online: prev[u]?.online ?? true,
+          responseTimeMs: prev[u]?.responseTimeMs ?? 0,
+          status: prev[u]?.status ?? null,
+          checkedAt: prev[u]?.checkedAt ?? now,
+          isChecking: true,
+        };
+      });
+      return next;
+    });
+
+    const chunkSize = 12;
+    let currentMap = { ...healthMap };
+    for (let i = 0; i < toCheck.length; i += chunkSize) {
+      const chunk = toCheck.slice(i, i + chunkSize);
+      try {
+        const results = await checkBatchUrlsApi(chunk, force);
+        currentMap = { ...currentMap, ...results };
+        setHealthMap(prev => ({ ...prev, ...results }));
+        saveHealthCache(currentMap);
+      } catch (err) {
+        console.error('Batch health check error:', err);
+      }
+    }
+    setLastHealthCheckTime(now);
+    setLastHealthCheckTimeState(now);
+    setIsCheckingHealth(false);
+  };
+
+  const handleRecheckSingleUrl = async (rawUrl: string) => {
+    const norm = normalizeHealthUrl(rawUrl);
+    if (!norm) return;
+    setHealthMap(prev => ({
+      ...prev,
+      [norm]: {
+        online: prev[norm]?.online ?? true,
+        responseTimeMs: prev[norm]?.responseTimeMs ?? 0,
+        status: prev[norm]?.status ?? null,
+        checkedAt: Date.now(),
+        isChecking: true,
+      },
+    }));
+    try {
+      const res = await checkSingleUrlApi(norm, true);
+      setHealthMap(prev => {
+        const next = { ...prev, [norm]: res };
+        saveHealthCache(next);
+        return next;
+      });
+      if (res.online) {
+        showToast('success', `${norm.replace(/^https?:\/\//i, '')} · 在线响应正常 (${res.responseTimeMs ? `${res.responseTimeMs}ms` : '正常'})`);
+      } else {
+        showToast('error', `${norm.replace(/^https?:\/\//i, '')} · 暂无响应 (${res.error || `HTTP ${res.status}`})`);
+      }
+    } catch {
+      showToast('error', '检测请求失败，请稍后重试');
+    }
+  };
+
+  // Background auto-trigger on initial load: only runs if health check is due according to cycle!
+  useEffect(() => {
+    if (pageReady && data.links && data.links.length > 0) {
+      const activeCycle = data.siteConfig?.healthCheckCycle || currentHealthCycle;
+      if (activeCycle === 'manual') return; // Do not auto-detect if manual mode
+
+      // Check if full cycle is due
+      if (!isHealthCheckDue(activeCycle)) {
+        // If not due, check if there are any newly added links without any cache record
+        const allUrls = Array.from(new Set(data.links.map(l => normalizeHealthUrl(l.url)).filter(Boolean)));
+        const missing = allUrls.filter(u => !healthMap[u]);
+        if (missing.length === 0) {
+          // Everything is already cached within cycle, skip network detection!
+          return;
+        }
+      }
+
+      const timer = setTimeout(() => {
+        runHealthCheck(false);
+      }, 1800);
+      return () => clearTimeout(timer);
+    }
+  }, [pageReady, data.links?.length, currentHealthCycle]);
+
+  const handleToggleTrustUrl = (rawUrl: string) => {
+    const norm = normalizeHealthUrl(rawUrl);
+    if (!norm) return;
+    const nowTrusted = toggleTrustUrl(norm);
+    if (nowTrusted) {
+      setHealthMap(prev => {
+        const next = {
+          ...prev,
+          [norm]: {
+            online: true,
+            status: 200,
+            responseTimeMs: 10,
+            checkedAt: Date.now(),
+            isTrusted: true,
+          }
+        };
+        saveHealthCache(next);
+        return next;
+      });
+      showToast('success', `已将 ${norm.replace(/^https?:\/\//i, '')} 加入受信任白名单，始终判定正常`);
+    } else {
+      setHealthMap(prev => {
+        const next = { ...prev };
+        delete next[norm];
+        saveHealthCache(next);
+        return next;
+      });
+      showToast('info', `已取消对 ${norm.replace(/^https?:\/\//i, '')} 的信任`);
+      handleRecheckSingleUrl(norm);
+    }
+  };
+
+  const handleTrustAllOffline = () => {
+    if (offlineLinks.length === 0) return;
+    const trusted = loadTrustedUrls();
+    const newTrusted = [...trusted];
+    const nextMap = { ...healthMap };
+    offlineLinks.forEach(l => {
+      const norm = normalizeHealthUrl(l.url);
+      if (norm && !newTrusted.includes(norm)) {
+        newTrusted.push(norm);
+        nextMap[norm] = {
+          online: true,
+          status: 200,
+          responseTimeMs: 10,
+          checkedAt: Date.now(),
+          isTrusted: true,
+        };
+      }
+    });
+    saveTrustedUrls(newTrusted);
+    setHealthMap(nextMap);
+    saveHealthCache(nextMap);
+    showToast('success', `已将 ${offlineLinks.length} 个离线链接加入信任白名单`);
+  };
+
+  const handleClearHealthCacheAndRescan = () => {
+    clearHealthCache();
+    setHealthMap({});
+    runHealthCheck(true);
+    showToast('info', '已清空本地检测缓存并启动全量探测');
+  };
+
+  const healthStats = useMemo(() => {
+    let total = 0;
+    let online = 0;
+    let offline = 0;
+    const seen = new Set<string>();
+    (data.links || []).forEach(l => {
+      const u = normalizeHealthUrl(l.url);
+      if (!u || seen.has(u)) return;
+      seen.add(u);
+      total++;
+      const h = healthMap[u];
+      const isTrusted = l.isTrusted || h?.isTrusted || isUrlTrusted(l.url);
+      if (isTrusted) {
+        online++;
+        return;
+      }
+      if (h && !h.isChecking) {
+        if (h.online) online++;
+        else offline++;
+      }
+    });
+    return { total, online, offline };
+  }, [data.links, healthMap]);
+
+  const offlineLinks = useMemo(() => {
+    return (data.links || []).filter(l => {
+      const u = normalizeHealthUrl(l.url);
+      const h = healthMap[u];
+      const isTrusted = l.isTrusted || h?.isTrusted || isUrlTrusted(l.url);
+      if (isTrusted) return false;
+      return h && !h.online && !h.isChecking;
+    });
+  }, [data.links, healthMap]);
+
   const handleUpdateData = (newData: AppData) => { 
-    setData(newData); saveData(newData);
-    if (newData.siteConfig?.themeColor) applyThemeColor(newData.siteConfig.themeColor);
+    const mergedLinks = mergeClickStatsIntoLinks(newData.links || []);
+    const finalizedData: AppData = { ...newData, links: mergedLinks };
+    setData(finalizedData); 
+    saveData(finalizedData);
+    if (finalizedData.siteConfig?.themeColor) applyThemeColor(finalizedData.siteConfig.themeColor);
   };
   
   const showToast = (type: ToastType, message: string) => { const id = Date.now().toString(); setToasts(p => [...p, { id, type, message }]); };
@@ -229,26 +516,257 @@ const Dashboard: React.FC = () => {
       const newLinks = [...remainingLinks];
       newLinks.splice(globalInsertIndex, 0, updatedItem);
       handleUpdateData({ ...data, links: newLinks });
+    } else if (type === 'TAG') {
+      const map = new Map<string, number>();
+      data.links.forEach(l => {
+        l.tags?.forEach(tag => {
+          const clean = tag.trim();
+          if (clean) map.set(clean, (map.get(clean) || 0) + 1);
+        });
+      });
+      const list = Array.from(map.entries()).map(([tag, count]) => ({ tag, count }));
+      
+      let currentOrderedTags: string[];
+      if (data.tagOrder && data.tagOrder.length > 0) {
+        const orderMap = new Map<string, number>();
+        data.tagOrder.forEach((tName, i) => orderMap.set(tName, i));
+        const sorted = [...list].sort((a, b) => {
+          const hasA = orderMap.has(a.tag);
+          const hasB = orderMap.has(b.tag);
+          if (hasA && hasB) return orderMap.get(a.tag)! - orderMap.get(b.tag)!;
+          if (hasA) return -1;
+          if (hasB) return 1;
+          return b.count - a.count || a.tag.localeCompare(b.tag);
+        });
+        currentOrderedTags = sorted.map(s => s.tag);
+      } else {
+        const sorted = [...list].sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+        currentOrderedTags = sorted.map(s => s.tag);
+      }
+
+      const newTagOrder = [...currentOrderedTags];
+      const [movedTag] = newTagOrder.splice(source.index, 1);
+      if (movedTag) {
+        newTagOrder.splice(destination.index, 0, movedTag);
+        handleUpdateData({ ...data, tagOrder: newTagOrder });
+      }
     }
   };
 
   const renderQuickAddCard = (categoryId: string, subCategoryId: string = '') => (
-    <button onClick={() => { setInitialLinkData({ categoryId, subCategoryId }); setIsAdminModalOpen(true); }} className="group relative rounded-xl border-2 border-dashed border-slate-200 p-4 flex flex-col items-center justify-center gap-2 min-h-[100px] transition-all hover:bg-zinc-50 hover:border-brand-300 dark:border-zinc-700 dark:hover:bg-zinc-800/50">
-      <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center transition-colors group-hover:bg-brand-50 group-hover:text-brand-500 dark:bg-zinc-800"><Plus className="w-6 h-6" /></div>
-      <span className="text-xs font-black text-slate-400 group-hover:text-brand-500 transition-colors tracking-wider">{t.app.quickAdd}</span>
+    <button 
+      onClick={() => { setInitialLinkData({ categoryId, subCategoryId }); setIsAdminModalOpen(true); }} 
+      className={`group relative rounded-[1.25rem] lg:rounded-[1.5rem] border-2 border-dashed border-slate-200 p-3.5 lg:p-4 flex flex-col items-center justify-center gap-1.5 transition-all hover:bg-zinc-50 hover:border-brand-300 dark:border-zinc-700 dark:hover:bg-zinc-800/50 cursor-pointer ${
+        isQuickView ? 'min-h-[195px]' : 'h-[96px] lg:h-[104px]'
+      }`}
+    >
+      <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center transition-colors group-hover:bg-brand-50 group-hover:text-brand-500 dark:bg-zinc-800"><Plus className="w-5 h-5" /></div>
+      <span className="text-[11px] font-black text-slate-400 group-hover:text-brand-500 transition-colors tracking-wider">{t.app.quickAdd}</span>
     </button>
   );
+
+  const normalizeUrlKey = (url: string = ''): string => {
+    try {
+      const u = new URL(url.startsWith('http://') || url.startsWith('https://') ? url : `https://${url}`);
+      return `${u.hostname.toLowerCase().replace(/^www\./, '')}${u.pathname.replace(/\/+$/, '')}${u.search}`;
+    } catch {
+      return url.trim().toLowerCase().replace(/\/+$/, '');
+    }
+  };
+
+  const frequentLinks = useMemo(() => {
+    const urlMap = new Map<string, LinkItem>();
+    data.links.forEach(link => {
+      const norm = normalizeUrlKey(link.url) || link.id;
+      const existing = urlMap.get(norm);
+      if (!existing) {
+        urlMap.set(norm, { 
+          ...link, 
+          clickCount: link.clickCount || 0, 
+          lastClickedAt: link.lastClickedAt || 0,
+          isPinned: Boolean(link.isPinned),
+          pinnedAt: link.pinnedAt || (link.isPinned ? 1 : 0)
+        });
+      } else {
+        const isPinned = Boolean(existing.isPinned || link.isPinned);
+        const pinnedAt = Math.max(existing.pinnedAt || 0, link.pinnedAt || 0);
+        const totalClicks = (existing.clickCount || 0) + (link.clickCount || 0);
+        const latestTime = Math.max(existing.lastClickedAt || 0, link.lastClickedAt || 0);
+        urlMap.set(norm, {
+          ...existing,
+          isPinned,
+          pinnedAt,
+          clickCount: totalClicks,
+          lastClickedAt: latestTime
+        });
+      }
+    });
+
+    return Array.from(urlMap.values())
+      .sort((a, b) => {
+        const isPinnedA = Boolean(a.isPinned);
+        const isPinnedB = Boolean(b.isPinned);
+        if (isPinnedA !== isPinnedB) {
+          return isPinnedA ? -1 : 1;
+        }
+        if (isPinnedA && isPinnedB) {
+          const pinTimeA = a.pinnedAt || 0;
+          const pinTimeB = b.pinnedAt || 0;
+          if (pinTimeB !== pinTimeA) return pinTimeB - pinTimeA;
+        }
+        const clicksA = a.clickCount || 0;
+        const clicksB = b.clickCount || 0;
+        if (clicksB !== clicksA) return clicksB - clicksA;
+        const timeA = a.lastClickedAt || 0;
+        const timeB = b.lastClickedAt || 0;
+        if (timeB !== timeA) return timeB - timeA;
+        return a.title.localeCompare(b.title);
+      })
+      .slice(0, 100);
+  }, [data.links]);
+
+  const tagStats = useMemo(() => {
+    const map = new Map<string, number>();
+    data.links.forEach(l => {
+      l.tags?.forEach(tag => {
+        const clean = tag.trim();
+        if (clean) map.set(clean, (map.get(clean) || 0) + 1);
+      });
+    });
+    const list = Array.from(map.entries()).map(([tag, count]) => ({ tag, count }));
+    if (data.tagOrder && data.tagOrder.length > 0) {
+      const orderMap = new Map<string, number>();
+      data.tagOrder.forEach((tName, i) => orderMap.set(tName, i));
+      return list.sort((a, b) => {
+        const hasA = orderMap.has(a.tag);
+        const hasB = orderMap.has(b.tag);
+        if (hasA && hasB) return orderMap.get(a.tag)! - orderMap.get(b.tag)!;
+        if (hasA) return -1;
+        if (hasB) return 1;
+        return b.count - a.count || a.tag.localeCompare(b.tag);
+      });
+    }
+    return list.sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+  }, [data.links, data.tagOrder]);
+
+  const handleClickLink = (clickedLink: LinkItem) => {
+    const updatedStat = recordClickStat(clickedLink.url, clickedLink.id);
+    const normKey = normalizeUrlKey(clickedLink.url);
+    const updatedLinks = data.links.map(l => {
+      if ((normKey && normalizeUrlKey(l.url) === normKey) || l.id === clickedLink.id) {
+        return {
+          ...l,
+          clickCount: updatedStat.clickCount,
+          lastClickedAt: updatedStat.lastClickedAt
+        };
+      }
+      return l;
+    });
+    handleUpdateData({ ...data, links: updatedLinks });
+  };
+
+  const handleTogglePinLink = (clickedLink: LinkItem) => {
+    const nextPinned = !clickedLink.isPinned;
+    const now = Date.now();
+    const normKey = normalizeUrlKey(clickedLink.url);
+    const updatedLinks = data.links.map(l => {
+      if (l.id === clickedLink.id || (normKey && normalizeUrlKey(l.url) === normKey)) {
+        return {
+          ...l,
+          isPinned: nextPinned,
+          pinnedAt: nextPinned ? now : undefined
+        };
+      }
+      return l;
+    });
+    handleUpdateData({ ...data, links: updatedLinks });
+    showToast(
+      'success',
+      nextPinned
+        ? (t.app?.pinnedSuccess ? t.app.pinnedSuccess.replace('{title}', clickedLink.title) : `已将“${clickedLink.title}”固定到常用前排 📌`)
+        : (t.app?.unpinnedSuccess ? t.app.unpinnedSuccess.replace('{title}', clickedLink.title) : `已取消“${clickedLink.title}”常用置顶`)
+    );
+  };
+
+  const sortLinksByFrequency = (linkList: LinkItem[]): LinkItem[] => {
+    return [...linkList].sort((a, b) => {
+      const isPinnedA = Boolean(a.isPinned);
+      const isPinnedB = Boolean(b.isPinned);
+      if (isPinnedA !== isPinnedB) {
+        return isPinnedA ? -1 : 1;
+      }
+      if (isPinnedA && isPinnedB) {
+        const pinTimeA = a.pinnedAt || 0;
+        const pinTimeB = b.pinnedAt || 0;
+        if (pinTimeB !== pinTimeA) return pinTimeB - pinTimeA;
+      }
+      const clicksA = a.clickCount || 0;
+      const clicksB = b.clickCount || 0;
+      if (clicksB !== clicksA) return clicksB - clicksA;
+      const timeA = a.lastClickedAt || 0;
+      const timeB = b.lastClickedAt || 0;
+      if (timeB !== timeA) return timeB - timeA;
+      return 0;
+    });
+  };
+
+  const handleSelectCategory = (catId: string) => {
+    setActiveCategoryId(catId);
+    if (collapsedCategories.has(catId)) {
+      const next = new Set(collapsedCategories);
+      next.delete(catId);
+      setCollapsedCategories(next);
+    }
+  };
+
+  const columns = data.siteConfig?.linkColumns || 4;
+  const filteredLinks = activeSearchQuery ? data.links.filter(l => l.title.toLowerCase().includes(activeSearchQuery.toLowerCase())) : data.links;
+
+  const allTags = useMemo(() => {
+    const map = new Map<string, number>();
+    data.links.forEach(l => {
+      l.tags?.forEach(tag => {
+        const clean = tag.trim();
+        if (clean) map.set(clean, (map.get(clean) || 0) + 1);
+      });
+    });
+    const list = Array.from(map.entries()).map(([tag, count]) => ({ tag, count }));
+    
+    if (data.tagOrder && data.tagOrder.length > 0) {
+      const orderMap = new Map<string, number>();
+      data.tagOrder.forEach((tName, i) => orderMap.set(tName, i));
+      return list.sort((a, b) => {
+        const hasA = orderMap.has(a.tag);
+        const hasB = orderMap.has(b.tag);
+        if (hasA && hasB) {
+          return orderMap.get(a.tag)! - orderMap.get(b.tag)!;
+        }
+        if (hasA) return -1;
+        if (hasB) return 1;
+        return b.count - a.count || a.tag.localeCompare(b.tag);
+      });
+    }
+
+    return list.sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+  }, [data.links, data.tagOrder]);
+
+  const tagFilteredLinks = useMemo(() => {
+    if (!activeTagFilter) return [];
+    return data.links.filter(l => l.tags && l.tags.includes(activeTagFilter));
+  }, [data.links, activeTagFilter]);
 
   const themeIcon = theme === 'light' ? <Sun className="w-5 h-5" /> : theme === 'dark' ? <Moon className="w-5 h-5" /> : theme === 'system' ? <Laptop className="w-5 h-5" /> : <ImageIcon className="w-5 h-5" />;
 
   if (isLoading) return null;
-  
-  const columns = data.siteConfig?.linkColumns || 4;
-  const filteredLinks = activeSearchQuery ? data.links.filter(l => l.title.toLowerCase().includes(activeSearchQuery.toLowerCase())) : data.links;
+
   const gridStyle = {
     display: 'grid', 
-    gap: '1.25rem',
-    gridTemplateColumns: window.innerWidth < 640 ? '1fr' : `repeat(${columns}, minmax(0, 1fr))`
+    gap: isQuickView ? '1.25rem' : '1.25rem',
+    gridTemplateColumns: window.innerWidth < 640 
+      ? '1fr' 
+      : isQuickView 
+        ? `repeat(${Math.max(1, Math.min(columns, 3))}, minmax(0, 1fr))` 
+        : `repeat(${columns}, minmax(0, 1fr))`
   };
 
   return (
@@ -256,18 +774,230 @@ const Dashboard: React.FC = () => {
       <div className={`flex h-screen bg-slate-50 text-slate-800 dark:bg-zinc-800 transition-colors ${theme === 'custom' ? 'bg-cover bg-center bg-fixed' : ''}`} style={theme === 'custom' && data.siteConfig?.backgroundUrl ? { backgroundImage: `url(${data.siteConfig.backgroundUrl})` } : {}}>
         {theme === 'custom' && <div className="absolute inset-0 bg-black/40 pointer-events-none fixed z-0" />}
         <div className={pageReady ? 'animate-fade-in' : 'opacity-0'}>
-          <Sidebar categories={data.categories} links={data.links} activeCategoryId={activeCategoryId} onSelectCategory={setActiveCategoryId} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} t={t} isEditMode={isEditMode} siteConfig={data.siteConfig} theme={theme} />
+          <Sidebar 
+            categories={data.categories} 
+            links={data.links} 
+            tagOrder={data.tagOrder}
+            activeCategoryId={activeCategoryId} 
+            onSelectCategory={handleSelectCategory} 
+            activeTagFilter={activeTagFilter}
+            onSelectTagFilter={(tag) => { setActiveSearchQuery(''); setActiveTagFilter(tag); }}
+            onClearTagFilter={() => setActiveTagFilter('')}
+            isOpen={isSidebarOpen} 
+            setIsOpen={setIsSidebarOpen} 
+            t={t} 
+            isEditMode={isEditMode} 
+            siteConfig={data.siteConfig} 
+            theme={theme} 
+          />
         </div>
         <main className={`flex-1 flex flex-col h-screen overflow-hidden relative z-10 transition-opacity duration-700 ${pageReady ? 'opacity-100' : 'opacity-0'}`}>
           <header className="h-16 flex items-center justify-between px-4 lg:px-8 z-30 sticky top-0 bg-white/80 dark:bg-zinc-800/80 backdrop-blur-md border-b border-slate-100 dark:border-white/5 animate-slide-up">
             <div className="flex items-center gap-3 lg:gap-4 flex-1 min-w-0">
               <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden p-2 dark:text-zinc-100 transition-transform active:scale-90"><Menu className="w-5 h-5" /></button>
-              <div className="relative flex-1 lg:max-w-md group min-w-0">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-brand-500 transition-colors" />
-                <input type="text" placeholder={t.app.searchPlaceholder} value={searchInputValue} onChange={(e) => setSearchInputValue(e.target.value)} onKeyDown={e => e.key === 'Enter' && setActiveSearchQuery(searchInputValue)} className="w-full pl-9 pr-4 py-2 bg-slate-100/50 rounded-full text-xs lg:text-sm font-black outline-none border border-transparent focus:border-brand-500/30 focus:bg-white dark:bg-zinc-700/50 dark:text-white dark:placeholder:text-zinc-400 transition-all tracking-wider" />
+              <div className="relative flex-1 lg:max-w-md group min-w-0 flex items-center">
+                <div className="relative w-full">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-brand-500 transition-colors" />
+                  <input 
+                    type="text" 
+                    placeholder={t.app.searchPlaceholder} 
+                    value={searchInputValue} 
+                    onChange={(e) => setSearchInputValue(e.target.value)} 
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        setActiveTagFilter('');
+                        setActiveSearchQuery(searchInputValue);
+                      }
+                    }} 
+                    className={`w-full pl-9 pr-4 py-2 bg-slate-100/50 rounded-full text-xs lg:text-sm font-black outline-none border border-transparent focus:border-brand-500/30 focus:bg-white dark:bg-zinc-700/50 dark:text-white dark:placeholder:text-zinc-400 transition-all tracking-wider ${activeTagFilter ? 'ring-1 ring-brand-500/30' : ''}`} 
+                  />
+                </div>
+                {activeTagFilter && (
+                  <button
+                    onClick={() => setActiveTagFilter('')}
+                    className="shrink-0 ml-2 px-2.5 py-1 rounded-full bg-brand-50 text-brand-600 dark:bg-brand-900/40 dark:text-brand-300 border border-brand-200 dark:border-brand-700/50 text-xs font-black flex items-center gap-1 hover:bg-brand-100 dark:hover:bg-brand-900/60 transition-colors"
+                    title={t.app.clearTagFilter || '清除标签筛选'}
+                  >
+                    <span>#{activeTagFilter}</span>
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-1 lg:gap-3 ml-2 relative">
+              
+              {/* Background Link Health Monitor */}
+              <div className="relative" ref={healthMenuRef}>
+                <button 
+                  type="button" 
+                  onClick={() => setIsHealthMenuOpen(!isHealthMenuOpen)}
+                  className={`p-2 lg:px-3 lg:py-1.5 rounded-xl border text-xs font-black flex items-center gap-1.5 transition-all shadow-2xs active:scale-95 ${
+                    healthStats.offline > 0
+                      ? 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/70 dark:text-rose-300 dark:border-rose-800 ring-2 ring-rose-500/20'
+                      : isCheckingHealth
+                      ? 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800'
+                      : 'bg-white/80 dark:bg-zinc-800/80 text-slate-600 dark:text-zinc-300 border-slate-200/80 dark:border-white/10 hover:border-brand-500/40'
+                  }`}
+                  title={t.app?.healthCheckTitle || '后台链接响应检测'}
+                >
+                  <Activity className={`w-4 h-4 lg:w-3.5 lg:h-3.5 shrink-0 ${isCheckingHealth ? 'animate-spin text-amber-500' : healthStats.offline > 0 ? 'text-rose-500 animate-pulse' : 'text-emerald-500'}`} />
+                  <span className="hidden sm:inline">
+                    {isCheckingHealth ? (t.app?.detecting || '检测中...') : healthStats.offline > 0 ? (t.app?.offlineCountBadge?.replace('{count}', healthStats.offline.toString()) || `${healthStats.offline} 个离线`) : (t.app?.allOnline || '响应正常')}
+                  </span>
+                  {healthStats.offline > 0 && (
+                    <span className="sm:hidden w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                  )}
+                </button>
+
+                {isHealthMenuOpen && (
+                  <div className="absolute top-[calc(100%+8px)] right-0 w-80 bg-white dark:bg-zinc-800 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.18)] border border-slate-100 dark:border-white/10 p-4 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-700/60">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1.5 rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-950/60 dark:text-brand-400">
+                          <Activity className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-black text-slate-800 dark:text-white">{t.app?.healthCheckTitle || '后台链接响应监视'}</h4>
+                          <p className="text-[10px] font-semibold text-slate-400 dark:text-zinc-400">
+                            {isCheckingHealth ? (t.app?.detecting || '正在后台检测...') : `已监控 ${healthStats.total} 个资源链接`}
+                          </p>
+                        </div>
+                      </div>
+                      <button onClick={() => setIsHealthMenuOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 p-1">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 my-3">
+                      <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/40">
+                        <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          {t.app?.online || '在线'}
+                        </span>
+                        <p className="text-lg font-black text-emerald-800 dark:text-emerald-300 mt-0.5">{healthStats.online}</p>
+                      </div>
+                      <div className={`p-2.5 rounded-xl border ${
+                        healthStats.offline > 0 
+                          ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/50' 
+                          : 'bg-slate-50 dark:bg-zinc-700/40 border-slate-100 dark:border-zinc-700/50'
+                      }`}>
+                        <span className={`text-[10px] font-black flex items-center gap-1 ${
+                          healthStats.offline > 0 ? 'text-rose-700 dark:text-rose-400' : 'text-slate-500 dark:text-zinc-400'
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${healthStats.offline > 0 ? 'bg-rose-500 animate-pulse' : 'bg-slate-400'}`} />
+                          {t.app?.offline || '离线'}
+                        </span>
+                        <p className={`text-lg font-black mt-0.5 ${healthStats.offline > 0 ? 'text-rose-800 dark:text-rose-300' : 'text-slate-600 dark:text-zinc-300'}`}>
+                          {healthStats.offline}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Cycle Selector & Timing Section */}
+                    <div className="p-3 my-2.5 rounded-xl bg-slate-50 dark:bg-zinc-900/40 border border-slate-100 dark:border-zinc-700/60 flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-black text-slate-700 dark:text-zinc-200 flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-brand-500" />
+                          检测周期
+                        </span>
+                        <span className="text-[10px] text-slate-400 dark:text-zinc-400 font-medium">
+                          {formatLastCheckedText(lastHealthCheckTime)}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-1">
+                        {[
+                          { id: '12h', label: '12小时' },
+                          { id: '24h', label: '每天一次' },
+                          { id: '3d', label: '每3天' },
+                          { id: 'manual', label: '仅手动' },
+                        ].map(c => {
+                          const isCurrent = (currentHealthCycle || '24h') === c.id;
+                          return (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => handleUpdateHealthCycle(c.id as HealthCheckCycle)}
+                              className={`py-1.5 px-1 rounded-lg text-[10px] font-bold text-center transition-all ${
+                                isCurrent
+                                  ? 'bg-brand-600 text-white shadow-xs'
+                                  : 'bg-white dark:bg-zinc-700 text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-600 border border-slate-200/60 dark:border-white/5'
+                              }`}
+                            >
+                              {c.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <p className="text-[10px] text-slate-400 dark:text-zinc-400 leading-tight">
+                        {currentHealthCycle === 'manual'
+                          ? '已设为手动检测，进入页面不会自动发起网络请求。'
+                          : '周期内直接复用本地缓存结果，打开导航页不重复检测。'}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-2 pt-1">
+                      {healthStats.offline > 0 && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFilterOfflineOnly(prev => !prev);
+                              setIsHealthMenuOpen(false);
+                            }}
+                            className={`w-full py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all ${
+                              filterOfflineOnly 
+                                ? 'bg-brand-600 text-white shadow-sm' 
+                                : 'bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/60 dark:text-rose-300 dark:hover:bg-rose-900/60'
+                            }`}
+                          >
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            <span>{filterOfflineOnly ? (t.app?.showAllLinks || '查看全部链接') : (t.app?.filterOfflineOnly || '仅看离线链接')}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleTrustAllOffline();
+                              setIsHealthMenuOpen(false);
+                            }}
+                            className="w-full py-2 px-3 rounded-xl text-xs font-black bg-teal-50 hover:bg-teal-100 dark:bg-teal-950/60 dark:hover:bg-teal-900/60 text-teal-700 dark:text-teal-300 flex items-center justify-center gap-1.5 transition-colors border border-teal-200/60 dark:border-teal-800/40"
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                            <span>一键信任全部离线网址</span>
+                          </button>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        disabled={isCheckingHealth}
+                        onClick={() => {
+                          runHealthCheck(true);
+                          showToast('info', '已启动后台全量重测...');
+                        }}
+                        className="w-full py-2 px-3 rounded-xl text-xs font-black bg-slate-100 hover:bg-slate-200 dark:bg-zinc-700 dark:hover:bg-zinc-600 text-slate-700 dark:text-zinc-200 flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isCheckingHealth ? 'animate-spin' : ''}`} />
+                        <span>{t.app?.recheckLinks || '重新检测全部'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={isCheckingHealth}
+                        onClick={() => {
+                          handleClearHealthCacheAndRescan();
+                          setIsHealthMenuOpen(false);
+                        }}
+                        className="w-full py-2 px-3 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-700/50 flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                      >
+                        <RotateCcw className="w-3 h-3 text-slate-400" />
+                        <span>清空缓存并深度探测</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
               
               <div className="relative" ref={themeMenuRef}>
                 <button onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)} className="p-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-100 transition-all active:scale-95">
@@ -297,6 +1027,34 @@ const Dashboard: React.FC = () => {
               </div>
 
               <button onClick={() => { const nl = lang === 'en' ? 'zh' : 'en'; setLang(nl); saveLanguage(nl); }} className="p-2 text-slate-400 flex items-center gap-1 uppercase text-xs font-black hover:text-brand-500 transition-colors tracking-widest sm:flex hidden"><Languages className="w-4 h-4 lg:w-5 lg:h-5" /> {lang}</button>
+              
+              {/* Quick View Mode Toggle */}
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !isQuickView;
+                  setIsQuickView(next);
+                  try {
+                    localStorage.setItem('navhub_quick_view_mode', next ? 'true' : 'false');
+                  } catch {}
+                  showToast('info', next ? (t.app?.quickViewActive || '已开启速览模式') : (t.app?.quickViewClosed || '已关闭速览模式'));
+                }}
+                className={`p-2 lg:px-2.5 lg:py-1.5 rounded-xl border text-xs font-black flex items-center gap-1.5 transition-all shadow-2xs active:scale-95 cursor-pointer ${
+                  isQuickView
+                    ? 'bg-brand-600 text-white border-brand-500 shadow-sm ring-2 ring-brand-500/20'
+                    : 'bg-white/80 dark:bg-zinc-800/80 text-slate-600 dark:text-zinc-300 border-slate-200/80 dark:border-white/10 hover:border-brand-500/40 hover:text-brand-600 dark:hover:text-brand-400'
+                }`}
+                title={isQuickView ? (t.app?.quickViewActive || '速览模式 (已开启) · 点击切回紧凑视图') : (t.app?.quickViewToggle || '开启速览模式 · 展开卡片直接预览详情')}
+              >
+                <Eye className={`w-4 h-4 lg:w-4 lg:h-4 shrink-0 ${isQuickView ? 'text-white' : 'text-slate-400 dark:text-zinc-400'}`} />
+                <span className="hidden md:inline">
+                  {t.app?.quickView || '速览'}
+                </span>
+                {isQuickView && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 hidden md:inline-block" />
+                )}
+              </button>
+
               <button onClick={() => setIsEditMode(!isEditMode)} className={`p-2 rounded-lg transition-all duration-300 ${isEditMode ? 'bg-brand-600 text-white shadow-lg ring-4 ring-brand-500/20' : 'text-slate-400 hover:text-slate-600 dark:hover:text-zinc-100'}`} title={isEditMode ? "Lock" : "Edit"}>{isEditMode ? <Lock className="w-4 h-4 lg:w-5 lg:h-5" /> : <Edit className="w-4 h-4 lg:w-5 lg:h-5" />}</button>
               <button onClick={() => setIsAdminModalOpen(true)} className="bg-slate-900 text-white px-3 lg:px-4 py-2 rounded-xl text-xs lg:text-sm font-black flex items-center gap-2 dark:bg-brand-600 active:scale-95 transition-all tracking-wider shadow-md"><Settings className="w-4 h-4" /> <span className="hidden xs:inline">{t.app.admin}</span></button>
             </div>
@@ -305,70 +1063,502 @@ const Dashboard: React.FC = () => {
             {activeSearchQuery ? (
               <section className={isEditMode ? '' : 'animate-slide-up'}>
                 <div className="flex items-center justify-between mb-8">
-                   <h2 className="text-xl lg:text-2xl font-black dark:text-white flex items-center gap-3"><LayoutGrid className="text-brand-50" />{t.app.searchResults}: {activeSearchQuery}</h2>
+                   <h2 className="text-xl lg:text-2xl font-black dark:text-white flex items-center gap-3"><LayoutGrid className="text-brand-500" />{t.app.searchResults}: {activeSearchQuery}</h2>
                    <button onClick={() => {setActiveSearchQuery(''); setSearchInputValue('');}} className="text-xs font-bold text-brand-600 hover:underline">Clear Search</button>
                 </div>
-                <div style={gridStyle}>{filteredLinks.map((link) => <LinkCard key={link.id} item={link} isEditMode={false} onEdit={() => {}} onDelete={() => {}} t={t} shape={data.siteConfig?.logoShape} theme={theme} />)}</div>
+                <div style={gridStyle}>
+                  {filteredLinks.map((link) => (
+                    <LinkCard 
+                      key={link.id} 
+                      item={link} 
+                      healthStatus={healthMap[normalizeHealthUrl(link.url)]}
+                      isEditMode={false} 
+                      onEdit={() => {}} 
+                      onDelete={() => {}} 
+                      onTogglePin={handleTogglePinLink}
+                      onClickLink={handleClickLink}
+                      onSelectTag={(tag) => { setActiveSearchQuery(''); setActiveTagFilter(tag); }} 
+                      onRecheckHealth={handleRecheckSingleUrl}
+                      onToggleTrust={handleToggleTrustUrl}
+                      activeTag={activeTagFilter} 
+                      t={t} 
+                      shape={data.siteConfig?.logoShape} 
+                      theme={theme} 
+                      isQuickView={isQuickView}
+                    />
+                  ))}
+                </div>
               </section>
-            ) : data.categories.map((category, catIdx) => {
-              const isCollapsed = collapsedCategories.has(category.id);
-              const hasSubCats = category.subCategories.length > 0;
-              const generalLinks = data.links.filter(l => l.categoryId === category.id && (!l.subCategoryId || !hasSubCats));
-              return (
-                <section key={category.id} id={`category-${category.id}`} className={`scroll-mt-24 ${isEditMode ? '' : 'animate-slide-up'}`} style={{ animationDelay: `${catIdx * 100}ms` }}>
-                  <div className="flex items-center gap-4 mb-6 lg:mb-8 group/title cursor-pointer select-none" onDoubleClick={() => toggleCollapse(category.id)}>
-                    <div className="p-1.5 lg:p-2 bg-brand-500/5 rounded-xl dark:bg-brand-500/10 transition-colors group-hover/title:bg-brand-500/10"><ChevronDown className={`w-5 h-5 lg:w-6 lg:h-6 text-slate-800 transition-transform duration-500 dark:text-white ${isCollapsed ? '-rotate-90' : ''}`} /></div>
-                    <h2 className="text-2xl lg:text-3xl font-black text-slate-800 drop-shadow-sm dark:text-white uppercase tracking-tight lg:tracking-[0.05em]">{category.name}</h2>
-                    <div className="flex-1 h-[2px] bg-gradient-to-r from-slate-200 to-transparent dark:from-zinc-700/50 ml-4 opacity-40"></div>
+            ) : activeTagFilter ? (
+              <section className={isEditMode ? '' : 'animate-slide-up'}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-brand-500/10 rounded-2xl text-brand-600 dark:text-brand-400 flex items-center justify-center">
+                      <Tags className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2.5">
+                        <h2 className="text-2xl lg:text-3xl font-black text-slate-800 dark:text-white tracking-tight">
+                          #{activeTagFilter}
+                        </h2>
+                        <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-brand-100 text-brand-700 dark:bg-brand-900/50 dark:text-brand-300">
+                          {tagFilteredLinks.length}
+                        </span>
+                      </div>
+                      <p className="text-xs font-bold text-slate-400 dark:text-zinc-400 mt-1">
+                        {t.app.tagPool || '标签池'} · {tagFilteredLinks.length} {lang === 'zh' ? '个资源' : 'links'}
+                      </p>
+                    </div>
                   </div>
-                  {!isCollapsed && (
-                    <div className="space-y-10 lg:space-y-12">
-                      {(!hasSubCats || generalLinks.length > 0 || isEditMode) && (
-                        <Droppable droppableId={`links__${category.id}__GENERAL`} type="LINK" direction="horizontal">
-                          {(provided) => (
-                            <div ref={provided.innerRef} {...provided.droppableProps} style={gridStyle} className="min-h-[50px]">
-                              {generalLinks.map((link, index) => (
-                                <Draggable key={link.id} draggableId={link.id} index={index} isDragDisabled={!isEditMode}>
-                                  {(provided, snapshot) => (
-                                    <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} className={snapshot.isDragging ? "z-[999]" : "hover:z-10"}>
-                                      <LinkCard item={link} isEditMode={isEditMode} isDragging={snapshot.isDragging} onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} t={t} shape={data.siteConfig?.logoShape} theme={theme} />
+                  <button 
+                    onClick={() => setActiveTagFilter('')} 
+                    className="self-start sm:self-auto px-4 py-2 rounded-xl text-xs font-black bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-zinc-700 dark:hover:bg-zinc-600 dark:text-zinc-200 transition-colors flex items-center gap-1.5 shadow-xs"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>{t.app.clearTagFilter || '返回全部'}</span>
+                  </button>
+                </div>
+
+                {/* Tag Pool Quick Navigation Strip */}
+                {allTags.length > 1 && (
+                  <Droppable droppableId="main-tag-strip" type="TAG" direction="horizontal">
+                    {(provided, snapshot) => (
+                      <div 
+                        ref={provided.innerRef}
+                        {...provided.droppableProps}
+                        className={`mb-8 p-3 rounded-2xl bg-white/70 dark:bg-zinc-800/70 backdrop-blur-md border border-slate-100 dark:border-white/5 flex items-center gap-2 overflow-x-auto custom-scrollbar transition-colors ${
+                          snapshot.isDraggingOver ? 'bg-brand-500/10 ring-2 ring-brand-500/30' : ''
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 shrink-0 px-1">
+                          <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-zinc-400">
+                            {t.app.allTags || '全部标签'}:
+                          </span>
+                          {isEditMode && (
+                            <span className="text-[10px] font-bold text-brand-600 dark:text-brand-400 lowercase px-1.5 py-0.2 rounded-md bg-brand-50 dark:bg-brand-950/50 border border-brand-200 dark:border-brand-800">
+                              {t.app.dragToReorderTags || '拖拽排序'}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {allTags.map(({ tag, count }, tagIndex) => {
+                            const isCurrent = activeTagFilter === tag;
+                            return (
+                              <Draggable
+                                key={`maintag-${tag}`}
+                                draggableId={`maintag-${tag}`}
+                                index={tagIndex}
+                                isDragDisabled={!isEditMode}
+                              >
+                                {(provided, snap) => (
+                                  <div
+                                    ref={provided.innerRef}
+                                    {...provided.draggableProps}
+                                    {...provided.dragHandleProps}
+                                    className={`inline-flex shrink-0 ${snap.isDragging ? 'z-[999] opacity-90 scale-105 shadow-lg' : ''}`}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => setActiveTagFilter(isCurrent ? '' : tag)}
+                                      className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                                        isEditMode ? 'cursor-grab active:cursor-grabbing hover:ring-1 hover:ring-brand-400' : ''
+                                      } ${
+                                        isCurrent
+                                          ? 'bg-brand-600 text-white shadow-sm ring-2 ring-brand-500/20'
+                                          : 'bg-slate-100/80 hover:bg-slate-200/80 text-slate-600 dark:bg-zinc-700/60 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:hover:text-white'
+                                      }`}
+                                    >
+                                      {isEditMode && (
+                                        <GripVertical className="w-3 h-3 opacity-50 -ml-1 shrink-0" />
+                                      )}
+                                      <span>#{tag}</span>
+                                      <span className={`text-[9px] px-1 py-0.2 rounded-full font-black ${
+                                        isCurrent ? 'bg-white/20 text-white' : 'bg-black/5 dark:bg-white/10 text-slate-400 dark:text-zinc-400'
+                                      }`}>
+                                        {count}
+                                      </span>
+                                    </button>
+                                  </div>
+                                )}
+                              </Draggable>
+                            );
+                          })}
+                          {provided.placeholder}
+                        </div>
+                      </div>
+                    )}
+                  </Droppable>
+                )}
+
+                {tagFilteredLinks.length === 0 ? (
+                  <div className="p-12 text-center text-slate-400 dark:text-zinc-500 font-bold text-sm">
+                    {t.app.noLinksInTag || '该标签下暂无网址。'}
+                  </div>
+                ) : (
+                  <div style={gridStyle}>
+                    {tagFilteredLinks.map((link) => (
+                      <LinkCard 
+                        key={link.id} 
+                        item={link} 
+                        healthStatus={healthMap[normalizeHealthUrl(link.url)]}
+                        isEditMode={isEditMode} 
+                        onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} 
+                        onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} 
+                        onTogglePin={handleTogglePinLink}
+                        onClickLink={handleClickLink} 
+                        onSelectTag={(tag) => { setActiveSearchQuery(''); setActiveTagFilter(tag); }} 
+                        onRecheckHealth={handleRecheckSingleUrl}
+                        onToggleTrust={handleToggleTrustUrl}
+                        activeTag={activeTagFilter} 
+                        t={t} 
+                        shape={data.siteConfig?.logoShape} 
+                        theme={theme} 
+                        isQuickView={isQuickView}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+            ) : filterOfflineOnly ? (
+              <section className={isEditMode ? '' : 'animate-slide-up'}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-rose-500/10 rounded-2xl text-rose-600 dark:text-rose-400 flex items-center justify-center">
+                      <AlertTriangle className="w-6 h-6 animate-pulse" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2.5">
+                        <h2 className="text-2xl lg:text-3xl font-black text-slate-800 dark:text-white tracking-tight">
+                          {t.app?.offlineLinksTitle || '无法响应的离线链接'}
+                        </h2>
+                        <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-300">
+                          {offlineLinks.length}
+                        </span>
+                      </div>
+                      <p className="text-xs font-bold text-slate-400 dark:text-zinc-400 mt-1">
+                        {t.app?.offlineLinksDesc || '后台检测连接超时或返回错误，您可以在此集中修改或删除失效书签'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => runHealthCheck(true)} 
+                      disabled={isCheckingHealth}
+                      className="px-3 py-2 rounded-xl text-xs font-black bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-zinc-700 dark:hover:bg-zinc-600 dark:text-zinc-200 transition-colors flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isCheckingHealth ? 'animate-spin' : ''}`} />
+                      <span>{t.app?.recheckLinks || '重新检测'}</span>
+                    </button>
+                    <button 
+                      onClick={() => setFilterOfflineOnly(false)} 
+                      className="px-4 py-2 rounded-xl text-xs font-black bg-brand-600 hover:bg-brand-700 text-white transition-colors flex items-center gap-1.5 shadow-xs"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span>{t.app?.showAllLinks || '查看全部链接'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {offlineLinks.length === 0 ? (
+                  <div className="p-12 text-center rounded-2xl border-2 border-dashed border-emerald-200/50 dark:border-emerald-800/40 bg-emerald-50/20 dark:bg-emerald-950/20">
+                    <Check className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
+                    <h3 className="text-sm font-black text-emerald-800 dark:text-emerald-300 mb-1">
+                      {t.app?.allOnlineNotice || '目前暂无离线链接'}
+                    </h3>
+                    <p className="text-xs font-medium text-slate-500 dark:text-zinc-400">
+                      所有经后台检测的网址均在线响应正常。
+                    </p>
+                  </div>
+                ) : (
+                  <div style={gridStyle}>
+                    {offlineLinks.map((link) => (
+                      <LinkCard 
+                        key={`offline-${link.id}`} 
+                        item={link} 
+                        healthStatus={healthMap[normalizeHealthUrl(link.url)]}
+                        isEditMode={isEditMode} 
+                        onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} 
+                        onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} 
+                        onTogglePin={handleTogglePinLink}
+                        onClickLink={handleClickLink} 
+                        onSelectTag={(tag) => { setFilterOfflineOnly(false); setActiveTagFilter(tag); }} 
+                        onRecheckHealth={handleRecheckSingleUrl}
+                        onToggleTrust={handleToggleTrustUrl}
+                        onEnhanceIcon={setHdEnhanceLink}
+                        activeTag={activeTagFilter} 
+                        t={t} 
+                        shape={data.siteConfig?.logoShape} 
+                        theme={theme} 
+                        isQuickView={isQuickView}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+            ) : (
+              <>
+                {/* Permanent "常用" (Frequent) Main Category - Always on top */}
+                {(() => {
+                  const isFrequentCollapsed = collapsedCategories.has('frequent');
+                  return (
+                    <section id="category-frequent" className="scroll-mt-24 animate-slide-up mb-12">
+                      <div className="flex items-center gap-4 mb-6 lg:mb-8 group/title cursor-pointer select-none" onDoubleClick={() => toggleCollapse('frequent')}>
+                        <div 
+                          className="p-1.5 lg:p-2 bg-amber-500/10 rounded-xl dark:bg-amber-500/20 text-amber-500 transition-all group-hover/title:bg-amber-500/20 group-hover/title:scale-105 active:scale-95"
+                          onClick={(e) => { e.stopPropagation(); toggleCollapse('frequent'); }}
+                          title={isFrequentCollapsed ? '展开常用' : '折叠常用'}
+                        >
+                          <Flame className={`w-5 h-5 lg:w-6 lg:h-6 fill-amber-500/20 transition-all duration-300 ${isFrequentCollapsed ? 'opacity-50 scale-90 rotate-[-15deg]' : 'opacity-100 scale-100'}`} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-3">
+                            <h2 className="text-2xl lg:text-3xl font-black text-slate-800 drop-shadow-sm dark:text-white uppercase tracking-tight lg:tracking-[0.05em]">
+                              {t.app.frequent || '常用'}
+                            </h2>
+                            <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/40">
+                              Top {frequentLinks.length}
+                            </span>
+                            {frequentLinks.filter(l => l.isPinned).length > 0 && (
+                              <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 text-white flex items-center gap-1 shadow-2xs border border-amber-400">
+                                <Pin className="w-2.5 h-2.5 fill-current rotate-12" />
+                                <span>
+                                  {t.app?.pinnedCount 
+                                    ? t.app.pinnedCount.replace('{count}', frequentLinks.filter(l => l.isPinned).length.toString()) 
+                                    : `${frequentLinks.filter(l => l.isPinned).length} 个已置顶`}
+                                </span>
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 mt-0.5">
+                            {t.app.frequentDesc || '动态统计打开频次最高的前 100 个链接 · 点击自动升序置顶'}
+                          </p>
+                        </div>
+                        <div className="flex-1 h-[2px] bg-gradient-to-r from-amber-200/60 to-transparent dark:from-amber-700/30 ml-4 opacity-40"></div>
+                      </div>
+
+                      {!isFrequentCollapsed && (
+                        frequentLinks.length === 0 ? (
+                          <div className="p-8 lg:p-12 text-center rounded-2xl border-2 border-dashed border-amber-200/50 dark:border-zinc-700/60 bg-amber-50/20 dark:bg-zinc-800/20">
+                            <Flame className="w-8 h-8 text-amber-400 mx-auto mb-2 opacity-60" />
+                            <p className="text-xs lg:text-sm font-bold text-slate-500 dark:text-zinc-400">
+                              {t.app.frequentEmpty || '暂无点击记录，点击任意书签后将自动汇聚于此 (最多展示 Top 100)'}
+                            </p>
+                          </div>
+                        ) : (
+                          <div style={gridStyle}>
+                            {frequentLinks.map((link, idx) => (
+                              <LinkCard 
+                                key={`frequent-${link.id}`} 
+                                item={link} 
+                                rank={idx + 1}
+                                showStats={true}
+                                healthStatus={healthMap[normalizeHealthUrl(link.url)]}
+                                isEditMode={isEditMode} 
+                                onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} 
+                                onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} 
+                                onTogglePin={handleTogglePinLink}
+                                onClickLink={handleClickLink} 
+                                onSelectTag={(tag) => { setActiveSearchQuery(''); setActiveTagFilter(tag); }} 
+                                onRecheckHealth={handleRecheckSingleUrl}
+                                onToggleTrust={handleToggleTrustUrl}
+                                onEnhanceIcon={setHdEnhanceLink}
+                                activeTag={activeTagFilter} 
+                                t={t} 
+                                shape={data.siteConfig?.logoShape} 
+                                theme={theme} 
+                                isQuickView={isQuickView}
+                              />
+                            ))}
+                          </div>
+                        )
+                      )}
+                    </section>
+                  );
+                })()}
+
+                {data.categories.map((category, catIdx) => {
+                  const isCollapsed = collapsedCategories.has(category.id);
+                  const hasSubCats = category.subCategories.length > 0;
+                  const rawGeneralLinks = data.links.filter(l => l.categoryId === category.id && (!l.subCategoryId || !hasSubCats));
+                  const generalLinks = isEditMode ? rawGeneralLinks : sortLinksByFrequency(rawGeneralLinks);
+
+                  return (
+                    <section key={category.id} id={`category-${category.id}`} className={`scroll-mt-24 mb-12 ${isEditMode ? '' : 'animate-slide-up'}`} style={{ animationDelay: `${catIdx * 100}ms` }}>
+                      <div className="flex items-center gap-4 mb-6 lg:mb-8 group/title cursor-pointer select-none" onDoubleClick={() => toggleCollapse(category.id)}>
+                        <div 
+                          className="p-1.5 lg:p-2 bg-brand-500/5 rounded-xl dark:bg-brand-500/10 transition-colors group-hover/title:bg-brand-500/10"
+                          onClick={(e) => { e.stopPropagation(); toggleCollapse(category.id); }}
+                        >
+                          <ChevronDown className={`w-5 h-5 lg:w-6 lg:h-6 text-slate-800 transition-transform duration-500 dark:text-white ${isCollapsed ? '-rotate-90' : ''}`} />
+                        </div>
+                        <h2 className="text-2xl lg:text-3xl font-black text-slate-800 drop-shadow-sm dark:text-white uppercase tracking-tight lg:tracking-[0.05em]">{category.name}</h2>
+                        <div className="flex-1 h-[2px] bg-gradient-to-r from-slate-200 to-transparent dark:from-zinc-700/50 ml-4 opacity-40"></div>
+                      </div>
+                      {!isCollapsed && (
+                        <div className="space-y-10 lg:space-y-12">
+                          {(!hasSubCats || generalLinks.length > 0 || isEditMode) && (
+                            <Droppable droppableId={`links__${category.id}__GENERAL`} type="LINK" direction="horizontal">
+                              {(provided) => (
+                                <div ref={provided.innerRef} {...provided.droppableProps} style={gridStyle} className="min-h-[50px]">
+                                  {generalLinks.map((link, index) => (
+                                    <Draggable key={link.id} draggableId={link.id} index={index} isDragDisabled={!isEditMode}>
+                                      {(provided, snapshot) => (
+                                        <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} className={`h-full ${snapshot.isDragging ? "z-[999]" : "hover:z-10"}`}>
+                                          <LinkCard 
+                                            item={link} 
+                                            healthStatus={healthMap[normalizeHealthUrl(link.url)]} 
+                                            isEditMode={isEditMode} 
+                                            isDragging={snapshot.isDragging} 
+                                            onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} 
+                                            onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} 
+                                            onTogglePin={handleTogglePinLink} 
+                                            onClickLink={handleClickLink} 
+                                            onSelectTag={(tag) => { setActiveSearchQuery(''); setActiveTagFilter(tag); }} 
+                                            onRecheckHealth={handleRecheckSingleUrl} 
+                                            onToggleTrust={handleToggleTrustUrl}
+                                            activeTag={activeTagFilter} 
+                                            t={t} 
+                                            shape={data.siteConfig?.logoShape} 
+                                            theme={theme} 
+                                            isQuickView={isQuickView}
+                                          />
+                                        </div>
+                                      )}
+                                    </Draggable>
+                                  ))}
+                                  {isEditMode && renderQuickAddCard(category.id)}
+                                  {provided.placeholder}
+                                </div>
+                              )}
+                            </Droppable>
+                          )}
+                          {hasSubCats && category.subCategories.map((sub) => {
+                            const rawSubLinks = data.links.filter(l => l.categoryId === category.id && l.subCategoryId === sub.id);
+                            const subLinks = isEditMode ? rawSubLinks : sortLinksByFrequency(rawSubLinks);
+                            return (
+                              <div key={sub.id} id={`subcat-${sub.id}`} className="animate-fade-in">
+                                <div className="flex items-center gap-3 mb-5 lg:mb-6 group/sub"><span className="text-xs lg:text-sm font-black text-slate-400 dark:text-zinc-500 uppercase tracking-[0.12em]"># {sub.name}</span></div>
+                                <Droppable droppableId={`links__${category.id}__${sub.id}`} type="LINK" direction="horizontal">
+                                  {(provided) => (
+                                    <div ref={provided.innerRef} {...provided.droppableProps} style={gridStyle} className="min-h-[50px]">
+                                      {subLinks.map((link, index) => (
+                                        <Draggable key={link.id} draggableId={link.id} index={index} isDragDisabled={!isEditMode}>
+                                          {(provided, snapshot) => (
+                                            <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} className={`h-full ${snapshot.isDragging ? "z-[999]" : "hover:z-10"}`}>
+                                              <LinkCard 
+                                                item={link} 
+                                                healthStatus={healthMap[normalizeHealthUrl(link.url)]} 
+                                                isEditMode={isEditMode} 
+                                                isDragging={snapshot.isDragging} 
+                                                onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} 
+                                                onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} 
+                                                onTogglePin={handleTogglePinLink} 
+                                                onClickLink={handleClickLink} 
+                                                onSelectTag={(tag) => { setActiveSearchQuery(''); setActiveTagFilter(tag); }} 
+                                                onRecheckHealth={handleRecheckSingleUrl} 
+                                                onToggleTrust={handleToggleTrustUrl}
+                                                onEnhanceIcon={setHdEnhanceLink}
+                                                activeTag={activeTagFilter} 
+                                                t={t} 
+                                                shape={data.siteConfig?.logoShape} 
+                                                theme={theme} 
+                                                isQuickView={isQuickView}
+                                              />
+                                            </div>
+                                          )}
+                                        </Draggable>
+                                      ))}
+                                      {isEditMode && renderQuickAddCard(category.id, sub.id)}
+                                      {provided.placeholder}
                                     </div>
                                   )}
-                                </Draggable>
-                              ))}
-                              {isEditMode && renderQuickAddCard(category.id)}
-                              {provided.placeholder}
-                            </div>
-                          )}
-                        </Droppable>
-                      )}
-                      {hasSubCats && category.subCategories.map((sub) => (
-                        <div key={sub.id} id={`subcat-${sub.id}`} className="animate-fade-in">
-                          <div className="flex items-center gap-3 mb-5 lg:mb-6 group/sub"><span className="text-xs lg:text-sm font-black text-slate-400 dark:text-zinc-500 uppercase tracking-[0.12em]"># {sub.name}</span></div>
-                          <Droppable droppableId={`links__${category.id}__${sub.id}`} type="LINK" direction="horizontal">
-                            {(provided) => (
-                              <div ref={provided.innerRef} {...provided.droppableProps} style={gridStyle} className="min-h-[50px]">
-                                {data.links.filter(l => l.categoryId === category.id && l.subCategoryId === sub.id).map((link, index) => (
-                                  <Draggable key={link.id} draggableId={link.id} index={index} isDragDisabled={!isEditMode}>
-                                    {(provided, snapshot) => (
-                                      <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} className={snapshot.isDragging ? "z-[999]" : "hover:z-10"}>
-                                        <LinkCard item={link} isEditMode={isEditMode} isDragging={snapshot.isDragging} onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} t={t} shape={data.siteConfig?.logoShape} theme={theme} />
-                                      </div>
-                                    )}
-                                  </Draggable>
-                                ))}
-                                {isEditMode && renderQuickAddCard(category.id, sub.id)}
-                                {provided.placeholder}
+                                </Droppable>
                               </div>
-                            )}
-                          </Droppable>
+                            );
+                          })}
                         </div>
-                      ))}
+                      )}
+                    </section>
+                  );
+                })}
+
+                {/* Main Content Tag Pool Section */}
+                {tagStats.length > 0 && (
+                  <section id="tag-pool-section" className="scroll-mt-24 mb-12 animate-slide-up">
+                    <div className="flex items-center gap-4 mb-6 lg:mb-8 group/title select-none">
+                      <div className="p-1.5 lg:p-2 bg-brand-500/10 rounded-xl dark:bg-brand-500/20 text-brand-600 dark:text-brand-400">
+                        <Tags className="w-5 h-5 lg:w-6 lg:h-6" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-3">
+                          <h2 className="text-2xl lg:text-3xl font-black text-slate-800 drop-shadow-sm dark:text-white uppercase tracking-tight lg:tracking-[0.05em]">
+                            {t.app.tagPool || '标签池'}
+                          </h2>
+                          <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-brand-100 text-brand-800 dark:bg-brand-950 dark:text-brand-300 border border-brand-200/60 dark:border-brand-800/40">
+                            {tagStats.length} Tags
+                          </span>
+                          {activeTagFilter && (
+                            <button
+                              onClick={() => setActiveTagFilter('')}
+                              className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-zinc-700 dark:text-zinc-200 flex items-center gap-1 transition-colors"
+                            >
+                              <X className="w-3 h-3" />
+                              <span>{t.app.clearTagFilter || '清除筛选'}</span>
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 mt-0.5">
+                          {t.app?.tagPoolDesc || '聚合全站标签，点击可快速筛选对应维度的书签与网址'}
+                        </p>
+                      </div>
+                      <div className="flex-1 h-[2px] bg-gradient-to-r from-slate-200 to-transparent dark:from-zinc-700/50 ml-4 opacity-40"></div>
                     </div>
-                  )}
-                </section>
-              );
-            })}
+
+                    <div className="p-5 lg:p-6 rounded-2xl bg-white dark:bg-zinc-800/80 border border-slate-100 dark:border-white/5 shadow-2xs">
+                      <div className="flex flex-wrap gap-2">
+                        {tagStats.map(({ tag, count }) => {
+                          const isSelected = activeTagFilter === tag;
+                          return (
+                            <button
+                              key={`main-tag-pill-${tag}`}
+                              type="button"
+                              onClick={() => {
+                                if (isSelected) {
+                                  setActiveTagFilter('');
+                                } else {
+                                  setActiveSearchQuery('');
+                                  setActiveTagFilter(tag);
+                                }
+                              }}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer ${
+                                isSelected
+                                  ? 'bg-brand-600 text-white shadow-md ring-2 ring-brand-500/30 scale-105'
+                                  : 'bg-slate-100/90 text-slate-700 hover:bg-brand-50 hover:text-brand-600 dark:bg-zinc-700/60 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:hover:text-brand-400'
+                              }`}
+                            >
+                              <span>#{tag}</span>
+                              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                                isSelected ? 'bg-white/20 text-white' : 'bg-black/5 dark:bg-white/10 text-slate-500 dark:text-zinc-400'
+                              }`}>
+                                {count}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </section>
+                )}
+
+                {/* Weekly Trends Section with 7-day Click Graph - Placed Below Tag Pool */}
+                <WeeklyTrendsSection 
+                  links={data.links} 
+                  lang={lang} 
+                  theme={theme} 
+                  onLinkClick={handleClickLink} 
+                />
+              </>
+            )}
           </div>
         </main>
         {/* MODALS OUTSIDE MAIN TO PREVENT Z-INDEX BUGS */}
@@ -391,6 +1581,23 @@ const Dashboard: React.FC = () => {
         />
         <ToastContainer toasts={toasts} removeToast={removeToast} />
         <ConfirmDialog isOpen={confirmState.isOpen} title={confirmState.title} message={confirmState.message} onConfirm={confirmState.onConfirm} onCancel={() => setConfirmState(p => ({...p, isOpen: false}))} isDangerous={confirmState.isDangerous} />
+        
+        {hdEnhanceLink && (
+          <HdIconEnhanceModal
+            isOpen={true}
+            onClose={() => setHdEnhanceLink(null)}
+            url={hdEnhanceLink.url}
+            title={hdEnhanceLink.title}
+            currentIcon={hdEnhanceLink.iconUrl}
+            onApplyIcon={(newIconUrl: string) => {
+              const updatedLinks = data.links.map(l => l.id === hdEnhanceLink.id ? { ...l, iconUrl: newIconUrl } : l);
+              const newData = { ...data, links: updatedLinks };
+              handleUpdateData(newData);
+              showToast('success', `已将「${hdEnhanceLink.title}」的图标成功升级为高清版本！`);
+              setHdEnhanceLink(null);
+            }}
+          />
+        )}
       </div>
     </DragDropContext>
   );

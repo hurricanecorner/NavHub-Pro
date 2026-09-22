@@ -1,17 +1,107 @@
 
 
-import { AppData, CloudConfig, Language, Theme, LinkItem } from '../types';
+import { AppData, CloudConfig, Language, Theme, LinkItem, Category, SubCategory } from '../types';
 import { DEFAULT_DATA } from '../constants';
+import { recordDailyClick } from './weeklyTrendsService';
 
 const STORAGE_KEY = 'navhub_data_v1';
 const CLOUD_CONFIG_KEY = 'navhub_cloud_config';
 const LANG_KEY = 'navhub_lang';
 const THEME_KEY = 'navhub_theme';
+const CLICK_STATS_KEY = 'navhub_click_stats_v1';
+
+export interface ClickStatRecord {
+  clickCount: number;
+  lastClickedAt: number;
+}
+
+export const normalizeUrlKey = (url: string = ''): string => {
+  try {
+    const u = new URL(url.startsWith('http://') || url.startsWith('https://') ? url : `https://${url}`);
+    return `${u.hostname.toLowerCase().replace(/^www\./, '')}${u.pathname.replace(/\/+$/, '')}${u.search}`;
+  } catch {
+    return url.trim().toLowerCase().replace(/\/+$/, '');
+  }
+};
+
+export const loadClickStats = (): Record<string, ClickStatRecord> => {
+  try {
+    const stored = localStorage.getItem(CLICK_STATS_KEY);
+    return stored ? JSON.parse(stored) : {};
+  } catch {
+    return {};
+  }
+};
+
+export const saveClickStats = (stats: Record<string, ClickStatRecord>) => {
+  try {
+    localStorage.setItem(CLICK_STATS_KEY, JSON.stringify(stats));
+  } catch (e) {
+    console.warn("Failed to save click stats", e);
+  }
+};
+
+export const recordClickStat = (url: string, linkId?: string): ClickStatRecord => {
+  const stats = loadClickStats();
+  const key = normalizeUrlKey(url);
+  const existing = (key ? stats[key] : undefined) || (linkId ? stats[linkId] : undefined) || { clickCount: 0, lastClickedAt: 0 };
+  const updated: ClickStatRecord = {
+    clickCount: (existing.clickCount || 0) + 1,
+    lastClickedAt: Date.now()
+  };
+  if (key) stats[key] = updated;
+  if (linkId) stats[linkId] = updated;
+  saveClickStats(stats);
+  try {
+    recordDailyClick(url, linkId, 1);
+  } catch (err) {
+    console.warn("Failed to record daily trend click", err);
+  }
+  return updated;
+};
+
+export const mergeClickStatsIntoLinks = (links: LinkItem[]): LinkItem[] => {
+  const stats = loadClickStats();
+  let hasNewStats = false;
+  const merged = links.map(link => {
+    const key = normalizeUrlKey(link.url);
+    const stat = (key ? stats[key] : undefined) || (link.id ? stats[link.id] : undefined);
+    
+    const linkClicks = link.clickCount || 0;
+    const linkTime = link.lastClickedAt || 0;
+    const storeClicks = stat?.clickCount || 0;
+    const storeTime = stat?.lastClickedAt || 0;
+    
+    const finalClicks = Math.max(linkClicks, storeClicks);
+    const finalTime = Math.max(linkTime, storeTime);
+    
+    if (finalClicks > storeClicks || finalTime > storeTime) {
+      if (key) stats[key] = { clickCount: finalClicks, lastClickedAt: finalTime };
+      if (link.id) stats[link.id] = { clickCount: finalClicks, lastClickedAt: finalTime };
+      hasNewStats = true;
+    }
+    
+    return {
+      ...link,
+      clickCount: finalClicks,
+      lastClickedAt: finalTime
+    };
+  });
+  
+  if (hasNewStats) {
+    saveClickStats(stats);
+  }
+  return merged;
+};
 
 export const loadData = (): AppData => {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : DEFAULT_DATA;
+    const parsed: AppData = stored ? JSON.parse(stored) : DEFAULT_DATA;
+    if (parsed && Array.isArray(parsed.links)) {
+      parsed.links = mergeClickStatsIntoLinks(parsed.links);
+    }
+    return parsed;
   } catch (e) {
     console.error("Failed to load data", e);
     return DEFAULT_DATA;
@@ -19,6 +109,23 @@ export const loadData = (): AppData => {
 };
 
 export const saveData = (data: AppData) => {
+  if (data && Array.isArray(data.links)) {
+    const stats = loadClickStats();
+    let hasNew = false;
+    data.links.forEach(l => {
+      if (l.clickCount && l.clickCount > 0) {
+        const key = normalizeUrlKey(l.url);
+        const existing = (key ? stats[key] : undefined)?.clickCount || 0;
+        if (l.clickCount >= existing) {
+          const entry = { clickCount: l.clickCount, lastClickedAt: l.lastClickedAt || Date.now() };
+          if (key) stats[key] = entry;
+          if (l.id) stats[l.id] = entry;
+          hasNew = true;
+        }
+      }
+    });
+    if (hasNew) saveClickStats(stats);
+  }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 };
 
@@ -371,265 +478,556 @@ const downloadFromGitHub = async (config: CloudConfig): Promise<SyncResult> => {
   }
 };
 
-// --- Notion Sync Logic ---
+// --- Notion Database Table Sync Logic ---
 
-const DEFAULT_NOTION_API_BASE = 'https://api.notion.com/v1';
+const DEFAULT_NOTION_API_BASE = '/api/notion';
 const NOTION_VERSION = '2022-06-28';
 
 // Helper to get configured API URL or default
 const getNotionApiBase = (config: CloudConfig) => {
-  let url = config.notionApiUrl?.trim() || DEFAULT_NOTION_API_BASE;
-  // Remove trailing slash
+  let url = config.notionApiUrl?.trim();
+  if (!url || url.includes('cors-proxy.org') || url.includes('corsproxy.io')) {
+    return '/api/notion';
+  }
   return url.replace(/\/+$/, '');
 };
 
-// Notion rich text limit is 2000 chars. We must chunk large JSON.
-const chunkText = (text: string, size: number = 2000) => {
-  const numChunks = Math.ceil(text.length / size);
-  const chunks = [];
-  for (let i = 0, o = 0; i < numChunks; ++i, o += size) {
-    chunks.push(text.substr(o, size));
-  }
-  return chunks;
+// Helper to extract detailed error from Notion response
+const parseNotionError = async (res: Response, fallbackPrefix: string) => {
+  try {
+    const errData = await res.json();
+    if (errData?.message) {
+      return `${fallbackPrefix}: ${errData.message}`;
+    }
+  } catch (_) {}
+  return `${fallbackPrefix} (HTTP ${res.status}: ${res.statusText || 'Error'})`;
 };
 
+// Helper to sanitize URL for Notion URL property
+const sanitizeNotionUrl = (url?: string): string | null => {
+  if (!url || typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (/^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i.test(trimmed)) {
+    return 'https://' + trimmed;
+  }
+  return null;
+};
+
+// Helper to clean Notion tag/select strings (Notion does not allow commas)
+const cleanNotionSelectName = (name: string): string => {
+  return name.replace(/,/g, '').trim().slice(0, 100);
+};
+
+// Resolve or create a Notion Database from a Page ID or Database ID
+interface ResolvedDatabase {
+  databaseId: string;
+  titlePropName: string;
+  isExisting: boolean;
+}
+
+const resolveNotionDatabase = async (
+  apiBase: string,
+  token: string,
+  rawId: string
+): Promise<ResolvedDatabase> => {
+  const cleanId = rawId.trim().replace(/-/g, '');
+  const headers = {
+    'Authorization': `Bearer ${token}`,
+    'Notion-Version': NOTION_VERSION,
+    'Content-Type': 'application/json'
+  };
+
+  // 1. Try to check if rawId is directly a Database ID
+  try {
+    const dbRes = await fetch(`${apiBase}/databases/${cleanId}`, {
+      method: 'GET',
+      headers
+    });
+    if (dbRes.ok) {
+      const dbData = await dbRes.json();
+      if (dbData && dbData.object === 'database') {
+        const titleProp = Object.keys(dbData.properties || {}).find(
+          k => dbData.properties[k].type === 'title'
+        ) || '标题';
+        
+        // Ensure standard columns exist on this database
+        await ensureDatabaseColumns(apiBase, token, cleanId, dbData.properties || {});
+        
+        return {
+          databaseId: cleanId,
+          titlePropName: titleProp,
+          isExisting: true
+        };
+      }
+    }
+  } catch (_) {}
+
+  // 2. If not a database, check if it's a Page and find any existing child database
+  const pageRes = await fetch(`${apiBase}/blocks/${cleanId}/children?page_size=100`, {
+    method: 'GET',
+    headers
+  });
+
+  if (!pageRes.ok) {
+    const errorMsg = await parseNotionError(pageRes, '无法访问 Notion 页面/数据库 (请确认已在页面右上角添加集成连接)');
+    throw new Error(errorMsg);
+  }
+
+  const pageData = await pageRes.json();
+  const existingChildDb = pageData.results?.find((b: any) => b.type === 'child_database');
+
+  if (existingChildDb) {
+    const childDbId = existingChildDb.id.replace(/-/g, '');
+    const childDbRes = await fetch(`${apiBase}/databases/${childDbId}`, {
+      method: 'GET',
+      headers
+    });
+    let titleProp = '标题';
+    if (childDbRes.ok) {
+      const childDbData = await childDbRes.json();
+      titleProp = Object.keys(childDbData.properties || {}).find(
+        k => childDbData.properties[k].type === 'title'
+      ) || '标题';
+      await ensureDatabaseColumns(apiBase, token, childDbId, childDbData.properties || {});
+    }
+    return {
+      databaseId: childDbId,
+      titlePropName: titleProp,
+      isExisting: true
+    };
+  }
+
+  // 3. If no child database exists on the page, create a new Database under this page
+  const createDbRes = await fetch(`${apiBase}/databases`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      parent: {
+        type: 'page_id',
+        page_id: cleanId
+      },
+      icon: {
+        type: 'emoji',
+        emoji: '🔖'
+      },
+      title: [
+        {
+          type: 'text',
+          text: { content: 'NavHub 导航书签库' }
+        }
+      ],
+      properties: {
+        '标题': { title: {} },
+        '链接地址': { url: {} },
+        '主分类': { select: {} },
+        '子分类': { select: {} },
+        '图标': { rich_text: {} },
+        '标签': { multi_select: {} },
+        '描述': { rich_text: {} },
+        '书签ID': { rich_text: {} },
+        '点击次数': { number: {} },
+        '最后访问': { number: {} }
+      }
+    })
+  });
+
+  if (!createDbRes.ok) {
+    const createErr = await parseNotionError(createDbRes, '在 Notion 页面中创建数据库表格失败');
+    throw new Error(createErr);
+  }
+
+  const newDbData = await createDbRes.json();
+  return {
+    databaseId: newDbData.id.replace(/-/g, ''),
+    titlePropName: '标题',
+    isExisting: false
+  };
+};
+
+// Helper to add missing columns to an existing Notion database
+const ensureDatabaseColumns = async (
+  apiBase: string,
+  token: string,
+  databaseId: string,
+  currentProperties: Record<string, any>
+) => {
+  const missingProps: Record<string, any> = {};
+  if (!currentProperties['链接地址'] && !currentProperties['URL'] && !currentProperties['url']) {
+    missingProps['链接地址'] = { url: {} };
+  }
+  if (!currentProperties['主分类'] && !currentProperties['Category']) {
+    missingProps['主分类'] = { select: {} };
+  }
+  if (!currentProperties['子分类'] && !currentProperties['Subcategory']) {
+    missingProps['子分类'] = { select: {} };
+  }
+  if (!currentProperties['图标'] && !currentProperties['Icon']) {
+    missingProps['图标'] = { rich_text: {} };
+  }
+  if (!currentProperties['标签'] && !currentProperties['Tags']) {
+    missingProps['标签'] = { multi_select: {} };
+  }
+  if (!currentProperties['描述'] && !currentProperties['Description']) {
+    missingProps['描述'] = { rich_text: {} };
+  }
+  if (!currentProperties['书签ID'] && !currentProperties['ID']) {
+    missingProps['书签ID'] = { rich_text: {} };
+  }
+  if (!currentProperties['点击次数'] && !currentProperties['Clicks'] && !currentProperties['clickCount']) {
+    missingProps['点击次数'] = { number: {} };
+  }
+  if (!currentProperties['最后访问'] && !currentProperties['LastClicked'] && !currentProperties['lastClickedAt']) {
+    missingProps['最后访问'] = { number: {} };
+  }
+
+  if (Object.keys(missingProps).length > 0) {
+    try {
+      await fetch(`${apiBase}/databases/${databaseId}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Notion-Version': NOTION_VERSION,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ properties: missingProps })
+      });
+    } catch (_) {}
+  }
+};
+
+// Query all pages from a Notion database (handles pagination)
+const queryAllNotionDatabasePages = async (
+  apiBase: string,
+  token: string,
+  databaseId: string
+): Promise<any[]> => {
+  const headers = {
+    'Authorization': `Bearer ${token}`,
+    'Notion-Version': NOTION_VERSION,
+    'Content-Type': 'application/json'
+  };
+
+  let allPages: any[] = [];
+  let startCursor: string | undefined = undefined;
+  let hasMore = true;
+
+  while (hasMore) {
+    const body: Record<string, any> = { page_size: 100 };
+    if (startCursor) {
+      body.start_cursor = startCursor;
+    }
+
+    const res = await fetch(`${apiBase}/databases/${databaseId}/query`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body)
+    });
+
+    if (!res.ok) {
+      const err = await parseNotionError(res, '查询 Notion 数据库表格数据失败');
+      throw new Error(err);
+    }
+
+    const data = await res.json();
+    if (Array.isArray(data.results)) {
+      allPages = allPages.concat(data.results);
+    }
+    hasMore = data.has_more === true;
+    startCursor = data.next_cursor || undefined;
+  }
+
+  return allPages;
+};
+
+// Upload all navigation links into Notion Database Table
 const uploadToNotion = async (data: AppData, config: CloudConfig): Promise<SyncResult> => {
   if (!config.notionToken || !config.notionPageId) {
-    return { success: false, message: 'Missing Notion Token or Page ID' };
+    return { success: false, message: '请填写 Notion 集成令牌 (Token) 和 页面/数据库 ID (Page ID)' };
   }
 
-  // 1. Prepare lightweight data
-  const dataToUpload = prepareDataForUpload(data);
-
   const apiBase = getNotionApiBase(config);
-  const jsonString = JSON.stringify(dataToUpload, null, 2);
-  const chunks = chunkText(jsonString);
-  const richTextObjects = chunks.map(chunk => ({
-    type: "text",
-    text: { content: chunk }
-  }));
+  const token = config.notionToken.trim();
 
   try {
-    // 1. Get page children to find an existing Code block
-    const listUrl = `${apiBase}/blocks/${config.notionPageId}/children`;
-    const listRes = await fetch(listUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${config.notionToken}`,
-        'Notion-Version': NOTION_VERSION,
-      }
-    });
+    // 1. Resolve or create target database
+    const { databaseId, titlePropName } = await resolveNotionDatabase(apiBase, token, config.notionPageId);
 
-    if (!listRes.ok) {
-      if (listRes.status === 0 || listRes.status === 401 || listRes.status === 403) {
-         throw new Error(`Notion Access Error: ${listRes.statusText}. If you are in a browser, you MUST use a Proxy URL.`);
-      }
-      throw new Error(`Notion Access Error: ${listRes.statusText}`);
-    }
-    
-    const listData = await listRes.json();
-    const existingCodeBlock = listData.results.find((b: any) => b.type === 'code');
+    // 2. Query all existing rows in database
+    const existingRows = await queryAllNotionDatabasePages(apiBase, token, databaseId);
 
-    if (existingCodeBlock) {
-      // Update existing block
-      const updateRes = await fetch(`${apiBase}/blocks/${existingCodeBlock.id}`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${config.notionToken}`,
-          'Notion-Version': NOTION_VERSION,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          code: {
-            rich_text: richTextObjects,
-            language: "json"
-          }
-        })
-      });
-      if (!updateRes.ok) throw new Error(`Notion Update Error: ${updateRes.statusText}`);
-    } else {
-      // Append new block
-      const appendRes = await fetch(`${apiBase}/blocks/${config.notionPageId}/children`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${config.notionToken}`,
-          'Notion-Version': NOTION_VERSION,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          children: [{
-            object: "block",
-            type: "code",
-            code: {
-              rich_text: richTextObjects,
-              language: "json"
-            }
-          }]
-        })
-      });
-      if (!appendRes.ok) throw new Error(`Notion Append Error: ${appendRes.statusText}`);
+    // Build lookup maps for fast matching
+    const rowByBookmarkId = new Map<string, any>();
+    const rowByUrl = new Map<string, any>();
+    const rowByTitle = new Map<string, any>();
+
+    for (const row of existingRows) {
+      if (row.archived) continue;
+      const props = row.properties || {};
+      
+      // Bookmark ID
+      const bookmarkId = props['书签ID']?.rich_text?.[0]?.plain_text || props['ID']?.rich_text?.[0]?.plain_text;
+      if (bookmarkId) rowByBookmarkId.set(bookmarkId, row);
+
+      // URL
+      const url = props['链接地址']?.url || props['URL']?.url || props['url']?.url;
+      if (url) rowByUrl.set(url.toLowerCase().trim(), row);
+
+      // Title
+      const title = props[titlePropName]?.title?.[0]?.plain_text || props['Name']?.title?.[0]?.plain_text;
+      if (title) rowByTitle.set(title.toLowerCase().trim(), row);
     }
 
-    return { 
-      success: true, 
-      message: 'Data uploaded successfully to Notion.',
-      timestamp: Date.now()
+    // 3. Build category lookup maps
+    const categoryMap = new Map<string, Category>();
+    data.categories.forEach(c => categoryMap.set(c.id, c));
+
+    // 4. Upsert all links into database
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'Notion-Version': NOTION_VERSION,
+      'Content-Type': 'application/json'
     };
 
-  } catch (error: any) {
-    console.error("Notion Upload Error:", error);
-    return { success: false, message: error.message || 'Notion sync failed. Check CORS/Proxy settings.' };
-  }
-};
+    const syncedPageIds = new Set<string>();
+    let createdCount = 0;
+    let updatedCount = 0;
 
-const downloadFromNotion = async (config: CloudConfig): Promise<SyncResult> => {
-  if (!config.notionToken || !config.notionPageId) {
-    return { success: false, message: 'Missing Notion Token or Page ID' };
-  }
-  
-  const apiBase = getNotionApiBase(config);
+    // Process in batches of 4 to prevent Notion rate limits
+    const batchSize = 4;
+    for (let i = 0; i < data.links.length; i += batchSize) {
+      const batch = data.links.slice(i, i + batchSize);
+      await Promise.all(batch.map(async (link) => {
+        const cat = categoryMap.get(link.categoryId);
+        const categoryName = cat?.name || '默认分类';
+        const subCat = cat?.subCategories?.find((s: SubCategory) => s.id === link.subCategoryId);
+        const subCategoryName = subCat?.name || '';
 
-  try {
-    const listUrl = `${apiBase}/blocks/${config.notionPageId}/children`;
-    const listRes = await fetch(listUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${config.notionToken}`,
-        'Notion-Version': NOTION_VERSION,
-      }
-    });
+        // Build properties
+        const properties: Record<string, any> = {
+          [titlePropName]: {
+            title: [{ type: 'text', text: { content: (link.title || '未命名').slice(0, 2000) } }]
+          },
+          '链接地址': {
+            url: sanitizeNotionUrl(link.url)
+          },
+          '主分类': {
+            select: { name: cleanNotionSelectName(categoryName) || '默认分类' }
+          },
+          '描述': {
+            rich_text: link.description ? [{ type: 'text', text: { content: link.description.slice(0, 2000) } }] : []
+          },
+          '标签': {
+            multi_select: (link.tags || [])
+              .map(t => cleanNotionSelectName(t))
+              .filter(Boolean)
+              .map(name => ({ name }))
+          },
+          '图标': {
+            rich_text: link.iconUrl ? [{ type: 'text', text: { content: link.iconUrl.slice(0, 2000) } }] : []
+          },
+          '书签ID': {
+            rich_text: [{ type: 'text', text: { content: link.id } }]
+          },
+          '点击次数': {
+            number: link.clickCount || 0
+          },
+          '最后访问': {
+            number: link.lastClickedAt || 0
+          }
+        };
 
-    if (!listRes.ok) throw new Error('Failed to access Notion Page. Check CORS/Proxy settings.');
-    
-    const listData = await listRes.json();
-    const codeBlock = listData.results.find((b: any) => b.type === 'code');
+        if (subCategoryName) {
+          properties['子分类'] = {
+            select: { name: cleanNotionSelectName(subCategoryName) }
+          };
+        } else {
+          properties['子分类'] = { select: null };
+        }
 
-    if (!codeBlock) {
-      throw new Error('No Code block found on the Notion page.');
-    }
+        // Match existing row
+        let matchRow = rowByBookmarkId.get(link.id);
+        if (!matchRow && link.url) {
+          matchRow = rowByUrl.get(link.url.toLowerCase().trim());
+        }
+        if (!matchRow && link.title) {
+          matchRow = rowByTitle.get(link.title.toLowerCase().trim());
+        }
 
-    // Join all rich text parts
-    const fullJson = codeBlock.code.rich_text.map((t: any) => t.plain_text).join('');
-    const parsedData = JSON.parse(fullJson);
-
-    // Basic validation
-    if (!Array.isArray(parsedData.categories) || !Array.isArray(parsedData.links)) {
-      throw new Error('Invalid data format in Notion.');
+        if (matchRow) {
+          // Update existing page
+          syncedPageIds.add(matchRow.id);
+          const updateRes = await fetch(`${apiBase}/pages/${matchRow.id}`, {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify({ properties })
+          });
+          if (updateRes.ok) updatedCount++;
+        } else {
+          // Create new page in database
+          const createRes = await fetch(`${apiBase}/pages`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              parent: { database_id: databaseId },
+              properties
+            })
+          });
+          if (createRes.ok) {
+            const newRow = await createRes.json();
+            syncedPageIds.add(newRow.id);
+            createdCount++;
+          }
+        }
+      }));
     }
 
     return {
       success: true,
-      message: 'Data downloaded successfully from Notion.',
+      message: `已成功同步至 Notion 数据库表格！(新增 ${createdCount} 条，更新 ${updatedCount} 条，共 ${data.links.length} 个书签)`,
+      timestamp: Date.now()
+    };
+
+  } catch (error: any) {
+    console.error("Notion Database Sync Error:", error);
+    return { success: false, message: error.message || 'Notion 数据库同步失败，请检查配置。' };
+  }
+};
+
+// Download and restore all links from Notion Database Table
+const downloadFromNotion = async (config: CloudConfig): Promise<SyncResult> => {
+  if (!config.notionToken || !config.notionPageId) {
+    return { success: false, message: '请填写 Notion 集成令牌 (Token) 和 页面/数据库 ID (Page ID)' };
+  }
+  
+  const apiBase = getNotionApiBase(config);
+  const token = config.notionToken.trim();
+
+  try {
+    const { databaseId, titlePropName } = await resolveNotionDatabase(apiBase, token, config.notionPageId);
+    const pages = await queryAllNotionDatabasePages(apiBase, token, databaseId);
+
+    if (!pages || pages.length === 0) {
+      throw new Error('Notion 数据库表格中暂无书签数据。');
+    }
+
+    const categoriesMap = new Map<string, Category>();
+    const links: LinkItem[] = [];
+
+    for (const page of pages) {
+      if (page.archived) continue;
+      const props = page.properties || {};
+
+      // Extract fields
+      const title = props[titlePropName]?.title?.[0]?.plain_text || 
+                    props['Name']?.title?.[0]?.plain_text || 
+                    props['标题']?.title?.[0]?.plain_text || 
+                    '未命名';
+                    
+      const url = props['链接地址']?.url || 
+                  props['URL']?.url || 
+                  props['url']?.url || 
+                  props['网址']?.url || 
+                  '';
+                  
+      const categoryName = props['主分类']?.select?.name || 
+                           props['Category']?.select?.name || 
+                           props['分类']?.select?.name || 
+                           '默认分类';
+                           
+      const subCategoryName = props['子分类']?.select?.name || 
+                              props['Subcategory']?.select?.name || 
+                              '';
+                              
+      const description = props['描述']?.rich_text?.[0]?.plain_text || 
+                          props['Description']?.rich_text?.[0]?.plain_text || 
+                          '';
+                          
+      const iconUrl = props['图标']?.rich_text?.[0]?.plain_text || 
+                      props['Icon']?.rich_text?.[0]?.plain_text || 
+                      props['Icon']?.url || 
+                      '';
+                      
+      const tags = (props['标签']?.multi_select || props['Tags']?.multi_select || [])
+        .map((t: any) => t.name)
+        .filter(Boolean);
+
+      const bookmarkId = props['书签ID']?.rich_text?.[0]?.plain_text || 
+                         props['ID']?.rich_text?.[0]?.plain_text || 
+                         `link_${page.id.replace(/-/g, '').slice(0, 8)}`;
+
+      const clickCount = typeof props['点击次数']?.number === 'number' 
+        ? props['点击次数'].number 
+        : (typeof props['Clicks']?.number === 'number' ? props['Clicks'].number : undefined);
+        
+      const lastClickedAt = typeof props['最后访问']?.number === 'number' 
+        ? props['最后访问'].number 
+        : (typeof props['LastClicked']?.number === 'number' ? props['LastClicked'].number : undefined);
+
+      // Category management
+      let category = Array.from(categoriesMap.values()).find(c => c.name === categoryName);
+      if (!category) {
+        const catId = `cat_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+        category = {
+          id: catId,
+          name: categoryName,
+          subCategories: []
+        };
+        categoriesMap.set(catId, category);
+      }
+
+      // Subcategory management
+      let subCategoryId = '';
+      if (subCategoryName) {
+        let sub = category.subCategories.find((s: SubCategory) => s.name === subCategoryName);
+        if (!sub) {
+          sub = {
+            id: `sub_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+            name: subCategoryName
+          };
+          category.subCategories.push(sub);
+        }
+        subCategoryId = sub.id;
+      }
+
+      links.push({
+        id: bookmarkId,
+        title,
+        url: url || 'https://example.com',
+        description,
+        iconUrl: iconUrl || undefined,
+        categoryId: category.id,
+        subCategoryId,
+        tags,
+        clickCount,
+        lastClickedAt
+      });
+    }
+
+    const mergedLinks = mergeClickStatsIntoLinks(links);
+
+    const parsedData: AppData = {
+      categories: Array.from(categoriesMap.values()),
+      links: mergedLinks
+    };
+
+    return {
+      success: true,
+      message: `已成功从 Notion 数据库恢复 ${links.length} 个书签和 ${parsedData.categories.length} 个分类！`,
       data: parsedData,
       timestamp: Date.now()
     };
 
   } catch (error: any) {
-    console.error("Notion Download Error:", error);
-    return { success: false, message: error.message || 'Notion download failed.' };
+    console.error("Notion Database Download Error:", error);
+    return { success: false, message: error.message || '从 Notion 数据库下载失败。' };
   }
 };
 
-// --- Notion: Publish as Readable Blocks ---
+// Publish directly to Notion Database
 export const publishToNotion = async (data: AppData, config: CloudConfig): Promise<SyncResult> => {
-  if (!config.notionToken || !config.notionPageId) {
-    return { success: false, message: 'Missing Notion Token or Page ID' };
-  }
-
-  const apiBase = getNotionApiBase(config);
-  const blocks: any[] = [];
-
-  // Generate Blocks
-  data.categories.forEach(cat => {
-    // Category Heading
-    blocks.push({
-      object: 'block',
-      type: 'heading_2',
-      heading_2: {
-        rich_text: [{ type: 'text', text: { content: cat.name } }]
-      }
-    });
-
-    // Helper for links
-    const createLinkBlock = (link: LinkItem) => ({
-      object: 'block',
-      type: 'bulleted_list_item',
-      bulleted_list_item: {
-        rich_text: [
-          {
-            type: 'text',
-            text: { content: link.title, link: { url: link.url } },
-            annotations: { bold: true }
-          },
-          ...(link.description ? [
-            { type: 'text', text: { content: ` - ${link.description}` } }
-          ] : [])
-        ]
-      }
-    });
-
-    // General Links
-    const generalLinks = data.links.filter(l => l.categoryId === cat.id && !l.subCategoryId);
-    generalLinks.forEach(l => blocks.push(createLinkBlock(l)));
-
-    // SubCategories
-    cat.subCategories.forEach(sub => {
-       blocks.push({
-        object: 'block',
-        type: 'heading_3',
-        heading_3: {
-          rich_text: [{ type: 'text', text: { content: sub.name } }]
-        }
-      });
-      const subLinks = data.links.filter(l => l.categoryId === cat.id && l.subCategoryId === sub.id);
-      subLinks.forEach(l => blocks.push(createLinkBlock(l)));
-    });
-    
-    // Add spacer
-    blocks.push({ object: 'block', type: 'paragraph', paragraph: { rich_text: [] } });
-  });
-
-  // Chunking (Notion allows max 100 blocks per request)
-  const chunkSize = 100;
-  
-  try {
-    // Validation check: ensure we can access the page first
-    const testUrl = `${apiBase}/blocks/${config.notionPageId}`;
-    const testRes = await fetch(testUrl, {
-        method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${config.notionToken}`,
-            'Notion-Version': NOTION_VERSION,
-        }
-    });
-    
-    if (!testRes.ok) {
-         throw new Error(`Notion Connection Failed: ${testRes.statusText}. Check ID/Token/Proxy.`);
-    }
-
-    for (let i = 0; i < blocks.length; i += chunkSize) {
-       const chunk = blocks.slice(i, i + chunkSize);
-       const res = await fetch(`${apiBase}/blocks/${config.notionPageId}/children`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${config.notionToken}`,
-          'Notion-Version': NOTION_VERSION,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ children: chunk })
-      });
-      
-      if (!res.ok) {
-         throw new Error(`Notion API Error: ${res.statusText}`);
-      }
-    }
-
-    return { success: true, message: 'Links published to Notion successfully!' };
-
-  } catch (error: any) {
-    console.error("Notion Publish Error:", error);
-    return { success: false, message: error.message || 'Failed to publish to Notion.' };
-  }
+  return uploadToNotion(data, config);
 };
 
 
