@@ -140,3 +140,112 @@ export function parseAppStoreUrl(url: string): { id?: string; country?: string; 
     slug: slug || undefined,
   };
 }
+
+export interface YouTubeChannelResult {
+  channelId: string;
+  title: string;
+  handle: string;
+  subscribers: string;
+  videoCount?: string;
+  description?: string;
+  icon800: string;
+  icon400: string;
+  iconRaw: string;
+  channelUrl: string;
+  isVerified?: boolean;
+}
+
+export type PortalPlatformId =
+  | 'all'
+  | 'youtube'
+  | 'appstore'
+  | 'googleplay'
+  | 'chromestore'
+  | 'facebook'
+  | 'instagram'
+  | 'discord';
+
+export interface PortalTabOption {
+  id: PortalPlatformId;
+  label: string;
+  shortLabel: string;
+  resolutionBadge: string;
+  tip: string;
+  badgeBg: string;
+  placeholder: string;
+}
+
+export const PORTAL_PLATFORM_TABS: PortalTabOption[] = [
+  { id: 'all', label: '智能聚合', shortLabel: '聚合', resolutionBadge: '多源极清', tip: '⚡ 全网官方多源极清聚合检索', badgeBg: 'bg-brand-600', placeholder: '输入应用名称、品牌或域名进行多源智能检索...' },
+  { id: 'youtube', label: 'YouTube 官方头像', shortLabel: 'YouTube', resolutionBadge: '800px', tip: '🔴 YouTube 官方认证频道原画头像', badgeBg: 'bg-red-600', placeholder: '搜索 YouTube 官方频道或 @账号 (如 @GooglePlay)...' },
+  { id: 'appstore', label: 'App Store 苹果应用', shortLabel: 'App Store', resolutionBadge: '1024px', tip: '🍏 Apple 官方正版规范图标 (1024×1024)', badgeBg: 'bg-blue-600', placeholder: '搜索 App Store 应用、软件或粘贴应用链接...' },
+  { id: 'googleplay', label: 'Google Play 商店', shortLabel: 'Google Play', resolutionBadge: '512px', tip: '▶️ Google Play 官方安卓原画图标 (512×512)', badgeBg: 'bg-emerald-600', placeholder: '搜索 Google Play 安卓应用或输入应用包名 (如 com.spotify.music)...' },
+  { id: 'chromestore', label: 'Chrome Web Store', shortLabel: 'Chrome 插件', resolutionBadge: '256px', tip: '🌐 Chrome 应用商店扩展与插件原图 (256×256)', badgeBg: 'bg-amber-600', placeholder: '搜索 Chrome 扩展插件名称或 32 位扩展 ID (如 AdBlock)...' },
+  { id: 'facebook', label: 'Facebook 公共主页', shortLabel: 'Facebook', resolutionBadge: '500px', tip: '🔷 Facebook 品牌官方公共主页高清头像 (500×500)', badgeBg: 'bg-blue-700', placeholder: '搜索 Facebook 公共主页名称或主页网址 (如 Spotify)...' },
+  { id: 'instagram', label: 'Instagram 官方主页', shortLabel: 'Instagram', resolutionBadge: '高清原画', tip: '📸 Instagram 官方主页原画头像', badgeBg: 'bg-pink-600', placeholder: '搜索 Instagram 用户名或主页网址 (如 @spotify)...' },
+  { id: 'discord', label: 'Discord 社区服务器', shortLabel: 'Discord', resolutionBadge: '512px', tip: '💬 Discord 官方社区与服务器图标 (512×512)', badgeBg: 'bg-indigo-600', placeholder: '搜索 Discord 服务器名称或粘贴邀请码 (如 midjourney 或 discord.gg/code)...' },
+];
+
+/**
+ * 智能清洗待检索的品牌或门户关键词
+ * 例如: play.google.com -> Google Play, store.steampowered.com -> Steam
+ */
+export function cleanPortalSearchTerm(input?: string): string {
+  if (!input) return '';
+  let q = input.trim();
+  if (q.startsWith('http://') || q.startsWith('https://')) {
+    try {
+      const u = new URL(q);
+      const host = u.hostname.toLowerCase().replace(/^www\./, '');
+      if (host.includes('play.google.com')) {
+        const idMatch = u.searchParams.get('id');
+        if (idMatch) return idMatch;
+        return 'Google Play';
+      }
+      if (host.includes('chromewebstore.google.com')) {
+        const parts = u.pathname.split('/').filter(Boolean);
+        if (parts.length >= 2) return parts[1];
+        return 'Chrome Extension';
+      }
+      if (host.includes('facebook.com') || host.includes('fb.me')) {
+        const parts = u.pathname.split('/').filter(Boolean);
+        if (parts.length > 0 && !['pages', 'groups', 'share'].includes(parts[0])) return parts[0];
+        return 'Facebook';
+      }
+      if (host.includes('instagram.com') || host.includes('threads.net')) {
+        const parts = u.pathname.split('/').filter(Boolean);
+        if (parts.length > 0) return parts[0].replace(/^@/, '');
+        return 'Instagram';
+      }
+      if (host.includes('discord.com') || host.includes('discord.gg')) {
+        const parts = u.pathname.split('/').filter(Boolean);
+        if (parts.length > 0) return parts[parts.length - 1];
+        return 'Discord';
+      }
+      if (host.includes('youtube.com')) {
+        const handleMatch = u.pathname.match(/@([a-zA-Z0-9_\-]+)/);
+        if (handleMatch) return handleMatch[1];
+        const userMatch = u.pathname.match(/\/(?:c|channel|user)\/([^/?#]+)/);
+        if (userMatch) return userMatch[1];
+      }
+      if (host.includes('store.steampowered.com')) return 'Steam';
+      if (host.includes('github.com')) {
+        const parts = u.pathname.split('/').filter(Boolean);
+        if (parts.length > 0) return parts[0];
+      }
+      if (host.includes('bilibili.com')) return '哔哩哔哩';
+      if (host.includes('notion.so') || host.includes('notion.site')) return 'Notion';
+      if (host.includes('figma.com')) return 'Figma';
+      if (host.includes('spotify.com')) return 'Spotify';
+      if (host.includes('netflix.com')) return 'Netflix';
+      if (host.includes('twitter.com') || host.includes('x.com')) return 'X';
+
+      const parts = host.split('.');
+      if (parts.length > 2) {
+        return parts[parts.length - 2];
+      }
+      return parts[0];
+    } catch {}
+  }
+  return q;
+}

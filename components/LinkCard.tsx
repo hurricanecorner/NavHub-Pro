@@ -371,7 +371,6 @@ const LinkCard: React.FC<LinkCardProps> = ({
   rank,
   showStats = true
 }) => {
-  const [imgError, setImgError] = useState(false);
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -571,6 +570,31 @@ const LinkCard: React.FC<LinkCardProps> = ({
     return normalizeIconForDisplay(item.iconUrl);
   }, [item.iconUrl]);
 
+  const [imgSrc, setImgSrc] = useState<string>(displayIconUrl);
+  const [hasTriedProxy, setHasTriedProxy] = useState<boolean>(false);
+  const [imgError, setImgError] = useState<boolean>(false);
+
+  useEffect(() => {
+    setImgSrc(displayIconUrl);
+    setHasTriedProxy(false);
+    setImgError(false);
+  }, [displayIconUrl]);
+
+  const handleImageError = useCallback(() => {
+    // 若外部直连（如 Google Favicon API）因网络阻断或超时失败，自动无缝切换到免墙服务端代理回退
+    if (
+      !hasTriedProxy &&
+      imgSrc &&
+      /^https?:\/\//i.test(imgSrc) &&
+      !imgSrc.includes('/api/proxy-image')
+    ) {
+      setHasTriedProxy(true);
+      setImgSrc(`/api/proxy-image?url=${encodeURIComponent(imgSrc)}`);
+    } else {
+      setImgError(true);
+    }
+  }, [hasTriedProxy, imgSrc]);
+
   const IconFallback = () => (
     <img
       src={letterIconSrc}
@@ -661,16 +685,67 @@ const LinkCard: React.FC<LinkCardProps> = ({
         <div>
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-3 min-w-0 flex-1">
-              <div className={iconContainerClasses} style={iconContainerStyle}>
-                {item.iconUrl && !imgError ? (
-                  <img
-                    src={displayIconUrl}
-                    alt={item.title}
-                    className={iconImageClasses}
-                    style={{ imageRendering: '-webkit-optimize-contrast' }}
-                    onError={() => setImgError(true)}
-                  />
-                ) : ( <IconFallback /> )}
+              <div className="relative shrink-0">
+                <div className={iconContainerClasses} style={iconContainerStyle}>
+                  {item.iconUrl && !imgError ? (
+                    <img
+                      src={imgSrc || displayIconUrl}
+                      alt={item.title}
+                      className={iconImageClasses}
+                      style={{ imageRendering: '-webkit-optimize-contrast' }}
+                      onError={handleImageError}
+                    />
+                  ) : ( <IconFallback /> )}
+                </div>
+                {/* Health Status Dot Badge on Bottom-Right of Icon */}
+                {healthStatus && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      if (healthStatus.isTrusted || item.isTrusted) {
+                        onToggleTrust?.(item.url);
+                      } else {
+                        onRecheckHealth?.(item.url);
+                      }
+                    }}
+                    onContextMenu={(e) => {
+                      if (!healthStatus.online && onToggleTrust) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onToggleTrust(item.url);
+                      }
+                    }}
+                    className="absolute -bottom-0.5 -right-0.5 z-20 w-4 h-4 lg:w-[18px] lg:h-[18px] rounded-full bg-white dark:bg-zinc-800 border border-slate-200/90 dark:border-zinc-700 shadow-sm transition-transform hover:scale-125 cursor-pointer p-0 m-0 leading-none flex items-center justify-center shrink-0"
+                    title={
+                      healthStatus.isChecking
+                        ? (t.app?.detecting || '正在检测中...')
+                        : (healthStatus.isTrusted || item.isTrusted)
+                        ? '受信任网址 · 始终判定正常 (点击可取消信任)'
+                        : healthStatus.online
+                        ? `响应正常 · 在线 (${healthStatus.responseTimeMs ? `${healthStatus.responseTimeMs}ms` : '正常'}) · 点击可重新检测`
+                        : `该链接无法响应 · 离线${healthStatus.status ? ` (HTTP ${healthStatus.status})` : ''}${healthStatus.error ? ` · ${healthStatus.error}` : ''} · 点击立即重新检测${onToggleTrust ? ' (右键加入信任白名单)' : ''}`
+                    }
+                    aria-label={healthStatus.online ? (t.app?.online || '在线') : (t.app?.offline || '离线')}
+                  >
+                    <span
+                      className={`rounded-full flex items-center justify-center shrink-0 m-auto ${
+                        healthStatus.isChecking
+                          ? 'w-2 h-2 lg:w-2.5 lg:h-2.5 bg-slate-400 dark:bg-zinc-400 animate-pulse'
+                          : (healthStatus.isTrusted || item.isTrusted)
+                          ? 'w-2 h-2 lg:w-2.5 lg:h-2.5 bg-teal-500'
+                          : healthStatus.online
+                          ? 'w-2 h-2 lg:w-2.5 lg:h-2.5 bg-emerald-500'
+                          : 'w-2 h-2 lg:w-2.5 lg:h-2.5 bg-rose-500 animate-pulse'
+                      }`}
+                    >
+                      {(healthStatus.isTrusted || item.isTrusted) && (
+                        <ShieldCheck className="w-1.5 h-1.5 text-white stroke-[2.5]" />
+                      )}
+                    </span>
+                  </button>
+                )}
               </div>
 
               <div className="min-w-0 flex-1">
@@ -702,87 +777,18 @@ const LinkCard: React.FC<LinkCardProps> = ({
               </div>
             </div>
 
-            {/* Right Status Badges: Health + Clicks */}
-            <div className="shrink-0 flex items-center gap-1.5 pt-0.5">
-              {healthStatus && (
-                healthStatus.isChecking ? (
-                  <span 
-                    className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 dark:bg-zinc-800 dark:text-zinc-400 border border-slate-200/60 dark:border-zinc-700/60 select-none"
-                    title={t.app?.detecting || '检测中...'}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-ping shrink-0" />
-                    <span className="hidden sm:inline">{t.app?.detecting || '检测中'}</span>
-                  </span>
-                ) : (healthStatus.isTrusted || item.isTrusted) ? (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      onToggleTrust?.(item.url);
-                    }}
-                    className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-teal-50 text-teal-700 dark:bg-teal-950/60 dark:text-teal-300 border border-teal-200/80 dark:border-teal-800/40 select-none transition-all hover:scale-105 active:scale-95 cursor-pointer"
-                    title="受信任网址 · 始终判定正常 (点击可取消信任)"
-                  >
-                    <ShieldCheck className="w-2.5 h-2.5 text-teal-600 dark:text-teal-400 shrink-0" />
-                    <span>信任正常</span>
-                  </button>
-                ) : healthStatus.online ? (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      onRecheckHealth?.(item.url);
-                    }}
-                    className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400 border border-emerald-200/80 dark:border-emerald-800/40 select-none transition-all hover:scale-105 active:scale-95 cursor-pointer"
-                    title={`响应正常 · 在线 (${healthStatus.responseTimeMs ? `${healthStatus.responseTimeMs}ms` : '正常'}) · 点击可重新检测`}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                    <span>{t.app?.online || '在线'}{(healthStatus.responseTimeMs ?? 0) > 0 ? ` · ${healthStatus.responseTimeMs}ms` : ''}</span>
-                  </button>
-                ) : (
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        onRecheckHealth?.(item.url);
-                      }}
-                      className="inline-flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded-md bg-rose-50 text-rose-700 dark:bg-rose-950/70 dark:text-rose-300 border border-rose-300 dark:border-rose-800 ring-1 ring-rose-500/20 select-none shadow-2xs animate-in fade-in transition-all hover:scale-105 active:scale-95 hover:bg-rose-100 dark:hover:bg-rose-900/60 cursor-pointer"
-                      title={`无法响应 · 离线${healthStatus.status ? ` (HTTP ${healthStatus.status})` : ''} · 点击重测`}
-                    >
-                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
-                      <span>{t.app?.offline || '离线'}</span>
-                    </button>
-                    {onToggleTrust && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          onToggleTrust(item.url);
-                        }}
-                        className="p-1 rounded-md text-[9px] text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-950/40 border border-transparent hover:border-teal-200 dark:hover:border-teal-800/40 transition-all cursor-pointer"
-                        title="标记此网址为信任正常"
-                      >
-                        <ShieldCheck className="w-3 h-3" />
-                      </button>
-                    )}
-                  </div>
-                )
-              )}
-              {Boolean(showStats) && (
+            {/* Right Status Badges: Clicks / Stats */}
+            {Boolean(showStats) && (
+              <div className="shrink-0 flex items-center gap-1.5 pt-0.5">
                 <span 
-                  className="shrink-0 inline-flex items-center gap-0.5 text-[9px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded-md border border-amber-200/50 dark:border-amber-800/40 select-none"
+                  className="h-[18px] shrink-0 inline-flex items-center gap-0.5 text-[9px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 rounded-md border border-amber-200/50 dark:border-amber-800/40 select-none"
                   title={`点击访问统计: ${item.clickCount || 0} 次`}
                 >
                   <Flame className="w-2.5 h-2.5 fill-amber-500 text-amber-500" />
                   <span>{item.clickCount || 0}</span>
                 </span>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* Middle: Expanded Preview Snippet Box */}
@@ -970,101 +976,83 @@ const LinkCard: React.FC<LinkCardProps> = ({
           </div>
         ) : null}
 
-        <div className={iconContainerClasses} style={iconContainerStyle}>
-          {item.iconUrl && !imgError ? (
-            <img 
-              src={displayIconUrl} 
-              alt={item.title} 
-              className={iconImageClasses}
-              style={{ imageRendering: '-webkit-optimize-contrast' }}
-              onError={() => setImgError(true)} 
-            />
-          ) : ( <IconFallback /> )}
+        <div className="relative shrink-0">
+          <div className={iconContainerClasses} style={iconContainerStyle}>
+            {item.iconUrl && !imgError ? (
+              <img 
+                src={imgSrc || displayIconUrl} 
+                alt={item.title} 
+                className={iconImageClasses}
+                style={{ imageRendering: '-webkit-optimize-contrast' }}
+                onError={handleImageError} 
+              />
+            ) : ( <IconFallback /> )}
+          </div>
+          {/* Health Status Dot Badge on Bottom-Right of Icon */}
+          {healthStatus && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                if (healthStatus.isTrusted || item.isTrusted) {
+                  onToggleTrust?.(item.url);
+                } else {
+                  onRecheckHealth?.(item.url);
+                }
+              }}
+              onContextMenu={(e) => {
+                if (!healthStatus.online && onToggleTrust) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onToggleTrust(item.url);
+                }
+              }}
+              className="absolute -bottom-0.5 -right-0.5 z-20 w-4 h-4 rounded-full bg-white dark:bg-zinc-800 border border-slate-200/90 dark:border-zinc-700 shadow-sm transition-transform hover:scale-125 cursor-pointer p-0 m-0 leading-none flex items-center justify-center shrink-0"
+              title={
+                healthStatus.isChecking
+                  ? (t.app?.detecting || '正在检测中...')
+                  : (healthStatus.isTrusted || item.isTrusted)
+                  ? '受信任网址 · 始终判定正常 (点击可取消信任)'
+                  : healthStatus.online
+                  ? `响应正常 · 在线 (${healthStatus.responseTimeMs ? `${healthStatus.responseTimeMs}ms` : '正常'}) · 点击可重新检测`
+                  : `该链接无法响应 · 离线${healthStatus.status ? ` (HTTP ${healthStatus.status})` : ''}${healthStatus.error ? ` · ${healthStatus.error}` : ''} · 点击立即重新检测${onToggleTrust ? ' (右键加入信任白名单)' : ''}`
+              }
+              aria-label={healthStatus.online ? (t.app?.online || '在线') : (t.app?.offline || '离线')}
+            >
+              <span
+                className={`rounded-full flex items-center justify-center shrink-0 m-auto ${
+                  healthStatus.isChecking
+                    ? 'w-2 h-2 bg-slate-400 dark:bg-zinc-400 animate-pulse'
+                    : (healthStatus.isTrusted || item.isTrusted)
+                    ? 'w-2 h-2 bg-teal-500'
+                    : healthStatus.online
+                    ? 'w-2 h-2 bg-emerald-500'
+                    : 'w-2 h-2 bg-rose-500 animate-pulse'
+                }`}
+              >
+                {(healthStatus.isTrusted || item.isTrusted) && (
+                  <ShieldCheck className="w-1.5 h-1.5 text-white stroke-[2.5]" />
+                )}
+              </span>
+            </button>
+          )}
         </div>
       
       <div className="flex-1 min-w-0 flex flex-col justify-center h-full">
         <div className="flex items-center justify-between gap-2 pr-6 mb-0.5">
           <h3 className={`font-black text-slate-800 truncate text-xs lg:text-sm dark:text-zinc-100 leading-tight tracking-wider transition-colors ${isDragging ? '!transition-none' : 'group-hover:text-brand-600 dark:group-hover:text-brand-400'}`}>{item.title}</h3>
-          <div className="shrink-0 flex items-center gap-1.5">
-            {healthStatus && (
-              healthStatus.isChecking ? (
-                <span 
-                  className="relative z-20 inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 dark:bg-zinc-800 dark:text-zinc-400 border border-slate-200/60 dark:border-zinc-700/60 select-none"
-                  title={t.app?.detecting || '检测中...'}
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-ping shrink-0" />
-                  <span className="hidden sm:inline">{t.app?.detecting || '检测中'}</span>
-                </span>
-              ) : (healthStatus.isTrusted || item.isTrusted) ? (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    onToggleTrust?.(item.url);
-                  }}
-                  className="relative z-20 inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-teal-50 text-teal-700 dark:bg-teal-950/60 dark:text-teal-300 border border-teal-200/80 dark:border-teal-800/40 select-none transition-all hover:scale-105 active:scale-95 cursor-pointer"
-                  title="受信任网址 · 始终判定正常 (点击可取消信任)"
-                >
-                  <ShieldCheck className="w-2.5 h-2.5 text-teal-600 dark:text-teal-400 shrink-0" />
-                  <span>信任正常</span>
-                </button>
-              ) : healthStatus.online ? (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    onRecheckHealth?.(item.url);
-                  }}
-                  className="relative z-20 inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400 border border-emerald-200/80 dark:border-emerald-800/40 select-none transition-all hover:scale-105 active:scale-95 cursor-pointer"
-                  title={`响应正常 · 在线 (${healthStatus.responseTimeMs ? `${healthStatus.responseTimeMs}ms` : '正常'}${healthStatus.isClientVerified ? ' · 本地直连' : ''}) · 点击可重新检测`}
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                  <span>{t.app?.online || '在线'}</span>
-                </button>
-              ) : (
-                <div className="relative z-20 flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      onRecheckHealth?.(item.url);
-                    }}
-                    className="inline-flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded-md bg-rose-50 text-rose-700 dark:bg-rose-950/70 dark:text-rose-300 border border-rose-300 dark:border-rose-800 ring-1 ring-rose-500/20 select-none shadow-2xs animate-in fade-in transition-all hover:scale-105 active:scale-95 hover:bg-rose-100 dark:hover:bg-rose-900/60 cursor-pointer"
-                    title={`该链接无法响应 · 离线${healthStatus.status ? ` (HTTP ${healthStatus.status})` : ''}${healthStatus.error ? ` · ${healthStatus.error}` : ''} · 点击立即重新检测`}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
-                    <span>{t.app?.offline || '离线'}</span>
-                  </button>
-                  {onToggleTrust && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        onToggleTrust(item.url);
-                      }}
-                      className="p-1 rounded-md text-[9px] text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-950/40 border border-transparent hover:border-teal-200 dark:hover:border-teal-800/40 transition-all cursor-pointer"
-                      title="标记此网址为信任正常 (加入白名单，防止误判)"
-                    >
-                      <ShieldCheck className="w-3 h-3 text-slate-400 hover:text-teal-600 dark:hover:text-teal-400" />
-                    </button>
-                  )}
-                </div>
-              )
-            )}
-            {Boolean(showStats) && (
+          {Boolean(showStats) && (
+            <div className="shrink-0 flex items-center gap-1.5">
               <span 
-                className="shrink-0 inline-flex items-center gap-0.5 text-[9px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded-md border border-amber-200/50 dark:border-amber-800/40 select-none"
+                className="h-[18px] shrink-0 inline-flex items-center gap-0.5 text-[9px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 rounded-md border border-amber-200/50 dark:border-amber-800/40 select-none"
                 title={`点击访问统计: ${item.clickCount || 0} 次`}
               >
                 <Flame className="w-2.5 h-2.5 fill-amber-500 text-amber-500" />
                 <span>{item.clickCount || 0}</span>
               </span>
-            )}
-          </div>
+            </div>
+          )}
         </div>
         <p className="text-[10px] lg:text-[11px] font-medium text-slate-500 truncate leading-snug dark:text-zinc-400 tracking-normal">{item.description || 'No description'}</p>
         {item.tags && item.tags.length > 0 && (

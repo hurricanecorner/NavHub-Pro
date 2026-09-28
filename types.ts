@@ -58,6 +58,8 @@ export interface SiteConfig {
   logoShape?: LogoShape;
   logoBackgroundColor?: string;
   healthCheckCycle?: HealthCheckCycle; // 链接存活检测周期 (默认24h/每天一次)
+  autoSortByFrequency?: boolean; // 全局按频次自动重排（每天一次，置顶保持在前）
+  lastAutoSortedDate?: string; // 记录最近一次自动排序的日期 (YYYY-MM-DD)
 }
 
 export interface AppData {

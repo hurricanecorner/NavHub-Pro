@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Plus, PlusCircle, Upload, Edit2, Trash2, Folder, ListPlus, Download, Cloud, Settings, Wand2, Loader2, Image as ImageIcon, Globe, Tag, ExternalLink, ChevronDown, CheckCircle2, Cpu, Hash, Search, Save, Check, MousePointer2, Apple, Chrome, Play, LayoutGrid, Palette, Send, Sparkles, Wand, Info, GripVertical, ChevronLeft, ChevronRight, Pin, BarChart3, ShieldCheck, Clock, Activity, Layers, Sliders } from 'lucide-react';
+import { X, Plus, PlusCircle, Upload, Edit2, Trash2, Folder, ListPlus, Download, Cloud, Settings, Wand2, Loader2, Image as ImageIcon, Globe, Tag, ExternalLink, ChevronDown, CheckCircle2, Cpu, Hash, Search, Save, Check, MousePointer2, Apple, Chrome, Play, Facebook, Instagram, MessageSquare, LayoutGrid, Palette, Send, Sparkles, Wand, Info, GripVertical, ChevronLeft, ChevronRight, Pin, BarChart3, ShieldCheck, Clock, Activity, Layers, Sliders, AlertTriangle, Youtube, Twitter, Flame, RefreshCw } from 'lucide-react';
 import { AppData, Category, LinkItem, CloudConfig, SiteConfig, SubCategory, Theme, LogoShape, HealthCheckCycle } from '../types';
 import { ToastType } from './Toast';
 import { COLOR_COLLECTIONS, COLOR_PALETTES } from '../App';
-import { publishToNotion, uploadToCloud, downloadFromCloud } from '../services/storageUtils';
+import { publishToNotion, uploadToCloud, downloadFromCloud, reorderAllLinksByFrequency } from '../services/storageUtils';
 import { DraggableTagList } from './DraggableTagList';
 import { AppStoreSearchPanel } from './AppStoreSearchPanel';
 import { AppStoreAppResult } from '../appStoreConstants';
-import { detectCountrySync } from '../countryDetector';
+import { detectCountrySync, CCTLD_COUNTRY_MAP } from '../countryDetector';
 import { detectStatsSync, auditSemanticConflict } from '../domainStats';
 import { sanitizeDescriptionText, sanitizeTitleText, matchMajorServiceRule } from '../descriptionCleaner';
 import { HdIconEnhanceModal } from './HdIconEnhanceModal';
@@ -199,7 +199,18 @@ const AdminModal: React.FC<AdminModalProps> = ({
   const [subCatEditingId, setSubCatEditingId] = useState<string | null>(null);
   const [subCatForm, setSubCatForm] = useState<{ parentId: string; id: string | null; name: string }>({ parentId: '', id: null, name: '' });
   
-  const [siteForm, setSiteForm] = useState<SiteConfig>({ title: '', logoUrl: '', faviconUrl: '', backgroundUrl: '', linkColumns: 4, themeColor: 'indigo', logoShape: 'square', logoBackgroundColor: '' });
+  const [siteForm, setSiteForm] = useState<SiteConfig>({
+    title: '',
+    logoUrl: '',
+    faviconUrl: '',
+    backgroundUrl: '',
+    linkColumns: 4,
+    themeColor: 'indigo',
+    logoShape: 'square',
+    logoBackgroundColor: '',
+    autoSortByFrequency: false,
+    lastAutoSortedDate: ''
+  });
   const [localCloud, setLocalCloud] = useState<CloudConfig>(cloudConfig);
   const [tagSearchQuery, setTagSearchQuery] = useState('');
   const [renamingTag, setRenamingTag] = useState<{ old: string; new: string } | null>(null);
@@ -219,6 +230,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
   // 配色体系选择
   const [paletteCollection, setPaletteCollection] = useState<keyof typeof COLOR_COLLECTIONS>('macaron');
+  const [newTagInput, setNewTagInput] = useState('');
 
   const globalTags = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -230,6 +242,65 @@ const AdminModal: React.FC<AdminModalProps> = ({
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([name, count]) => ({ name, count }));
   }, [data.links, data.tagOrder]);
+
+  const handleSaveRenameTag = () => {
+    if (!renamingTag) return;
+    const oldName = renamingTag.old.trim();
+    const newName = renamingTag.new.trim().replace(/^#+/, '');
+
+    if (!newName) {
+      showToast('error', '标签名称不能为空');
+      return;
+    }
+
+    if (newName === oldName) {
+      setRenamingTag(null);
+      return;
+    }
+
+    // 1. Update all links
+    const updatedLinks = data.links.map(l => {
+      if (!l.tags || !l.tags.includes(oldName)) return l;
+      const newTags = Array.from(new Set(l.tags.map(t => t === oldName ? newName : t)));
+      return { ...l, tags: newTags };
+    });
+
+    // 2. Update tagOrder if present
+    let updatedTagOrder = data.tagOrder;
+    if (data.tagOrder && data.tagOrder.length > 0) {
+      updatedTagOrder = Array.from(new Set(data.tagOrder.map(t => t === oldName ? newName : t)));
+    }
+
+    onUpdateData({
+      ...data,
+      links: updatedLinks,
+      ...(updatedTagOrder ? { tagOrder: updatedTagOrder } : {})
+    });
+
+    showToast('success', t.admin?.tags?.renameSuccess || '标签已更新并自动合并。');
+    setRenamingTag(null);
+  };
+
+  const handleCreateNewTag = () => {
+    const tagName = newTagInput.trim().replace(/^#+/, '');
+    if (!tagName) {
+      showToast('error', '请输入标签名称');
+      return;
+    }
+    const exists = globalTags.some(gt => gt.name.toLowerCase() === tagName.toLowerCase());
+    if (exists) {
+      showToast('info', `标签「#${tagName}」已存在`);
+      return;
+    }
+    const currentTagOrder = data.tagOrder || [];
+    const updatedTagOrder = Array.from(new Set([...currentTagOrder, tagName]));
+    onUpdateData({
+      ...data,
+      tagOrder: updatedTagOrder
+    });
+    setNewTagInput('');
+    showToast('success', `标签「#${tagName}」已创建`);
+  };
 
   // 计算当前所选子分类（或主分类通用范围）下已有链接的标签统计，用于推荐标签置顶最前置
   const currentSubCategoryTagsInfo = useMemo(() => {
@@ -283,7 +354,9 @@ const AdminModal: React.FC<AdminModalProps> = ({
         themeColor: savedThemeColor,
         logoShape: data.siteConfig?.logoShape || 'square',
         logoBackgroundColor: data.siteConfig?.logoBackgroundColor || '',
-        healthCheckCycle: data.siteConfig?.healthCheckCycle || '24h'
+        healthCheckCycle: data.siteConfig?.healthCheckCycle || '24h',
+        autoSortByFrequency: Boolean(data.siteConfig?.autoSortByFrequency),
+        lastAutoSortedDate: data.siteConfig?.lastAutoSortedDate || ''
       });
       
       // 自动识别当前所属配色体系
@@ -566,6 +639,30 @@ const AdminModal: React.FC<AdminModalProps> = ({
         const candidateTags: string[] = [detectedCountry, ...subCatTagsList, ...rawTags];
         const uniqueCandidateTags: string[] = Array.from(new Set<string>(candidateTags));
 
+        // 默认勾选策略优化（严格响应用户建议）：
+        // 1. 识别到的该链接所属国家/地区标签严格置顶并默认勾选 (detectedCountry)
+        // 2. 提取前用户已在表单中手动填写的已有标签保留勾选 (preservedBaseTags)
+        // 3. ★ 同子分类下其它链接已有标签（subCatTagsList）及全站标签在候选池中展示推荐，但【绝对不默认选中】，由用户按需自主点击选用！
+        // 4. 严防任何国家/地区冲突：非本链接识别国家的其他地区标签绝不勾选！
+        const allKnownCountryNames = new Set([
+          '中国', '中国香港', '中国台湾', '中国澳门', '香港', '台湾', '澳门',
+          '美国', '日本', '韩国', '英国', '德国', '法国', '俄罗斯', '加拿大',
+          '澳大利亚', '新加坡', '印度', '意大利', '西班牙', '荷兰', '瑞士',
+          '瑞典', '挪威', '芬兰', '丹麦', '比利时', '奥地利', '波兰', '巴西',
+          '墨西哥', '越南', '泰国', '马来西亚', '印度尼西亚', '菲律宾', '新西兰',
+          '爱尔兰', '南非', '阿联酋', '土耳其', '乌克兰', '欧洲',
+          ...Object.values(CCTLD_COUNTRY_MAP)
+        ]);
+
+        const preservedBaseTags = (baseTagsBeforeMetaRef.current || []).filter(t => t && (t === detectedCountry || !allKnownCountryNames.has(t)));
+
+        const initialSelectedTags: string[] = Array.from(
+          new Set<string>([
+            ...(detectedCountry ? [detectedCountry] : []),
+            ...preservedBaseTags,
+          ])
+        );
+
         const smartStats = data.statsDescription || descriptions.find((d: any) => d.source === '智能统计描述' || d.source?.includes('统计'))?.description;
 
         setFetchedCandidates({
@@ -581,20 +678,15 @@ const AdminModal: React.FC<AdminModalProps> = ({
           title: defaultTitle,
           description: defaultDesc,
           icon: defaultIcon,
-          tags: uniqueCandidateTags
+          tags: initialSelectedTags
         });
-
-        // Retain original manual tags that were NOT part of the new candidates
-        const preservedBaseTags = (baseTagsBeforeMetaRef.current || []).filter(t => !uniqueCandidateTags.includes(t));
-        const initialMerged = [detectedCountry, ...preservedBaseTags, ...uniqueCandidateTags.filter(t => t !== detectedCountry)];
-        const uniqueInitialTags: string[] = Array.from(new Set<string>(initialMerged));
 
         setLinkForm(prev => ({
           ...prev,
           title: defaultTitle || prev.title,
           description: defaultDesc || prev.description,
           iconUrl: defaultIcon || prev.iconUrl,
-          tags: uniqueInitialTags
+          tags: initialSelectedTags
         }));
 
         setIsMetaPickerOpen(true);
@@ -1132,7 +1224,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
         {/* Sidebar Nav */}
         <div className="w-full lg:w-[280px] bg-slate-50 dark:bg-zinc-900/50 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-white/5 flex flex-col shrink-0">
           <div className="p-6 lg:p-10 flex items-center gap-4">
-            <div className="p-2 lg:p-3 bg-brand-600 rounded-xl shadow-lg shadow-brand-100"><LayoutGrid className="w-5 h-5 lg:w-6 lg:h-6 text-white" /></div>
+            <div className="p-2 lg:p-3 bg-brand-600 rounded-xl shadow-md shadow-brand-500/20 dark:shadow-none"><LayoutGrid className="w-5 h-5 lg:w-6 lg:h-6 text-white" /></div>
             <h2 className="text-xl lg:text-2xl font-bold text-slate-800 dark:text-zinc-100 tracking-tight leading-none">{t.admin.title}</h2>
           </div>
           <div className="flex-1 flex lg:flex-col overflow-x-auto lg:overflow-y-auto px-4 lg:px-4 space-x-2 lg:space-x-0 lg:space-y-1 pb-4 lg:pb-0">
@@ -1250,14 +1342,23 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                       setAppStoreQuery(linkForm.title || linkForm.url || '');
                                     }
                                   }}
-                                  className={`inline-flex items-center justify-center px-4 py-2 rounded-xl text-xs font-black shadow-sm active:scale-95 transition-all border ${
+                                  className={`inline-flex items-center justify-center px-4 py-2 rounded-xl text-xs font-black shadow-sm active:scale-95 transition-all border cursor-pointer ${
                                     showAppStoreSearchBox 
-                                      ? 'bg-blue-600 text-white border-blue-600' 
+                                      ? 'bg-gradient-to-r from-emerald-600 via-blue-600 to-indigo-600 text-white border-transparent ring-2 ring-blue-400/30' 
                                       : 'bg-white dark:bg-zinc-800 border-slate-200 dark:border-white/10 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-700'
                                   }`}
+                                  title="多平台官方超清图标及头像检索：支持 Google Play (512px)、Chrome Web Store (256px)、Facebook (500px)、Instagram (原画)、Discord (512px)、YouTube (800px) 与 App Store (1024px)"
                                >
-                                  <Apple className="w-3.5 h-3.5 mr-1.5 text-blue-500 dark:text-blue-400" />
-                                  App Store 匹配
+                                  <div className="flex items-center gap-1 mr-1.5">
+                                    <Play className="w-3.5 h-3.5 text-emerald-500" />
+                                    <Chrome className="w-3.5 h-3.5 text-amber-500" />
+                                    <Facebook className="w-3.5 h-3.5 text-blue-600" />
+                                    <Instagram className="w-3.5 h-3.5 text-pink-500" />
+                                    <MessageSquare className="w-3.5 h-3.5 text-indigo-500" />
+                                    <Youtube className="w-3.5 h-3.5 text-red-500" />
+                                    <Apple className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
+                                  </div>
+                                  多平台官方高清图标检索
                                </button>
                                <div className="inline-flex items-stretch rounded-xl shadow-sm">
                                  <button
@@ -1755,7 +1856,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                       </button>
                     </div>
                     
-                    <button onClick={handleSaveLink} className="w-full py-5 lg:py-6 bg-brand-600 text-white rounded-[2rem] font-black text-lg lg:text-xl hover:opacity-90 shadow-xl shadow-brand-100 active:scale-95 transition-all">{t.admin.link.save}</button>
+                    <button onClick={handleSaveLink} className="w-full py-5 lg:py-6 bg-brand-600 text-white rounded-[2rem] font-black text-lg lg:text-xl hover:opacity-90 shadow-xl shadow-brand-500/25 dark:shadow-none active:scale-95 transition-all">{t.admin.link.save}</button>
                   </div>
                 )}
 
@@ -2154,32 +2255,104 @@ const AdminModal: React.FC<AdminModalProps> = ({
             )}
 
             {activeTab === 'tags' && (
-              <div className="max-w-4xl space-y-10 animate-in fade-in duration-300">
+              <div className="max-w-4xl space-y-8 animate-in fade-in duration-300">
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <h4 className="font-bold text-2xl lg:text-3xl text-slate-800 dark:text-zinc-100 tracking-tight">{t.admin.tags.globalTitle}</h4>
                     <p className="text-sm text-slate-400 dark:text-zinc-400 font-medium">{t.admin.tags.globalDesc}</p>
                   </div>
-                  <div className="relative w-full lg:w-80">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input type="text" value={tagSearchQuery} onChange={e => setTagSearchQuery(e.target.value)} className="w-full pl-11 pr-6 py-3 bg-slate-50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-xl outline-none font-bold text-sm dark:text-white shadow-sm" placeholder={t.admin.tags.searchPlaceholder} />
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                    <div className="relative w-full sm:w-56 lg:w-64">
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input 
+                        type="text" 
+                        value={tagSearchQuery} 
+                        onChange={e => setTagSearchQuery(e.target.value)} 
+                        className="w-full pl-11 pr-4 py-2.5 bg-slate-50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-xl outline-none font-bold text-sm dark:text-white shadow-2xs focus:border-brand-500 transition-all" 
+                        placeholder={t.admin.tags.searchPlaceholder} 
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="relative flex-1 sm:w-44">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">#</span>
+                        <input 
+                          type="text" 
+                          value={newTagInput} 
+                          onChange={e => setNewTagInput(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && handleCreateNewTag()}
+                          placeholder="新建标签..." 
+                          className="w-full pl-7 pr-3 py-2.5 bg-slate-50 dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-xl text-xs font-bold outline-none focus:border-brand-500 text-slate-700 dark:text-white shadow-2xs transition-all"
+                        />
+                      </div>
+                      <button 
+                        type="button" 
+                        onClick={handleCreateNewTag}
+                        disabled={!newTagInput.trim()}
+                        className="px-3.5 py-2.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1 cursor-pointer shrink-0 active:scale-95"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>新建</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
+
                 <div className="bg-slate-50/50 dark:bg-zinc-700/20 border border-slate-200 dark:border-white/5 rounded-3xl p-6 lg:p-8 min-h-[500px]">
                   {globalTags.length > 0 ? (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
                        {globalTags.filter(t => t.name.toLowerCase().includes(tagSearchQuery.toLowerCase())).map(tag => (
-                          <div key={tag.name} className="p-4 lg:p-6 bg-white dark:bg-zinc-700/60 border border-slate-200 dark:border-white/5 rounded-2xl flex items-center justify-between shadow-sm">
-                            <div className="flex items-center gap-4">
-                                <div className="p-2 bg-brand-50 dark:bg-brand-900/20 rounded-lg"><Hash className="w-4 h-4 text-brand-600 dark:text-brand-400" /></div>
-                                <div className="flex flex-col">
-                                   <span className="font-bold text-base text-slate-700 dark:text-zinc-100">{tag.name}</span>
-                                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{tag.count} {t.admin.tags.count.split(' ')[1]}</span>
+                          <div 
+                            key={tag.name} 
+                            className="p-4 lg:p-5 bg-white dark:bg-zinc-700/60 border border-slate-200 dark:border-white/5 rounded-2xl flex items-center justify-between shadow-2xs hover:border-brand-300 dark:hover:border-white/20 transition-all group"
+                          >
+                            <div 
+                              className="flex items-center gap-3.5 cursor-pointer flex-1 min-w-0 pr-2 select-none"
+                              onClick={() => setRenamingTag({ old: tag.name, new: tag.name })}
+                              title="点击重命名此标签"
+                            >
+                                <div className="p-2.5 bg-brand-50 dark:bg-brand-900/30 text-brand-600 dark:text-brand-400 rounded-xl group-hover:scale-105 transition-transform shrink-0">
+                                  <Hash className="w-4 h-4" />
+                                </div>
+                                <div className="flex flex-col min-w-0">
+                                   <span className="font-bold text-base text-slate-700 dark:text-zinc-100 truncate group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors">
+                                     #{tag.name}
+                                   </span>
+                                   <span className="text-[11px] font-semibold text-slate-400 dark:text-zinc-400">
+                                     {(t.admin.tags.count || '{count} 个链接').replace('{count}', String(tag.count))}
+                                   </span>
                                 </div>
                             </div>
-                            <div className="flex gap-2">
-                                <button onClick={() => setRenamingTag({ old: tag.name, new: tag.name })} className="p-2 hover:bg-slate-50 dark:hover:bg-zinc-600 text-brand-600 rounded-lg transition-colors"><Edit2 className="w-4 h-4" /></button>
-                                <button onClick={() => confirmAction(t.admin.tags.deleteTitle, t.admin.tags.deleteMessage.replace('{tag}', tag.name), () => onUpdateData({ ...data, links: data.links.map(l => ({ ...l, tags: l.tags?.filter(t => t !== tag.name) })) }), true)} className="p-2 hover:bg-slate-50 dark:hover:bg-zinc-600 text-red-600 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
+                            <div className="flex gap-1.5 items-center shrink-0">
+                                <button 
+                                  type="button"
+                                  onClick={() => setRenamingTag({ old: tag.name, new: tag.name })} 
+                                  className="p-2.5 hover:bg-brand-50 dark:hover:bg-brand-950/40 text-brand-600 dark:text-brand-400 rounded-xl transition-all cursor-pointer hover:scale-105 active:scale-95" 
+                                  title={t.admin.tags.rename || "重命名标签"}
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button 
+                                  type="button"
+                                  onClick={() => confirmAction(
+                                    t.admin.tags.deleteTitle, 
+                                    t.admin.tags.deleteMessage.replace('{tag}', tag.name), 
+                                    () => {
+                                      const updatedLinks = data.links.map(l => ({ ...l, tags: l.tags?.filter(t => t !== tag.name) }));
+                                      const updatedTagOrder = data.tagOrder ? data.tagOrder.filter(t => t !== tag.name) : undefined;
+                                      onUpdateData({ 
+                                        ...data, 
+                                        links: updatedLinks, 
+                                        ...(updatedTagOrder ? { tagOrder: updatedTagOrder } : {}) 
+                                      });
+                                      showToast('success', '标签已成功删除');
+                                    }, 
+                                    true
+                                  )} 
+                                  className="p-2.5 hover:bg-red-50 dark:hover:bg-red-950/40 text-red-600 rounded-xl transition-all cursor-pointer hover:scale-105 active:scale-95" 
+                                  title={t.admin.tags.deleteTitle || "删除标签"}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
                             </div>
                           </div>
                        ))}
@@ -2285,7 +2458,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                     )}
                     
                     <div className="flex flex-col gap-5 pt-6">
-                        <button onClick={() => { onUpdateCloudConfig(localCloud); showToast('success', t.app.configSaved); }} className="w-full py-5 bg-brand-600 text-white rounded-[2rem] font-black tracking-[0.2em] hover:opacity-90 transition-all uppercase text-sm shadow-xl shadow-brand-100 active:scale-95">保存当前配置</button>
+                        <button onClick={() => { onUpdateCloudConfig(localCloud); showToast('success', t.app.configSaved); }} className="w-full py-5 bg-brand-600 text-white rounded-[2rem] font-black tracking-[0.2em] hover:opacity-90 transition-all uppercase text-sm shadow-xl shadow-brand-500/25 dark:shadow-none active:scale-95">保存当前配置</button>
                         <div className="flex gap-4">
                             <button onClick={() => onSyncUpload(localCloud)} disabled={isSyncing} className="flex-1 py-5 bg-slate-900 text-white rounded-[2rem] font-black flex items-center justify-center gap-3 hover:opacity-90 disabled:bg-slate-400 transition-all uppercase text-xs shadow-lg active:scale-95"><Upload className="w-5 h-5" /> {t.admin.cloud.upload}</button>
                             <button onClick={() => onSyncDownload(localCloud)} disabled={isSyncing} className="flex-1 py-5 bg-slate-100 dark:bg-zinc-700 border border-slate-200 text-slate-800 dark:text-zinc-100 rounded-[2rem] font-black flex items-center justify-center gap-3 hover:bg-slate-200 transition-all uppercase text-xs active:scale-95"><Download className="w-5 h-5" /> {t.admin.cloud.download}</button>
@@ -2540,6 +2713,98 @@ const AdminModal: React.FC<AdminModalProps> = ({
                   </div>
                 </div>
 
+                {/* Global Auto-sort by Frequency Section */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between ml-1">
+                    <label className="block text-xs font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+                      <Flame className="w-4 h-4 text-amber-500" />
+                      {t.admin.settings.autoSortTitle}
+                    </label>
+                  </div>
+                  <div className="p-6 lg:p-8 bg-slate-50/50 dark:bg-zinc-900/20 border border-slate-200 dark:border-white/5 rounded-[2.5rem] shadow-sm space-y-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="space-y-1.5 max-w-xl">
+                        <div className="flex items-center gap-2.5">
+                          <h4 className="text-sm font-black text-slate-800 dark:text-zinc-100">
+                            {t.admin.settings.autoSortToggleLabel}
+                          </h4>
+                          {siteForm.autoSortByFrequency && (
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800 tracking-wider">
+                              {t.admin.settings.autoSortActiveBadge}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-zinc-400 leading-relaxed">
+                          {t.admin.settings.autoSortDesc}
+                        </p>
+                      </div>
+
+                      {/* Interactive Toggle Switch */}
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={Boolean(siteForm.autoSortByFrequency)}
+                        onClick={() => {
+                          const nextVal = !siteForm.autoSortByFrequency;
+                          setSiteForm({ ...siteForm, autoSortByFrequency: nextVal });
+                        }}
+                        className={`relative inline-flex h-8 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-amber-500/20 active:scale-95 ${
+                          siteForm.autoSortByFrequency
+                            ? 'bg-amber-500'
+                            : 'bg-slate-300 dark:bg-zinc-700'
+                        }`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-7 w-7 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                            siteForm.autoSortByFrequency ? 'translate-x-6' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {/* Metadata & Manual Re-sort Action */}
+                    <div className="pt-4 border-t border-slate-200/70 dark:border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="flex flex-wrap items-center gap-2.5 text-xs text-slate-500 dark:text-zinc-400 font-medium">
+                        <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold">
+                          <Pin className="w-3.5 h-3.5" />
+                          {t.admin.settings.autoSortRulePinned}
+                        </span>
+                        <span className="opacity-40">•</span>
+                        <span className="flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-slate-400" />
+                          {siteForm.lastAutoSortedDate
+                            ? `${t.admin.settings.lastSortedPrefix}: ${siteForm.lastAutoSortedDate}`
+                            : t.admin.settings.notSortedYet}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const sortedLinks = reorderAllLinksByFrequency(data.links, data.categories);
+                          const now = new Date();
+                          const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                          const updatedSiteForm: SiteConfig = {
+                            ...siteForm,
+                            lastAutoSortedDate: todayStr
+                          };
+                          setSiteForm(updatedSiteForm);
+                          onUpdateData({
+                            ...data,
+                            links: sortedLinks,
+                            siteConfig: updatedSiteForm
+                          });
+                          showToast('success', t.admin.settings.manualSortSuccess);
+                        }}
+                        className="px-4 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-zinc-800 text-xs font-black text-slate-700 dark:text-zinc-200 hover:border-amber-400 dark:hover:border-amber-500/50 hover:text-amber-600 dark:hover:text-amber-400 active:scale-95 transition-all shadow-xs flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>{t.admin.settings.sortNowBtn}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 gap-8">
                   {[
                     { key: 'faviconUrl', label: t.admin.settings.favicon, icon: Globe },
@@ -2558,7 +2823,24 @@ const AdminModal: React.FC<AdminModalProps> = ({
                   ))}
                 </div>
 
-                <button onClick={() => { onUpdateData({ ...data, siteConfig: siteForm }); showToast('success', t.admin.settings.success); }} className="w-full py-6 bg-brand-600 text-white rounded-[2rem] font-black text-lg hover:opacity-90 shadow-xl shadow-brand-100 uppercase tracking-[0.2em] active:scale-95 transition-all">
+                <button
+                  onClick={() => {
+                    let updatedLinks = data.links;
+                    let finalSiteForm = { ...siteForm };
+                    if (siteForm.autoSortByFrequency) {
+                      const now = new Date();
+                      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                      if (siteForm.lastAutoSortedDate !== todayStr) {
+                        updatedLinks = reorderAllLinksByFrequency(data.links, data.categories);
+                        finalSiteForm.lastAutoSortedDate = todayStr;
+                        setSiteForm(finalSiteForm);
+                      }
+                    }
+                    onUpdateData({ ...data, links: updatedLinks, siteConfig: finalSiteForm });
+                    showToast('success', t.admin.settings.success);
+                  }}
+                  className="w-full py-6 bg-brand-600 text-white rounded-[2rem] font-black text-lg hover:opacity-90 shadow-xl shadow-brand-500/25 dark:shadow-none uppercase tracking-[0.2em] active:scale-95 transition-all cursor-pointer"
+                >
                   {t.admin.settings.save}
                 </button>
               </div>
@@ -2700,11 +2982,24 @@ const AdminModal: React.FC<AdminModalProps> = ({
                     {t.admin.link.meta.iconStrategy}
                   </span>
                   <span className="text-[10px] text-slate-400 dark:text-zinc-400 font-normal">
-                    支持 App Store 1024×1024 规整高清大图与原生 Favicon
+                    支持 Google Play、Chrome Web Store、Facebook、Instagram、Discord、YouTube 800px、App Store 1024px 与原生 Favicon
                   </span>
                 </div>
 
-                {/* App Store Device & Region Search in Meta Picker */}
+                {/* Smart Fetch & Multi-Platform Indicator Banner */}
+                {fetchedCandidates.icons.some(i => i.source.includes('Smart Fetch') || i.source.includes('Google Play') || i.source.includes('Chrome') || i.source.includes('Facebook') || i.source.includes('Instagram') || i.source.includes('Discord')) && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-emerald-500/10 via-blue-500/10 to-purple-500/10 border border-blue-500/30 text-slate-800 dark:text-zinc-200 text-xs font-medium shadow-xs">
+                    <Sparkles className="w-4 h-4 text-brand-500 shrink-0 animate-pulse" />
+                    <div className="flex-1 min-w-0">
+                      <span className="font-bold text-brand-600 dark:text-brand-400">⚡ 多平台官方超清图标适配已激活：</span>
+                      <span className="opacity-90">
+                        已融合 Google Play、Chrome 应用商店、Facebook、Instagram、Discord、YouTube 与 App Store 官方原画图标及头像。
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Multi-Platform Device & Region Search in Meta Picker */}
                 <AppStoreSearchPanel
                   initialQuery={appStoreQuery || fetchedCandidates.titles[0]?.title || linkForm.title || linkForm.url}
                   onApplyApp={handleApplyAppStoreApp}
@@ -2721,12 +3016,36 @@ const AdminModal: React.FC<AdminModalProps> = ({
                         return false;
                       }
                       const is1024 = item.source.includes('1024') || item.iconUrl.includes('1024x1024');
+                      const is800 = item.source.includes('800') || item.source.includes('YouTube') || item.iconUrl.includes('s800');
                       const is512 = item.source.includes('512') || item.iconUrl.includes('512x512');
+                      const isTwitter = item.source.includes('Twitter') || item.source.includes('X ') || item.iconUrl.includes('unavatar.io/x');
+                      const isGitHub = item.source.includes('GitHub') || item.iconUrl.includes('avatars.githubusercontent.com');
+                      const isGooglePlay = item.source.includes('Google Play') || item.source.includes('Play 商店') || item.iconUrl.includes('play-lh.googleusercontent.com');
+                      const isChromeStore = item.source.includes('Chrome') || item.iconUrl.includes('googleusercontent.com/extension');
+                      const isFacebook = item.source.includes('Facebook') || item.iconUrl.includes('fbcdn.net') || item.iconUrl.includes('facebook.com');
+                      const isInstagram = item.source.includes('Instagram') || item.iconUrl.includes('cdninstagram.com');
+                      const isDiscord = item.source.includes('Discord') || item.iconUrl.includes('cdn.discordapp.com');
                       
                       // Normalize key to avoid duplicate resolutions or identical icons
                       const normBase = item.iconUrl.split('?')[0].replace(/\.(jpg|jpeg|png|webp)$/i, '');
                       const dedupeKey = item.iconUrl.includes('mzstatic.com')
                         ? `apple-${normBase.replace(/\/[0-9]+x[0-9]+bb/, '')}-${is1024 ? '1024' : is512 ? '512' : 'other'}`
+                        : item.source.includes('YouTube')
+                        ? `youtube-${is800 ? '800' : 'other'}-${normBase}`
+                        : isGooglePlay
+                        ? `googleplay-${normBase}`
+                        : isChromeStore
+                        ? `chromestore-${normBase}`
+                        : isFacebook
+                        ? `facebook-${normBase}`
+                        : isInstagram
+                        ? `instagram-${normBase}`
+                        : isDiscord
+                        ? `discord-${normBase}`
+                        : isTwitter
+                        ? `twitter-${normBase}`
+                        : isGitHub
+                        ? `github-${normBase}`
                         : item.iconUrl.trim().toLowerCase();
 
                       if (seen.has(dedupeKey)) return false;
@@ -2737,11 +3056,32 @@ const AdminModal: React.FC<AdminModalProps> = ({
                     return filteredIcons.map((item, idx) => {
                     const isSelected = selectedCandidates.icon === item.iconUrl;
                     const isAppStore = item.source.includes('App Store') || item.source.includes('Apple');
+                    const isYouTube = item.source.includes('YouTube');
+                    const isTwitter = item.source.includes('Twitter') || item.source.includes('X ') || item.iconUrl.includes('unavatar.io/x');
+                    const isGitHub = item.source.includes('GitHub') || item.iconUrl.includes('avatars.githubusercontent.com');
+                    const isGooglePlay = item.source.includes('Google Play') || item.source.includes('Play 商店') || item.iconUrl.includes('play-lh.googleusercontent.com');
+                    const isChromeStore = item.source.includes('Chrome') || item.iconUrl.includes('googleusercontent.com/extension');
+                    const isFacebook = item.source.includes('Facebook') || item.iconUrl.includes('fbcdn.net') || item.iconUrl.includes('facebook.com');
+                    const isInstagram = item.source.includes('Instagram') || item.iconUrl.includes('cdninstagram.com');
+                    const isDiscord = item.source.includes('Discord') || item.iconUrl.includes('cdn.discordapp.com');
+                    const isSmartFetch = item.source.includes('Smart Fetch');
                     const is1024 = item.source.includes('1024') || item.iconUrl.includes('1024x1024');
+                    const is800 = item.source.includes('800') || item.source.includes('YouTube') || item.iconUrl.includes('s800');
                     const is512 = item.source.includes('512') || item.iconUrl.includes('512x512');
 
                     // Concise, readable label formatted for small card width
                     const formatIconLabel = (src: string) => {
+                      if (src.includes('Smart Fetch') && src.includes('YouTube')) return 'Smart Fetch · YT 800px';
+                      if (src.includes('Smart Fetch') && (src.includes('Twitter') || src.includes('X '))) return 'Smart Fetch · X 400px';
+                      if (src.includes('Smart Fetch') && src.includes('GitHub')) return 'Smart Fetch · GH 400px';
+                      if (src.includes('Google Play')) return 'Google Play 512px';
+                      if (src.includes('Chrome')) return 'Chrome 扩展 256px';
+                      if (src.includes('Facebook')) return 'Facebook 500px';
+                      if (src.includes('Instagram')) return 'Instagram 原画';
+                      if (src.includes('Discord')) return 'Discord 512px';
+                      if (src.includes('YouTube')) return 'YouTube 800px';
+                      if (src.includes('Twitter') || src.includes('X ')) return 'Twitter / X 400px';
+                      if (src.includes('GitHub')) return 'GitHub 400px';
                       if (src.includes('1024')) return '1024px 超清';
                       if (src.includes('512')) return '512px 高清';
                       if (src.includes('Apple Touch')) return 'Apple Touch';
@@ -2771,12 +3111,58 @@ const AdminModal: React.FC<AdminModalProps> = ({
                           <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[8px] font-black bg-blue-600 text-white shadow-xs pointer-events-none">
                             1024px
                           </span>
+                        ) : isGooglePlay ? (
+                          <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[8px] font-black bg-emerald-600 text-white shadow-xs pointer-events-none flex items-center gap-0.5">
+                            <Play className="w-2.5 h-2.5" />
+                            512px
+                          </span>
+                        ) : isChromeStore ? (
+                          <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[8px] font-black bg-amber-600 text-white shadow-xs pointer-events-none flex items-center gap-0.5">
+                            <Chrome className="w-2.5 h-2.5" />
+                            256px
+                          </span>
+                        ) : isFacebook ? (
+                          <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[8px] font-black bg-blue-700 text-white shadow-xs pointer-events-none flex items-center gap-0.5">
+                            <Facebook className="w-2.5 h-2.5" />
+                            500px
+                          </span>
+                        ) : isInstagram ? (
+                          <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[8px] font-black bg-pink-600 text-white shadow-xs pointer-events-none flex items-center gap-0.5">
+                            <Instagram className="w-2.5 h-2.5" />
+                            原画
+                          </span>
+                        ) : isDiscord ? (
+                          <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[8px] font-black bg-indigo-600 text-white shadow-xs pointer-events-none flex items-center gap-0.5">
+                            <MessageSquare className="w-2.5 h-2.5" />
+                            512px
+                          </span>
+                        ) : is800 ? (
+                          <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[8px] font-black bg-red-600 text-white shadow-xs pointer-events-none flex items-center gap-0.5">
+                            <Youtube className="w-2.5 h-2.5" />
+                            800px
+                          </span>
+                        ) : isTwitter ? (
+                          <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[8px] font-black bg-slate-900 text-sky-400 shadow-xs pointer-events-none flex items-center gap-0.5">
+                            <Twitter className="w-2.5 h-2.5" />
+                            400px
+                          </span>
+                        ) : isGitHub ? (
+                          <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[8px] font-black bg-purple-700 text-white shadow-xs pointer-events-none">
+                            GH 400px
+                          </span>
                         ) : is512 ? (
                           <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[8px] font-black bg-sky-500 text-white shadow-xs pointer-events-none">
                             512px
                           </span>
                         ) : null}
-                        <div className="w-12 h-12 rounded-xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 flex items-center justify-center p-1.5 shadow-sm overflow-hidden shrink-0">
+
+                        {isSmartFetch && (
+                          <span className="absolute top-2 left-2 px-1 py-0.5 rounded text-[7px] font-black bg-amber-500/90 text-white shadow-xs pointer-events-none">
+                            Smart Fetch
+                          </span>
+                        )}
+
+                        <div className="w-12 h-12 rounded-xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 flex items-center justify-center p-1.5 shadow-sm overflow-hidden shrink-0 mt-1">
                           <img
                             src={item.iconUrl}
                             alt={item.source}
@@ -2787,6 +3173,13 @@ const AdminModal: React.FC<AdminModalProps> = ({
                           />
                         </div>
                         <div className="w-full min-w-0 px-0.5 flex items-center justify-center gap-1">
+                          {isGooglePlay && <Play className="w-2.5 h-2.5 text-emerald-500 shrink-0" />}
+                          {isChromeStore && <Chrome className="w-2.5 h-2.5 text-amber-500 shrink-0" />}
+                          {isFacebook && <Facebook className="w-2.5 h-2.5 text-blue-600 shrink-0" />}
+                          {isInstagram && <Instagram className="w-2.5 h-2.5 text-pink-500 shrink-0" />}
+                          {isDiscord && <MessageSquare className="w-2.5 h-2.5 text-indigo-500 shrink-0" />}
+                          {isYouTube && <Youtube className="w-2.5 h-2.5 text-red-500 shrink-0" />}
+                          {isTwitter && <Twitter className="w-2.5 h-2.5 text-sky-400 shrink-0" />}
                           {isAppStore && <Apple className="w-2.5 h-2.5 text-blue-500 shrink-0" />}
                           <span className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 truncate max-w-full block">
                             {displayLabel}
@@ -2879,8 +3272,8 @@ const AdminModal: React.FC<AdminModalProps> = ({
                       )}
                       {currentSubCategoryTagsInfo.subCategoryName && Object.keys(currentSubCategoryTagsInfo.tagCounts).length > 0 && (
                         <span className="text-[11px] font-bold text-brand-600 dark:text-brand-400 flex items-center gap-1 bg-brand-50 dark:bg-brand-950/40 px-2 py-0.5 rounded-lg border border-brand-200 dark:border-brand-800/40">
-                          <Sparkles className="w-3 h-3" />
-                          优先推荐同分类已有标签
+                          <Sparkles className="w-3 h-3 text-amber-500" />
+                          同分类已有标签（点击可选用）
                         </span>
                       )}
                     </div>
@@ -2930,7 +3323,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
               <button
                 type="button"
                 onClick={applyMetaSelection}
-                className="flex-1 py-3.5 bg-brand-600 text-white rounded-2xl font-bold text-sm hover:bg-brand-700 shadow-lg shadow-brand-100 dark:shadow-none transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                className="flex-1 py-3.5 bg-brand-600 text-white rounded-2xl font-bold text-sm hover:bg-brand-700 shadow-lg shadow-brand-500/20 dark:shadow-none transition-colors flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Check className="w-4 h-4" /> {t.admin.link.meta.apply}
               </button>
@@ -3029,6 +3422,122 @@ const AdminModal: React.FC<AdminModalProps> = ({
                 }
                 showToast('success', t.app.saved);
               }} className="w-full py-4 bg-brand-600 text-white rounded-2xl font-black text-base hover:opacity-90 shadow-lg active:scale-95 transition-all cursor-pointer">{t.admin.category.saveDone}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tag Rename Modal */}
+      {renamingTag && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-6">
+          <div 
+            className="absolute inset-0 bg-zinc-900/60 backdrop-blur-sm transition-opacity" 
+            onClick={() => setRenamingTag(null)} 
+          />
+          <div className="bg-white dark:bg-zinc-800 rounded-[2.5rem] p-8 lg:p-10 w-full max-w-md relative z-[160] border border-slate-200 dark:border-white/10 animate-in zoom-in-95 duration-200 shadow-2xl">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-brand-50 dark:bg-brand-900/30 text-brand-600 dark:text-brand-400 rounded-2xl">
+                  <Tag className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-black text-2xl text-slate-800 dark:text-zinc-100">
+                    {t.admin.tags.rename || '重命名标签'}
+                  </h4>
+                  <p className="text-xs text-slate-400 dark:text-zinc-400 mt-0.5">
+                    修改标签名将全局同步更新所有引用该标签的书签
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setRenamingTag(null)}
+                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-xl transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-2">
+                  标签名称
+                </label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-base">#</span>
+                  <input
+                    type="text"
+                    placeholder={t.admin.tags.renamePlaceholder || '输入新标签名称...'}
+                    value={renamingTag.new}
+                    onChange={e => setRenamingTag({ ...renamingTag, new: e.target.value })}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleSaveRenameTag();
+                      } else if (e.key === 'Escape') {
+                        setRenamingTag(null);
+                      }
+                    }}
+                    className="w-full pl-9 pr-5 py-4 bg-slate-50 dark:bg-zinc-700 border border-slate-200 dark:border-white/10 rounded-2xl outline-none font-bold text-base dark:text-white focus:border-brand-500 shadow-xs"
+                    autoFocus
+                  />
+                </div>
+              </div>
+
+              {/* Tag Details & Merge Hint */}
+              {(() => {
+                const trimmedNew = renamingTag.new.trim().replace(/^#+/, '');
+                const oldTagCount = globalTags.find(gt => gt.name === renamingTag.old)?.count || 0;
+                const isExistingOtherTag = !!trimmedNew && trimmedNew.toLowerCase() !== renamingTag.old.toLowerCase() && globalTags.some(gt => gt.name.toLowerCase() === trimmedNew.toLowerCase());
+                const matchingExisting = isExistingOtherTag ? globalTags.find(gt => gt.name.toLowerCase() === trimmedNew.toLowerCase()) : null;
+
+                return (
+                  <div className="space-y-3">
+                    <div className="p-4 rounded-2xl bg-slate-50 dark:bg-zinc-700/40 border border-slate-200/80 dark:border-white/10 space-y-2 text-xs">
+                      <div className="flex items-center justify-between text-slate-500 dark:text-zinc-400">
+                        <span>当前标签：</span>
+                        <span className="font-bold text-slate-700 dark:text-zinc-200">#{renamingTag.old}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-500 dark:text-zinc-400">
+                        <span>关联书签数量：</span>
+                        <span className="font-bold text-brand-600 dark:text-brand-400">{oldTagCount} 个网址</span>
+                      </div>
+                    </div>
+
+                    {isExistingOtherTag && (
+                      <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/40 text-amber-700 dark:text-amber-300 text-xs flex items-start gap-2.5">
+                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                        <div className="flex-1">
+                          <p className="font-bold">
+                            检测到已存在同名标签「#{matchingExisting?.name}」({matchingExisting?.count} 个书签)
+                          </p>
+                          <p className="text-[11px] text-amber-600/90 dark:text-amber-400/90 mt-0.5">
+                            {t.admin.tags.mergeHint || '保存后将自动合并两者，全部关联卡片将统一归为此标签。'}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setRenamingTag(null)}
+                  className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 dark:bg-zinc-700 dark:hover:bg-zinc-600 text-slate-700 dark:text-zinc-200 rounded-2xl font-black text-sm transition-all cursor-pointer active:scale-95"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveRenameTag}
+                  disabled={!renamingTag.new.trim() || renamingTag.new.trim().replace(/^#+/, '') === renamingTag.old}
+                  className="flex-1 py-3.5 bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl font-black text-sm hover:opacity-90 shadow-lg active:scale-95 transition-all cursor-pointer"
+                >
+                  保存修改
+                </button>
+              </div>
             </div>
           </div>
         </div>

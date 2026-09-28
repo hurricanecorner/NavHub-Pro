@@ -13,7 +13,15 @@ import {
   ShieldCheck,
   Cpu,
   Download,
-  AlertCircle
+  AlertCircle,
+  Youtube,
+  Twitter,
+  Apple,
+  Play,
+  Chrome,
+  Facebook,
+  Instagram,
+  MessageSquare
 } from 'lucide-react';
 import {
   probeHighResIcons,
@@ -404,12 +412,38 @@ export const HdIconEnhanceModal: React.FC<HdIconEnhanceModalProps> = ({
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
+                            {c.source.includes('YouTube') && <Youtube className="w-3.5 h-3.5 text-red-500 shrink-0" />}
+                            {c.source.includes('Google Play') && <Play className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
+                            {c.source.includes('Chrome') && <Chrome className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                            {c.source.includes('Facebook') && <Facebook className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
+                            {c.source.includes('Instagram') && <Instagram className="w-3.5 h-3.5 text-pink-500 shrink-0" />}
+                            {c.source.includes('Discord') && <MessageSquare className="w-3.5 h-3.5 text-indigo-500 shrink-0" />}
+                            {c.source.includes('App Store') && <Apple className="w-3.5 h-3.5 text-blue-500 shrink-0" />}
+                            {(c.source.includes('Twitter') || c.source.includes(' X ')) && <Twitter className="w-3.5 h-3.5 text-sky-400 shrink-0" />}
                             <span className="text-xs font-black text-slate-800 dark:text-zinc-100 truncate">
                               {c.source}
                             </span>
                           </div>
                           <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-brand-100 dark:bg-brand-900/60 text-brand-700 dark:text-brand-300">
+                            <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                              c.source.includes('Smart Fetch') || c.badge.includes('Smart Fetch')
+                                ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/60'
+                                : c.source.includes('Google Play')
+                                ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                                : c.source.includes('Chrome')
+                                ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
+                                : c.source.includes('Facebook')
+                                ? 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300'
+                                : c.source.includes('Instagram')
+                                ? 'bg-pink-100 dark:bg-pink-950/60 text-pink-700 dark:text-pink-300'
+                                : c.source.includes('Discord')
+                                ? 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
+                                : c.source.includes('YouTube')
+                                ? 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'
+                                : c.source.includes('Twitter')
+                                ? 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'
+                                : 'bg-brand-100 dark:bg-brand-900/60 text-brand-700 dark:text-brand-300'
+                            }`}>
                               {c.badge}
                             </span>
                             {c.isVector && (

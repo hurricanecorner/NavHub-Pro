@@ -84,6 +84,7 @@ export const TRANSLATIONS = {
       domainIntel: "Site Intel",
       region: "Region",
       noSnippet: "No preview snippet available.",
+      autoSortNotice: "Daily link cards automatically re-arranged by frequency (pinned links kept at top).",
     },
     admin: {
       title: "Admin Center",
@@ -135,6 +136,15 @@ export const TRANSLATIONS = {
           '7d': "Weekly (7 Days)",
           'manual': "Manual Only (Disable Auto-check)"
         },
+        autoSortTitle: "Auto-Sort by Frequency",
+        autoSortToggleLabel: "Daily Frequency Auto-Sort",
+        autoSortActiveBadge: "Active · Once Daily",
+        autoSortDesc: "Automatically re-arranges all link cards in every category based on their click count once a day, while keeping pinned links at the top.",
+        autoSortRulePinned: "Pinned links stay at the top",
+        lastSortedPrefix: "Last sorted",
+        notSortedYet: "Not sorted yet today",
+        sortNowBtn: "Re-sort All Links Now",
+        manualSortSuccess: "All links in every category re-arranged by frequency (pinned links kept at top)!",
         themeColorTitle: "Theme Color Preview",
         themeShadesTitle: "Palette Shades Preview",
         themeCollections: {
@@ -363,6 +373,7 @@ export const TRANSLATIONS = {
       domainIntel: "网站情报",
       region: "地区",
       noSnippet: "暂无预览详情描述。",
+      autoSortNotice: "已为您按访问频次完成每日网址重排（置顶网址保持在前排）。",
     },
     admin: {
       title: "管理中心",
@@ -414,6 +425,15 @@ export const TRANSLATIONS = {
           '7d': "每周一次 (7天)",
           'manual': "仅手动检测 (关闭自动)"
         },
+        autoSortTitle: "按访问频次自动重排",
+        autoSortToggleLabel: "每日按访问频次自动排序",
+        autoSortActiveBadge: "运行中 · 每天一次",
+        autoSortDesc: "开启后，每天自动按各分类内网址的点击频次（访问热度）重新排序一次，置顶常用网址始终固定在前排。",
+        autoSortRulePinned: "置顶网址始终保持在前排",
+        lastSortedPrefix: "最近一次排序",
+        notSortedYet: "今日尚未排序",
+        sortNowBtn: "立即按频次重排全部网址",
+        manualSortSuccess: "已按频次重排各分类网址（置顶网址已固定在前排）！",
         themeColorTitle: "配色方案预览 (THEME COLOR)",
         themeShadesTitle: "当前方案色阶预览 (SHADES PREVIEW)",
         themeCollections: {

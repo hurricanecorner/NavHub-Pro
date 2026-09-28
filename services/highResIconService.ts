@@ -31,6 +31,7 @@ export interface HighResIconResult {
   source: string;
   isHighRes: boolean;
   isLetterFallback: boolean;
+  isSmartFetch?: boolean;
   sizeLabel?: string;
   candidates?: Array<{ source: string; url: string; sizeLabel: string }>;
 }
@@ -318,6 +319,7 @@ export async function fetchHighResolutionIcon(params: {
           source: data.source || '超清网络源',
           isHighRes: data.isHighRes ?? true,
           isLetterFallback: !!data.isLetterFallback,
+          isSmartFetch: !!data.isSmartFetch || (typeof data.source === 'string' && data.source.includes('Smart Fetch')),
           sizeLabel: data.sizeLabel,
           candidates: data.candidates || [],
         };

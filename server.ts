@@ -2,7 +2,13 @@ import express from 'express';
 import path from 'path';
 import dns from 'dns';
 import { GoogleGenAI } from '@google/genai';
-import { detectAppStoreDevices, parseAppStoreUrl, AppStoreDeviceId } from './appStoreConstants';
+import {
+  detectAppStoreDevices,
+  parseAppStoreUrl,
+  AppStoreDeviceId,
+  YouTubeChannelResult,
+  cleanPortalSearchTerm
+} from './appStoreConstants';
 import {
   detectCountrySync,
   CCTLD_COUNTRY_MAP,
@@ -28,6 +34,26 @@ import {
   parseManifestIcons,
   isLowQualityFavicon
 } from './services/highResIconService';
+import { isLikelyLowResIcon } from './utils/iconEnhancer';
+import {
+  searchGooglePlay,
+  searchChromeWebStore,
+  searchFacebook,
+  searchInstagram,
+  searchDiscord,
+  PortalIconItem,
+  PortalPlatformId,
+} from './services/portalMultiPlatformService';
+import {
+  extractSocialProfilesFromHtml,
+  extractSocialFromUrl,
+  KNOWN_POPULAR_SERVICE_HANDLES,
+  buildTwitterAvatarUrl,
+  buildGitHubAvatarUrl,
+  buildTelegramAvatarUrl,
+  verifyImageUrl,
+  SmartSocialIconCandidate,
+} from './services/smartFetchSocial';
 
 async function startServer() {
   const app = express();
@@ -84,29 +110,33 @@ async function startServer() {
     res.json({ status: 'ok', time: new Date().toISOString() });
   });
 
-  // API: Proxy image to avoid browser CORS/tainted canvas issues
+  // API: Proxy image to avoid browser CORS/tainted canvas issues & network blockages
   app.get('/api/proxy-image', async (req, res) => {
     const imageUrl = req.query.url as string;
     if (!imageUrl) {
       return res.status(400).send('Missing url parameter');
     }
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 6000);
       const response = await fetch(imageUrl, {
+        signal: controller.signal,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
         },
       });
+      clearTimeout(timeout);
       if (!response.ok) {
         return res.status(response.status).send('Failed to fetch image');
       }
       const contentType = response.headers.get('content-type') || 'image/png';
       res.setHeader('Content-Type', contentType);
       res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
       const buffer = Buffer.from(await response.arrayBuffer());
       return res.send(buffer);
     } catch (e: any) {
-      console.error('Image proxy error:', e?.message || e);
       return res.status(500).send('Error proxying image');
     }
   });
@@ -351,6 +381,115 @@ async function startServer() {
     return containsChinese(textBlob) ? '中国' : '美国';
   }
 
+  // YouTube Channel Search & Avatar Extraction with in-memory caching
+  const youtubeCache = new Map<string, { timestamp: number; channels: YouTubeChannelResult[] }>();
+  const YOUTUBE_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+  async function searchYouTubeChannels(query: string, maxResults = 12): Promise<YouTubeChannelResult[]> {
+    const rawClean = cleanPortalSearchTerm(query).trim();
+    if (!rawClean) return [];
+
+    const cacheKey = rawClean.toLowerCase();
+    const cached = youtubeCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < YOUTUBE_CACHE_TTL) {
+      return cached.channels.slice(0, maxResults);
+    }
+
+    try {
+      // 1. YouTube Search with Channel filter: sp=EgIQAg%253D%253D (Type: Channel)
+      const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(rawClean)}&sp=EgIQAg%253D%253D`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3500);
+
+      const res = await fetch(searchUrl, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+        },
+      });
+      clearTimeout(timeout);
+
+      if (!res.ok) return [];
+
+      const text = await res.text();
+      const match = text.match(/var ytInitialData = ({.*?});<\/script>/s) ||
+                    text.match(/window\["ytInitialData"\] = ({.*?});<\/script>/s) ||
+                    text.match(/>ytInitialData = ({.*?});<\/script>/s);
+
+      if (!match) return [];
+
+      const data = JSON.parse(match[1]);
+      const contents = data.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents;
+      const items = contents?.[0]?.itemSectionRenderer?.contents || [];
+      const channels: YouTubeChannelResult[] = [];
+      const seenIds = new Set<string>();
+
+      for (const it of items) {
+        if (!it.channelRenderer) continue;
+        const cr = it.channelRenderer;
+        const channelId = cr.channelId;
+        if (!channelId || seenIds.has(channelId)) continue;
+        seenIds.add(channelId);
+
+        const title = cr.title?.simpleText || cr.title?.runs?.[0]?.text || '';
+        const subscribers = cr.subscriberCountText?.simpleText || cr.videoCountText?.runs?.[0]?.text || '';
+        const videoCount = cr.videoCountText?.simpleText || cr.videoCountText?.runs?.[0]?.text || '';
+        const handle = cr.navigationEndpoint?.browseEndpoint?.canonicalBaseUrl || '';
+        const descriptionSnippet = cr.descriptionSnippet?.runs?.map((r: any) => r.text).join('') || '';
+        const isVerified = Boolean(
+          cr.ownerBadges?.some((b: any) => {
+            const style = b.metadataBadgeRenderer?.style || '';
+            const tooltip = b.metadataBadgeRenderer?.tooltip || '';
+            return style.includes('VERIFIED') || tooltip.includes('已验证') || tooltip.includes('Verified');
+          })
+        );
+
+        const thumbnails = cr.thumbnail?.thumbnails || [];
+        let rawThumb = thumbnails[thumbnails.length - 1]?.url || '';
+        if (rawThumb.startsWith('//')) rawThumb = 'https:' + rawThumb;
+
+        // Upgrade avatar thumbnail to 800x800 and 400x400 ultra high-definition
+        const icon800 = rawThumb ? rawThumb.replace(/=s\d+-/, '=s800-') : '';
+        const icon400 = rawThumb ? rawThumb.replace(/=s\d+-/, '=s400-') : '';
+
+        channels.push({
+          channelId,
+          title,
+          handle,
+          subscribers,
+          videoCount,
+          description: descriptionSnippet,
+          icon800: icon800 || rawThumb,
+          icon400: icon400 || rawThumb,
+          iconRaw: rawThumb,
+          channelUrl: `https://www.youtube.com${handle || '/channel/' + channelId}`,
+          isVerified,
+        });
+      }
+
+      // Sort channels: exact name match or handle match first, then verified channels
+      const qLower = rawClean.toLowerCase().replace(/\s+/g, '');
+      channels.sort((a, b) => {
+        const aTitle = a.title.toLowerCase().replace(/\s+/g, '');
+        const bTitle = b.title.toLowerCase().replace(/\s+/g, '');
+        const aHandle = a.handle.toLowerCase().replace(/[@\s]/g, '');
+        const bHandle = b.handle.toLowerCase().replace(/[@\s]/g, '');
+
+        const aExact = aTitle === qLower || aHandle === qLower ? 12 : (aTitle.startsWith(qLower) ? 6 : 0);
+        const bExact = bTitle === qLower || bHandle === qLower ? 12 : (bTitle.startsWith(qLower) ? 6 : 0);
+        const aScore = aExact + (a.isVerified ? 4 : 0);
+        const bScore = bExact + (b.isVerified ? 4 : 0);
+        return bScore - aScore;
+      });
+
+      youtubeCache.set(cacheKey, { timestamp: Date.now(), channels });
+      return channels.slice(0, maxResults);
+    } catch {
+      return [];
+    }
+  }
+
   // API: Dedicated App Store Search Endpoint
   app.post('/api/search-app-store', async (req, res) => {
     const query = (req.body?.query || '').trim();
@@ -364,6 +503,167 @@ async function startServer() {
       return res.json({ success: true, results });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message || 'Failed to search App Store' });
+    }
+  });
+
+  // API: Dedicated YouTube Channel & Avatar Search Endpoint
+  app.post('/api/search-youtube-channels', async (req, res) => {
+    const rawQuery = (req.body?.query || '').trim();
+    if (!rawQuery) {
+      return res.status(400).json({ success: false, error: 'Query is required' });
+    }
+    try {
+      const cleanTerm = cleanPortalSearchTerm(rawQuery);
+      const channels = await searchYouTubeChannels(cleanTerm || rawQuery, 12);
+      return res.json({ success: true, query: rawQuery, cleanTerm, channels });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to search YouTube' });
+    }
+  });
+
+  // API: Unified Multi-Portal Icon Search Endpoint
+  app.post('/api/search-portal-icons', async (req, res) => {
+    const rawQuery = (req.body?.query || '').trim();
+    const type = (req.body?.type || 'all') as PortalPlatformId;
+    const country = (req.body?.country || 'cn').trim().toLowerCase();
+    const device = (req.body?.device || 'all') as AppStoreDeviceId;
+    if (!rawQuery) {
+      return res.status(400).json({ success: false, error: 'Query is required' });
+    }
+
+    const cleanTerm = cleanPortalSearchTerm(rawQuery) || rawQuery;
+
+    try {
+      if (type === 'googleplay') {
+        const results = await searchGooglePlay(cleanTerm, 12);
+        return res.json({ success: true, query: rawQuery, cleanTerm, type, googlePlay: results });
+      }
+
+      if (type === 'chromestore') {
+        const results = await searchChromeWebStore(cleanTerm, 12);
+        return res.json({ success: true, query: rawQuery, cleanTerm, type, chromeStore: results });
+      }
+
+      if (type === 'facebook') {
+        const results = await searchFacebook(cleanTerm);
+        return res.json({ success: true, query: rawQuery, cleanTerm, type, facebook: results });
+      }
+
+      if (type === 'instagram') {
+        const results = await searchInstagram(cleanTerm);
+        return res.json({ success: true, query: rawQuery, cleanTerm, type, instagram: results });
+      }
+
+      if (type === 'discord') {
+        const results = await searchDiscord(cleanTerm);
+        return res.json({ success: true, query: rawQuery, cleanTerm, type, discord: results });
+      }
+
+      if (type === 'youtube') {
+        const channels = await searchYouTubeChannels(cleanTerm, 12);
+        return res.json({ success: true, query: rawQuery, cleanTerm, type, youtube: channels });
+      }
+
+      if (type === 'appstore') {
+        const appResults = await lookupOrSearchAppStore(cleanTerm, country, device);
+        return res.json({ success: true, query: rawQuery, cleanTerm, type, appStore: appResults });
+      }
+
+      // Unified Multi-Portal search ('all'): Run all portal searches concurrently with safe timeouts
+      const [
+        youtubeChannels,
+        appStoreResults,
+        googlePlayResults,
+        chromeStoreResults,
+        facebookResults,
+        instagramResults,
+        discordResults,
+      ] = await Promise.all([
+        searchYouTubeChannels(cleanTerm, 6).catch(() => []),
+        lookupOrSearchAppStore(cleanTerm, country, device).catch(() => []),
+        searchGooglePlay(cleanTerm, 4).catch(() => []),
+        searchChromeWebStore(cleanTerm, 3).catch(() => []),
+        searchFacebook(cleanTerm).catch(() => []),
+        searchInstagram(cleanTerm).catch(() => []),
+        searchDiscord(cleanTerm).catch(() => []),
+      ]);
+
+      return res.json({
+        success: true,
+        query: rawQuery,
+        cleanTerm,
+        type: 'all',
+        youtube: youtubeChannels,
+        appStore: appStoreResults,
+        googlePlay: googlePlayResults,
+        chromeStore: chromeStoreResults,
+        facebook: facebookResults,
+        instagram: instagramResults,
+        discord: discordResults,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to search portal icons' });
+    }
+  });
+
+  // Dedicated Platform Search Endpoints
+  app.post('/api/search-google-play', async (req, res) => {
+    const rawQuery = (req.body?.query || '').trim();
+    if (!rawQuery) return res.status(400).json({ success: false, error: 'Query is required' });
+    const cleanTerm = cleanPortalSearchTerm(rawQuery) || rawQuery;
+    try {
+      const results = await searchGooglePlay(cleanTerm, 12);
+      return res.json({ success: true, query: rawQuery, cleanTerm, results });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Google Play search failed' });
+    }
+  });
+
+  app.post('/api/search-chrome-store', async (req, res) => {
+    const rawQuery = (req.body?.query || '').trim();
+    if (!rawQuery) return res.status(400).json({ success: false, error: 'Query is required' });
+    const cleanTerm = cleanPortalSearchTerm(rawQuery) || rawQuery;
+    try {
+      const results = await searchChromeWebStore(cleanTerm, 12);
+      return res.json({ success: true, query: rawQuery, cleanTerm, results });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Chrome Store search failed' });
+    }
+  });
+
+  app.post('/api/search-facebook', async (req, res) => {
+    const rawQuery = (req.body?.query || '').trim();
+    if (!rawQuery) return res.status(400).json({ success: false, error: 'Query is required' });
+    const cleanTerm = cleanPortalSearchTerm(rawQuery) || rawQuery;
+    try {
+      const results = await searchFacebook(cleanTerm);
+      return res.json({ success: true, query: rawQuery, cleanTerm, results });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Facebook search failed' });
+    }
+  });
+
+  app.post('/api/search-instagram', async (req, res) => {
+    const rawQuery = (req.body?.query || '').trim();
+    if (!rawQuery) return res.status(400).json({ success: false, error: 'Query is required' });
+    const cleanTerm = cleanPortalSearchTerm(rawQuery) || rawQuery;
+    try {
+      const results = await searchInstagram(cleanTerm);
+      return res.json({ success: true, query: rawQuery, cleanTerm, results });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Instagram search failed' });
+    }
+  });
+
+  app.post('/api/search-discord', async (req, res) => {
+    const rawQuery = (req.body?.query || '').trim();
+    if (!rawQuery) return res.status(400).json({ success: false, error: 'Query is required' });
+    const cleanTerm = cleanPortalSearchTerm(rawQuery) || rawQuery;
+    try {
+      const results = await searchDiscord(cleanTerm);
+      return res.json({ success: true, query: rawQuery, cleanTerm, results });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Discord search failed' });
     }
   });
 
@@ -779,6 +1079,311 @@ Return ONLY valid JSON matching this schema:
         }
       };
 
+      // Smart Fetch: Multi-Platform Social Media Profile HD Icon Extractor
+      // 当标准 Favicon 缺失、模糊或为主流平台时，深度提取 YouTube 800×800、Twitter/X 400×400、GitHub 400×400 官方原画
+      const popularConfig = KNOWN_POPULAR_SERVICE_HANDLES[hostname] || KNOWN_POPULAR_SERVICE_HANDLES[cleanRootDomain];
+      const directSocial = extractSocialFromUrl(rawUrl);
+
+      const smartFetchTask = async (): Promise<{
+        youtubeChannel: YouTubeChannelResult | null;
+        twitterHandle: string;
+        githubUser: string;
+        candidates: SmartSocialIconCandidate[];
+      }> => {
+        const smartCandidates: SmartSocialIconCandidate[] = [];
+        const seenUrls = new Set<string>();
+
+        const addCandidate = (c: SmartSocialIconCandidate) => {
+          if (!c.iconUrl || seenUrls.has(c.iconUrl)) return;
+          seenUrls.add(c.iconUrl);
+          smartCandidates.push(c);
+        };
+
+        try {
+          // Wait for HTML so we have scraped profiles
+          const htmlProfiles = extractSocialProfilesFromHtml(rawHtml);
+
+          // 1. Resolve YouTube Channel Query
+          let ytQuery = '';
+          if (directSocial.platform === 'youtube') {
+            ytQuery = directSocial.query || directSocial.handle || '';
+          } else if (popularConfig?.youtube) {
+            ytQuery = popularConfig.youtube;
+          } else if (htmlProfiles.youtubeQueries.length > 0) {
+            ytQuery = htmlProfiles.youtubeQueries[0];
+          } else if (hostname.includes('play.google.com')) {
+            ytQuery = 'Google Play';
+          } else if (hostname.includes('youtube.com')) {
+            const handleMatch = rawUrl.match(/@([a-zA-Z0-9_\-]+)/);
+            ytQuery = handleMatch ? handleMatch[1] : (scrapedTitle || defaultName);
+          } else {
+            ytQuery = cleanPortalSearchTerm(matchedPreset?.title || defaultName || mainDomainName);
+          }
+
+          // 2. Resolve Twitter / X handle
+          let twitterHandle = '';
+          if (directSocial.platform === 'twitter') {
+            twitterHandle = directSocial.handle || '';
+          } else if (popularConfig?.twitter) {
+            twitterHandle = popularConfig.twitter;
+          } else if (htmlProfiles.twitterHandles.length > 0) {
+            twitterHandle = htmlProfiles.twitterHandles[0];
+          }
+
+          // 3. Resolve GitHub user/org
+          let githubUser = '';
+          if (directSocial.platform === 'github') {
+            githubUser = directSocial.handle || '';
+          } else if (popularConfig?.github) {
+            githubUser = popularConfig.github;
+          } else if (htmlProfiles.githubUsers.length > 0) {
+            githubUser = htmlProfiles.githubUsers[0];
+          }
+
+          // 4. Parallel fetch & verify social avatars
+          const subTasks: Promise<any>[] = [];
+
+          let ytResultChannel: YouTubeChannelResult | null = null;
+          if (ytQuery && ytQuery.length >= 2) {
+            subTasks.push(
+              (async () => {
+                try {
+                  const channels = await searchYouTubeChannels(ytQuery, 6);
+                  if (channels && channels.length > 0) {
+                    const qLower = ytQuery.toLowerCase().replace(/[@\s]/g, '');
+                    const exact = channels.find(c => c.title.toLowerCase().replace(/[@\s]/g, '') === qLower || c.handle.toLowerCase().replace(/[@\s]/g, '') === qLower);
+                    ytResultChannel = exact || channels[0];
+                    if (ytResultChannel && ytResultChannel.icon800) {
+                      addCandidate({
+                        platform: 'youtube',
+                        title: ytResultChannel.title,
+                        handle: ytResultChannel.handle,
+                        iconUrl: ytResultChannel.icon800,
+                        source: `Smart Fetch · YouTube 官方超清 (800×800) - ${ytResultChannel.title}`,
+                        badge: '800×800 Smart Fetch',
+                        sizeLabel: '800×800',
+                        score: ytResultChannel.isVerified ? 100 : 98,
+                        isSmartFetch: true,
+                        profileUrl: ytResultChannel.channelUrl,
+                      });
+                      if (ytResultChannel.icon400 && ytResultChannel.icon400 !== ytResultChannel.icon800) {
+                        addCandidate({
+                          platform: 'youtube',
+                          title: ytResultChannel.title,
+                          handle: ytResultChannel.handle,
+                          iconUrl: ytResultChannel.icon400,
+                          source: `Smart Fetch · YouTube 官方头像 (400×400) - ${ytResultChannel.title}`,
+                          badge: '400×400 Smart Fetch',
+                          sizeLabel: '400×400',
+                          score: 95,
+                          isSmartFetch: true,
+                          profileUrl: ytResultChannel.channelUrl,
+                        });
+                      }
+                    }
+                  }
+                } catch {}
+              })()
+            );
+          }
+
+          if (twitterHandle) {
+            subTasks.push(
+              (async () => {
+                try {
+                  const twUrl = buildTwitterAvatarUrl(twitterHandle);
+                  const valid = await verifyImageUrl(twUrl, 2500);
+                  if (valid) {
+                    addCandidate({
+                      platform: 'twitter',
+                      title: twitterHandle,
+                      handle: `@${twitterHandle}`,
+                      iconUrl: twUrl,
+                      source: `Smart Fetch · Twitter / X 高清头像 (400×400) - @${twitterHandle}`,
+                      badge: '400×400 Smart Fetch',
+                      sizeLabel: '400×400',
+                      score: 97,
+                      isSmartFetch: true,
+                      profileUrl: `https://x.com/${twitterHandle}`,
+                    });
+                  }
+                } catch {}
+              })()
+            );
+          }
+
+          if (githubUser) {
+            subTasks.push(
+              (async () => {
+                try {
+                  const ghUrl = buildGitHubAvatarUrl(githubUser);
+                  const valid = await verifyImageUrl(ghUrl, 2500);
+                  if (valid) {
+                    addCandidate({
+                      platform: 'github',
+                      title: githubUser,
+                      handle: githubUser,
+                      iconUrl: ghUrl,
+                      source: `Smart Fetch · GitHub 官方高清头像 (400×400) - @${githubUser}`,
+                      badge: '400×400 Smart Fetch',
+                      sizeLabel: '400×400',
+                      score: 94,
+                      isSmartFetch: true,
+                      profileUrl: `https://github.com/${githubUser}`,
+                    });
+                  }
+                } catch {}
+              })()
+            );
+          }
+
+          // Google Play official 512×512 icon
+          if (directSocial.platform === 'googleplay' || hostname.includes('play.google.com')) {
+            subTasks.push(
+              (async () => {
+                try {
+                  const gpItems = await searchGooglePlay(rawUrl, 1);
+                  if (gpItems && gpItems.length > 0 && gpItems[0].iconUrl) {
+                    addCandidate({
+                      platform: 'googleplay',
+                      title: gpItems[0].title,
+                      iconUrl: gpItems[0].iconUrl,
+                      source: `Smart Fetch · Google Play 官方原画 (512×512) - ${gpItems[0].title}`,
+                      badge: '512×512 Google Play',
+                      sizeLabel: '512×512',
+                      score: 100,
+                      isSmartFetch: true,
+                      profileUrl: gpItems[0].profileUrl,
+                    });
+                  }
+                } catch {}
+              })()
+            );
+          }
+
+          // Chrome Web Store official 256×256 icon
+          if (directSocial.platform === 'chromestore' || hostname.includes('chromewebstore.google.com')) {
+            subTasks.push(
+              (async () => {
+                try {
+                  const csItems = await searchChromeWebStore(rawUrl, 1);
+                  if (csItems && csItems.length > 0 && csItems[0].iconUrl) {
+                    addCandidate({
+                      platform: 'chromestore',
+                      title: csItems[0].title,
+                      iconUrl: csItems[0].iconUrl,
+                      source: `Smart Fetch · Chrome Web Store 官方原图 (256×256) - ${csItems[0].title}`,
+                      badge: '256×256 Chrome',
+                      sizeLabel: '256×256',
+                      score: 98,
+                      isSmartFetch: true,
+                      profileUrl: csItems[0].profileUrl,
+                    });
+                  }
+                } catch {}
+              })()
+            );
+          }
+
+          // Facebook official 500×500 picture
+          if (directSocial.platform === 'facebook' || hostname.includes('facebook.com') || hostname.includes('fb.me')) {
+            const fbHandle = directSocial.handle || (popularConfig?.brand ? popularConfig.brand.replace(/\s+/g, '') : '');
+            if (fbHandle) {
+              subTasks.push(
+                (async () => {
+                  try {
+                    const fbItems = await searchFacebook(fbHandle);
+                    if (fbItems && fbItems.length > 0 && fbItems[0].iconUrl) {
+                      addCandidate({
+                        platform: 'facebook',
+                        title: fbItems[0].title,
+                        iconUrl: fbItems[0].iconUrl,
+                        source: `Smart Fetch · Facebook 官方头像 (500×500) - ${fbItems[0].title}`,
+                        badge: '500×500 Facebook',
+                        sizeLabel: '500×500',
+                        score: 96,
+                        isSmartFetch: true,
+                        profileUrl: fbItems[0].profileUrl,
+                      });
+                    }
+                  } catch {}
+                })()
+              );
+            }
+          }
+
+          // Instagram official avatar
+          if (directSocial.platform === 'instagram' || hostname.includes('instagram.com') || hostname.includes('threads.net')) {
+            const igHandle = directSocial.handle || (popularConfig?.brand ? popularConfig.brand.replace(/\s+/g, '') : '');
+            if (igHandle) {
+              subTasks.push(
+                (async () => {
+                  try {
+                    const igItems = await searchInstagram(igHandle);
+                    if (igItems && igItems.length > 0 && igItems[0].iconUrl) {
+                      addCandidate({
+                        platform: 'instagram',
+                        title: igItems[0].title,
+                        iconUrl: igItems[0].iconUrl,
+                        source: `Smart Fetch · Instagram 官方原画头像 - ${igItems[0].title}`,
+                        badge: '官方 Instagram 原画',
+                        sizeLabel: '高清原画',
+                        score: 96,
+                        isSmartFetch: true,
+                        profileUrl: igItems[0].profileUrl,
+                      });
+                    }
+                  } catch {}
+                })()
+              );
+            }
+          }
+
+          // Discord official server/guild 512×512 icon
+          if (directSocial.platform === 'discord' || hostname.includes('discord.gg') || hostname.includes('discord.com')) {
+            const dcCode = directSocial.handle || directSocial.extraId || '';
+            if (dcCode) {
+              subTasks.push(
+                (async () => {
+                  try {
+                    const dcItems = await searchDiscord(dcCode);
+                    if (dcItems && dcItems.length > 0 && dcItems[0].iconUrl) {
+                      addCandidate({
+                        platform: 'discord',
+                        title: dcItems[0].title,
+                        iconUrl: dcItems[0].iconUrl,
+                        source: `Smart Fetch · Discord 官方社区图标 (512×512) - ${dcItems[0].title}`,
+                        badge: '512×512 Discord',
+                        sizeLabel: '512×512',
+                        score: 97,
+                        isSmartFetch: true,
+                        profileUrl: dcItems[0].profileUrl,
+                      });
+                    }
+                  } catch {}
+                })()
+              );
+            }
+          }
+
+          await Promise.all(subTasks);
+
+          return {
+            youtubeChannel: ytResultChannel,
+            twitterHandle,
+            githubUser,
+            candidates: smartCandidates.sort((a, b) => b.score - a.score),
+          };
+        } catch {
+          return {
+            youtubeChannel: null,
+            twitterHandle: '',
+            githubUser: '',
+            candidates: [],
+          };
+        }
+      };
+
       const [, itunesData, geminiData, githubData, manifestData] = await Promise.all([
         htmlPromise,
         itunesTask(),
@@ -789,6 +1394,10 @@ Return ONLY valid JSON matching this schema:
       const appleMeta = itunesData;
       const aiResult = geminiData;
       clearTimeout(timeout);
+
+      // Execute Smart Fetch for high-definition social avatars (YouTube, Twitter/X, GitHub)
+      const smartFetchData = await smartFetchTask();
+      const youtubeData = smartFetchData.youtubeChannel;
 
       // Resolve relative icon URLs to absolute URLs
       const resolveUrl = (relativeUrl: string) => {
@@ -820,6 +1429,16 @@ Return ONLY valid JSON matching this schema:
       }
       if (appleMeta?.cleanName) {
         titleCandidates.push({ source: 'App Store 规范名称', title: appleMeta.cleanName });
+      }
+      if (youtubeData?.title) {
+        if (hostname.includes('play.google.com') || !appleMeta?.cleanName) {
+          titleCandidates.unshift({ source: 'YouTube 官方频道', title: youtubeData.title });
+        } else {
+          titleCandidates.push({ source: 'YouTube 官方频道', title: youtubeData.title });
+        }
+      }
+      if (smartFetchData.twitterHandle) {
+        titleCandidates.push({ source: 'Twitter / X 官方账号', title: `@${smartFetchData.twitterHandle}` });
       }
       if (aiResult?.title) {
         titleCandidates.push({ source: 'AI 智能提炼', title: sanitizeTitleText(aiResult.title) });
@@ -935,6 +1554,14 @@ Return ONLY valid JSON matching this schema:
         }
       }
 
+      // Priority 6: YouTube official channel description
+      if (youtubeData?.description) {
+        const cleanYtDesc = sanitizeDescriptionText(youtubeData.description);
+        if (cleanYtDesc) {
+          descriptionCandidates.push({ source: 'YouTube 官方频道简介', description: cleanYtDesc });
+        }
+      }
+
       // Fallback: If site had completely empty metadata, provide an honest factual domain label (no generic fluff)
       if (descriptionCandidates.length === 0) {
         descriptionCandidates.push({
@@ -943,14 +1570,36 @@ Return ONLY valid JSON matching this schema:
         });
       }
 
-      // Build Icon Candidates - prioritize high-res, beautifully regulated App Store icons
+      // Build Icon Candidates - prioritize high-res, beautifully regulated App Store & Smart Fetch social icons
       const iconCandidates: Array<{ source: string; iconUrl: string }> = [];
+
+      // Determine whether standard favicon fetching failed or is suboptimal (low-res, 16px/32px, missing, or popular service)
+      const isLowResFavicon = isLowQualityFavicon(scrapedFavicon) || isLikelyLowResIcon(scrapedFavicon);
+      const isPopularPlatform = Boolean(popularConfig) || hostname.includes('play.google.com') || hostname.includes('twitter.com') || hostname.includes('x.com');
+      const standardFaviconFailed = !scrapedFavicon || isLowResFavicon || isPopularPlatform;
+
+      // When standard favicon fetching fails for popular services:
+      // Smart Fetch prioritizes the official high-definition social media icons (YouTube 800px, Twitter 400px, GitHub 400px)
+      if (standardFaviconFailed && smartFetchData.candidates.length > 0) {
+        for (const sc of smartFetchData.candidates) {
+          iconCandidates.push({ source: sc.source, iconUrl: sc.iconUrl });
+        }
+      }
+
       if (appleMeta?.icon1024) {
         iconCandidates.push({ source: 'App Store 1024px', iconUrl: appleMeta.icon1024 });
       }
       if (appleMeta?.icon512 && appleMeta.icon512 !== appleMeta.icon1024) {
         iconCandidates.push({ source: 'App Store 512px', iconUrl: appleMeta.icon512 });
       }
+
+      // If standard favicon did NOT fail, add Smart Fetch candidates here (right after App Store 1024/512)
+      if (!standardFaviconFailed && smartFetchData.candidates.length > 0) {
+        for (const sc of smartFetchData.candidates) {
+          iconCandidates.push({ source: sc.source, iconUrl: sc.iconUrl });
+        }
+      }
+
       if (manifestData && manifestData.length > 0) {
         for (const mi of manifestData.slice(0, 2)) {
           iconCandidates.push({ source: `Web App Manifest (${mi.sizeLabel})`, iconUrl: mi.url });
@@ -1010,6 +1659,12 @@ Return ONLY valid JSON matching this schema:
         iconUrl: finalIcon,
         country: detectedCountry,
         tags: suggestedTags,
+        smartFetch: {
+          active: standardFaviconFailed && smartFetchData.candidates.length > 0,
+          platform: smartFetchData.candidates[0]?.platform || null,
+          candidatesCount: smartFetchData.candidates.length,
+          topSource: smartFetchData.candidates[0]?.source || null,
+        },
         candidates: {
           titles: uniqueTitles,
           descriptions: uniqueDescriptions,
@@ -1022,39 +1677,6 @@ Return ONLY valid JSON matching this schema:
         success: false,
         error: error?.message || 'Failed to fetch metadata',
       });
-    }
-  });
-
-  // API: Safe Image Proxy for CORS-free Canvas Super-Resolution & Compression
-  app.get('/api/proxy-image', async (req, res) => {
-    const imageUrl = req.query.url as string;
-    if (!imageUrl) {
-      return res.status(400).send('Missing url parameter');
-    }
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 6000);
-      const imageRes = await fetch(imageUrl, {
-        signal: controller.signal,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
-          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-        },
-      });
-      clearTimeout(timeout);
-
-      if (!imageRes.ok) {
-        return res.status(imageRes.status).send('Failed to fetch remote image');
-      }
-
-      const contentType = imageRes.headers.get('content-type') || 'image/png';
-      const arrayBuffer = await imageRes.arrayBuffer();
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      return res.send(Buffer.from(arrayBuffer));
-    } catch (err: any) {
-      return res.status(500).send(err?.message || 'Proxy error');
     }
   });
 
@@ -1175,6 +1797,136 @@ Return ONLY valid JSON matching this schema:
         } catch {}
       }
 
+      // 6.5. Smart Fetch: YouTube official channel avatar probe (800x800)
+      const ytSearchTerm = cleanPortalSearchTerm(targetSource) || brandName;
+      if (ytSearchTerm && ytSearchTerm.length >= 2) {
+        try {
+          const ytChannels = await searchYouTubeChannels(ytSearchTerm, 3);
+          for (const ch of ytChannels) {
+            candidates.push({
+              source: `Smart Fetch · YouTube 官方头像 (${ch.title})`,
+              url: ch.icon800,
+              badge: '800×800 Smart Fetch',
+              sizeLabel: '800×800',
+              score: ch.isVerified ? 100 : 98,
+            });
+          }
+        } catch {}
+      }
+
+      // 6.6. Smart Fetch: Twitter / X official avatar probe (400x400)
+      const popularProbeConfig = KNOWN_POPULAR_SERVICE_HANDLES[hostname] || KNOWN_POPULAR_SERVICE_HANDLES[rootDomain];
+      const directSocialProbe = extractSocialFromUrl(targetSource);
+      const twitterProbeHandle = directSocialProbe.platform === 'twitter' ? directSocialProbe.handle : popularProbeConfig?.twitter;
+      if (twitterProbeHandle) {
+        try {
+          const twUrl = buildTwitterAvatarUrl(twitterProbeHandle);
+          const valid = await verifyImageUrl(twUrl, 2000);
+          if (valid) {
+            candidates.push({
+              source: `Smart Fetch · Twitter / X 高清头像 (@${twitterProbeHandle})`,
+              url: twUrl,
+              badge: '400×400 Smart Fetch',
+              sizeLabel: '400×400',
+              score: 97,
+            });
+          }
+        } catch {}
+      }
+
+      // 6.7. Smart Fetch: GitHub official avatar probe (400x400)
+      const ghProbeUser = directSocialProbe.platform === 'github' ? directSocialProbe.handle : popularProbeConfig?.github;
+      if (ghProbeUser) {
+        try {
+          const ghUrl = buildGitHubAvatarUrl(ghProbeUser);
+          const valid = await verifyImageUrl(ghUrl, 2000);
+          if (valid) {
+            candidates.push({
+              source: `Smart Fetch · GitHub 官方头像 (@${ghProbeUser})`,
+              url: ghUrl,
+              badge: '400×400 Smart Fetch',
+              sizeLabel: '400×400',
+              score: 95,
+            });
+          }
+        } catch {}
+      }
+
+      // 6.8. Smart Fetch: Multi-Platform Portal Probes (Google Play, Chrome Store, Facebook, Instagram, Discord)
+      if (directSocialProbe.platform === 'googleplay' || hostname.includes('play.google.com')) {
+        try {
+          const gpItems = await searchGooglePlay(targetSource || brandName, 2);
+          for (const item of gpItems) {
+            candidates.push({
+              source: `Google Play 官方原画 (${item.title})`,
+              url: item.iconUrl,
+              badge: '512×512 Google Play',
+              sizeLabel: '512×512',
+              score: 99,
+            });
+          }
+        } catch {}
+      }
+      if (directSocialProbe.platform === 'chromestore' || hostname.includes('chromewebstore.google.com')) {
+        try {
+          const csItems = await searchChromeWebStore(targetSource || brandName, 2);
+          for (const item of csItems) {
+            candidates.push({
+              source: `Chrome 应用商店官方原图 (${item.title})`,
+              url: item.iconUrl,
+              badge: '256×256 Chrome',
+              sizeLabel: '256×256',
+              score: 96,
+            });
+          }
+        } catch {}
+      }
+      if (directSocialProbe.platform === 'facebook' || hostname.includes('facebook.com') || hostname.includes('fb.me')) {
+        try {
+          const fbHandle = directSocialProbe.handle || brandName;
+          const fbItems = await searchFacebook(fbHandle);
+          for (const item of fbItems) {
+            candidates.push({
+              source: `Facebook 官方高清头像 (${item.title})`,
+              url: item.iconUrl,
+              badge: '500×500 Facebook',
+              sizeLabel: '500×500',
+              score: 96,
+            });
+          }
+        } catch {}
+      }
+      if (directSocialProbe.platform === 'instagram' || hostname.includes('instagram.com') || hostname.includes('threads.net')) {
+        try {
+          const igHandle = directSocialProbe.handle || brandName;
+          const igItems = await searchInstagram(igHandle);
+          for (const item of igItems) {
+            candidates.push({
+              source: `Instagram 官方原画头像 (${item.title})`,
+              url: item.iconUrl,
+              badge: '官方 Instagram 原画',
+              sizeLabel: '高清原画',
+              score: 96,
+            });
+          }
+        } catch {}
+      }
+      if (directSocialProbe.platform === 'discord' || hostname.includes('discord.gg') || hostname.includes('discord.com')) {
+        try {
+          const dcCode = directSocialProbe.handle || brandName;
+          const dcItems = await searchDiscord(dcCode);
+          for (const item of dcItems) {
+            candidates.push({
+              source: `Discord 官方社区图标 (${item.title})`,
+              url: item.iconUrl,
+              badge: '512×512 Discord',
+              sizeLabel: '512×512',
+              score: 97,
+            });
+          }
+        } catch {}
+      }
+
       // 7. Root domain Google 256px fallback
       if (rootDomain && rootDomain !== hostname) {
         const rootGoogle256 = `https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${rootDomain}&size=256`;
@@ -1201,8 +1953,8 @@ Return ONLY valid JSON matching this schema:
       // Quick validation of candidates (filter out 404s for relative/direct probes)
       const validatedCandidates = await Promise.all(
         candidates.map(async (c) => {
-          // Data URLs & CDNs like Google / Unavatar are immediately valid
-          if (c.url.startsWith('data:') || c.url.includes('gstatic.com') || c.url.includes('google.com') || c.url.includes('mzstatic.com') || c.url.includes('unavatar.io')) {
+          // Data URLs & CDNs like Google / YouTube / Unavatar are immediately valid
+          if (c.url.startsWith('data:') || c.url.includes('gstatic.com') || c.url.includes('google.com') || c.url.includes('mzstatic.com') || c.url.includes('unavatar.io') || c.url.includes('ggpht.com') || c.url.includes('googleusercontent.com')) {
             return c;
           }
           // For direct domain probes (apple-touch-icon, favicon.svg, manifest icons), check if exists
@@ -1220,7 +1972,12 @@ Return ONLY valid JSON matching this schema:
         })
       );
 
-      const finalCandidates = validatedCandidates.filter(Boolean) as typeof candidates;
+      const seenCandidateUrls = new Set<string>();
+      const finalCandidates = (validatedCandidates.filter(Boolean) as typeof candidates).filter(c => {
+        if (!c.url || seenCandidateUrls.has(c.url)) return false;
+        seenCandidateUrls.add(c.url);
+        return true;
+      });
       return res.json({
         success: true,
         candidates: finalCandidates.sort((a, b) => b.score - a.score),
@@ -1269,7 +2026,8 @@ Return ONLY valid JSON matching this schema:
       }
 
       const domainParts = hostname.split('.');
-      const brandName = siteTitle || (domainParts.length > 1 ? domainParts[domainParts.length - 2] : domainParts[0]) || hostname || 'Web';
+      const popularFetchConfig = KNOWN_POPULAR_SERVICE_HANDLES[hostname] || KNOWN_POPULAR_SERVICE_HANDLES[domainParts.slice(-2).join('.')];
+      const brandName = popularFetchConfig?.brand || siteTitle || (domainParts.length > 1 ? domainParts[domainParts.length - 2] : domainParts[0]) || hostname || 'Web';
       const baseUrl = hostname ? `https://${hostname}` : '';
 
       // Check if current favicon is already verified high-quality
@@ -1286,6 +2044,150 @@ Return ONLY valid JSON matching this schema:
           pageHtml = await pageRes.text();
         }
       } catch {}
+
+      // 0. Direct Social Profile Page Check:
+      // If the user entered a specific social profile URL (e.g. twitter.com/OpenAI, youtube.com/@GooglePlay, github.com/facebook),
+      // extract their official profile avatar instead of the hosting platform's generic web manifest logo!
+      const directSocialProfile = extractSocialFromUrl(rawUrl);
+      if (directSocialProfile.platform === 'twitter' && directSocialProfile.handle) {
+        try {
+          const twUrl = buildTwitterAvatarUrl(directSocialProfile.handle);
+          const valid = await verifyImageUrl(twUrl, 2000);
+          if (valid) {
+            return res.json({
+              success: true,
+              iconUrl: twUrl,
+              source: `Smart Fetch · Twitter / X 高清头像 (@${directSocialProfile.handle})`,
+              sizeLabel: '400×400',
+              isHighRes: true,
+              isSmartFetch: true,
+              isLetterFallback: false,
+            });
+          }
+        } catch {}
+      }
+      if (directSocialProfile.platform === 'youtube') {
+        const ytQuery = directSocialProfile.query || directSocialProfile.handle;
+        if (ytQuery) {
+          try {
+            const ytChannels = await searchYouTubeChannels(ytQuery, 3);
+            if (ytChannels && ytChannels.length > 0 && ytChannels[0].icon800) {
+              return res.json({
+                success: true,
+                iconUrl: ytChannels[0].icon800,
+                source: `Smart Fetch · YouTube 官方原画 (${ytChannels[0].title})`,
+                sizeLabel: '800×800',
+                isHighRes: true,
+                isSmartFetch: true,
+                isLetterFallback: false,
+              });
+            }
+          } catch {}
+        }
+      }
+      if (directSocialProfile.platform === 'github' && directSocialProfile.handle) {
+        try {
+          const ghUrl = buildGitHubAvatarUrl(directSocialProfile.handle);
+          const valid = await verifyImageUrl(ghUrl, 2000);
+          if (valid) {
+            return res.json({
+              success: true,
+              iconUrl: ghUrl,
+              source: `Smart Fetch · GitHub 官方头像 (@${directSocialProfile.handle})`,
+              sizeLabel: '400×400',
+              isHighRes: true,
+              isSmartFetch: true,
+              isLetterFallback: false,
+            });
+          }
+        } catch {}
+      }
+
+      if (directSocialProfile.platform === 'googleplay') {
+        try {
+          const gpItems = await searchGooglePlay(rawUrl, 1);
+          if (gpItems && gpItems.length > 0 && gpItems[0].iconUrl) {
+            return res.json({
+              success: true,
+              iconUrl: gpItems[0].iconUrl,
+              source: `Google Play 官方原画 (512×512) - ${gpItems[0].title}`,
+              sizeLabel: '512×512',
+              isHighRes: true,
+              isSmartFetch: true,
+              isLetterFallback: false,
+            });
+          }
+        } catch {}
+      }
+
+      if (directSocialProfile.platform === 'chromestore') {
+        try {
+          const csItems = await searchChromeWebStore(rawUrl, 1);
+          if (csItems && csItems.length > 0 && csItems[0].iconUrl) {
+            return res.json({
+              success: true,
+              iconUrl: csItems[0].iconUrl,
+              source: `Chrome Web Store 官方图标 (256×256) - ${csItems[0].title}`,
+              sizeLabel: '256×256',
+              isHighRes: true,
+              isSmartFetch: true,
+              isLetterFallback: false,
+            });
+          }
+        } catch {}
+      }
+
+      if (directSocialProfile.platform === 'facebook' && directSocialProfile.handle) {
+        try {
+          const fbItems = await searchFacebook(directSocialProfile.handle);
+          if (fbItems && fbItems.length > 0 && fbItems[0].iconUrl) {
+            return res.json({
+              success: true,
+              iconUrl: fbItems[0].iconUrl,
+              source: `Facebook 官方头像 (500×500) - ${fbItems[0].title}`,
+              sizeLabel: '500×500',
+              isHighRes: true,
+              isSmartFetch: true,
+              isLetterFallback: false,
+            });
+          }
+        } catch {}
+      }
+
+      if (directSocialProfile.platform === 'instagram' && directSocialProfile.handle) {
+        try {
+          const igItems = await searchInstagram(directSocialProfile.handle);
+          if (igItems && igItems.length > 0 && igItems[0].iconUrl) {
+            return res.json({
+              success: true,
+              iconUrl: igItems[0].iconUrl,
+              source: `Instagram 官方原画头像 - ${igItems[0].title}`,
+              sizeLabel: '高清原画',
+              isHighRes: true,
+              isSmartFetch: true,
+              isLetterFallback: false,
+            });
+          }
+        } catch {}
+      }
+
+      if (directSocialProfile.platform === 'discord' && (directSocialProfile.handle || directSocialProfile.extraId)) {
+        try {
+          const dcCode = directSocialProfile.handle || directSocialProfile.extraId || '';
+          const dcItems = await searchDiscord(dcCode);
+          if (dcItems && dcItems.length > 0 && dcItems[0].iconUrl) {
+            return res.json({
+              success: true,
+              iconUrl: dcItems[0].iconUrl,
+              source: `Discord 官方社区图标 (512×512) - ${dcItems[0].title}`,
+              sizeLabel: '512×512',
+              isHighRes: true,
+              isSmartFetch: true,
+              isLetterFallback: false,
+            });
+          }
+        } catch {}
+      }
 
       // 1. First attempt: Probe Web App Manifest for high-res icons (512x512, 192x192, 256x256, SVG)
       const manifestIcons = await probeRemoteManifest(baseUrl, pageHtml);
@@ -1368,7 +2270,51 @@ Return ONLY valid JSON matching this schema:
         }
       } catch {}
 
-      // 4. Fourth attempt: Official App Store 512px icon if matched
+      // 4. Smart Fetch: YouTube Official Channel 800×800 avatar & Twitter 400×400 probe (prioritized for popular services & portals)
+      const ytClean = cleanPortalSearchTerm(rawUrl) || brandName;
+      if (popularFetchConfig || hostname.includes('play.google.com') || hostname.includes('twitter.com') || hostname.includes('x.com')) {
+        if (ytClean && ytClean.length >= 2) {
+          try {
+            const ytChannels = await searchYouTubeChannels(ytClean, 3);
+            if (ytChannels && ytChannels.length > 0) {
+              const bestYt = ytChannels[0];
+              if (bestYt.icon800) {
+                return res.json({
+                  success: true,
+                  iconUrl: bestYt.icon800,
+                  source: `Smart Fetch · YouTube 官方原画 (${bestYt.title})`,
+                  sizeLabel: '800×800',
+                  isHighRes: true,
+                  isSmartFetch: true,
+                  isLetterFallback: false,
+                });
+              }
+            }
+          } catch {}
+        }
+
+        const directSocialFetch = extractSocialFromUrl(rawUrl);
+        const twitterFetchHandle = directSocialFetch.platform === 'twitter' ? directSocialFetch.handle : popularFetchConfig?.twitter;
+        if (twitterFetchHandle) {
+          try {
+            const twUrl = buildTwitterAvatarUrl(twitterFetchHandle);
+            const valid = await verifyImageUrl(twUrl, 2000);
+            if (valid) {
+              return res.json({
+                success: true,
+                iconUrl: twUrl,
+                source: `Smart Fetch · Twitter / X 高清头像 (@${twitterFetchHandle})`,
+                sizeLabel: '400×400',
+                isHighRes: true,
+                isSmartFetch: true,
+                isLetterFallback: false,
+              });
+            }
+          } catch {}
+        }
+      }
+
+      // 4.5. Official App Store 512px icon if matched
       if (brandName && brandName.length >= 2 && !brandName.includes('.')) {
         try {
           const appResults = await lookupOrSearchAppStore(brandName, 'cn', 'all');
@@ -1381,6 +2327,27 @@ Return ONLY valid JSON matching this schema:
               isHighRes: true,
               isLetterFallback: false,
             });
+          }
+        } catch {}
+      }
+
+      // 4.6. Smart Fetch general fallback for any brand
+      if (ytClean && ytClean.length >= 2) {
+        try {
+          const ytChannels = await searchYouTubeChannels(ytClean, 3);
+          if (ytChannels && ytChannels.length > 0) {
+            const bestYt = ytChannels[0];
+            if (bestYt.icon800) {
+              return res.json({
+                success: true,
+                iconUrl: bestYt.icon800,
+                source: `Smart Fetch · YouTube 官方原画 (${bestYt.title})`,
+                sizeLabel: '800×800',
+                isHighRes: true,
+                isSmartFetch: true,
+                isLetterFallback: false,
+              });
+            }
           }
         } catch {}
       }

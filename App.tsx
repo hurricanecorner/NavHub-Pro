@@ -1,15 +1,16 @@
 // ... (previous imports)
 import React, { Component, useState, useEffect, ReactNode, ErrorInfo, useRef, useMemo } from 'react';
-import { Menu, Search, Settings, Edit, Lock, Languages, AlertTriangle, Moon, Sun, Laptop, Image as ImageIcon, ChevronDown, PlusCircle, Plus, LayoutGrid, Check, Tags, Tag, X, GripVertical, Flame, Pin, Activity, RefreshCw, ShieldCheck, RotateCcw, Clock, Eye } from 'lucide-react';
+import { Menu, Search, Settings, Edit, Lock, Languages, AlertTriangle, Moon, Sun, Laptop, Image as ImageIcon, ChevronDown, PlusCircle, Plus, LayoutGrid, Check, Tags, Tag, X, GripVertical, Flame, Pin, Activity, RefreshCw, ShieldCheck, RotateCcw, Clock, Eye, Trash2, Sliders, FolderPlus } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { AppData, LinkItem, CloudConfig, Language, Theme, Category, LinkHealth, HealthCheckCycle, SiteConfig } from './types';
-import { loadData, saveData, loadCloudConfig, saveCloudConfig, uploadToCloud, downloadFromCloud, loadLanguage, saveLanguage, loadTheme, saveTheme, recordClickStat, mergeClickStatsIntoLinks } from './services/storageUtils';
+import { loadData, saveData, loadCloudConfig, saveCloudConfig, uploadToCloud, downloadFromCloud, loadLanguage, saveLanguage, loadTheme, saveTheme, recordClickStat, mergeClickStatsIntoLinks, checkAndApplyDailyAutoSort, reorderAllLinksByFrequency } from './services/storageUtils';
 import { normalizeHealthUrl, loadHealthCache, saveHealthCache, checkBatchUrlsApi, checkSingleUrlApi, toggleTrustUrl, isUrlTrusted, clearHealthCache, loadTrustedUrls, saveTrustedUrls, getHealthCheckCycle, setHealthCheckCycle, getLastHealthCheckTime, setLastHealthCheckTime, isHealthCheckDue, getCycleDurationMs } from './linkHealthService';
 import { TRANSLATIONS } from './translations';
 import Sidebar from './components/Sidebar';
 import LinkCard from './components/LinkCard';
 import AdminModal from './components/AdminModal';
 import { HdIconEnhanceModal } from './components/HdIconEnhanceModal';
+import { CategoryIconPickerModal } from './components/CategoryIconPickerModal';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import WeeklyTrendsSection from './components/WeeklyTrendsSection';
@@ -136,10 +137,30 @@ const Dashboard: React.FC = () => {
     }
   });
 
+  // Quick edit states in main interface for categories and subcategories
+  const [editingCatIdInMain, setEditingCatIdInMain] = useState<string | null>(null);
+  const [editCatNameInMain, setEditCatNameInMain] = useState('');
+  const [addingSubInMainCatId, setAddingSubInMainCatId] = useState<string | null>(null);
+  const [newSubNameInMain, setNewSubNameInMain] = useState('');
+  const [editingSubCatIdInMain, setEditingSubCatIdInMain] = useState<string | null>(null);
+  const [editSubCatNameInMain, setEditSubCatNameInMain] = useState('');
+  const [isAddingMainCatInMain, setIsAddingMainCatInMain] = useState(false);
+  const [newMainCatNameInMain, setNewMainCatNameInMain] = useState('');
+  const [mainCatIconPickerTarget, setMainCatIconPickerTarget] = useState<{
+    id: string;
+    name: string;
+    icon?: string;
+    subCategoryNames: string[];
+  } | null>(null);
+
   const t = TRANSLATIONS[lang];
 
   useEffect(() => {
-    const loadedData = loadData();
+    let loadedData = loadData();
+    const { data: autoSortedData, didSort } = checkAndApplyDailyAutoSort(loadedData);
+    if (didSort) {
+      loadedData = autoSortedData;
+    }
     setData(loadedData); 
     setCloudConfig(loadCloudConfig()); 
     setLang(loadLanguage()); 
@@ -158,6 +179,16 @@ const Dashboard: React.FC = () => {
     const timer = setTimeout(() => {
       setPageReady(true);
       window.dispatchEvent(new CustomEvent('navhub-ready'));
+      if (didSort) {
+        setToasts(prev => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            type: 'info',
+            message: t.app?.autoSortNotice || '已按访问频次完成每日网址排序（置顶网址保持在前排）'
+          }
+        ]);
+      }
     }, 120);
     return () => clearTimeout(timer);
   }, []);
@@ -720,6 +751,154 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  const handleAddCategory = (name: string, icon: string = '') => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      showToast('error', lang === 'zh' ? '分类名称不能为空' : 'Category name cannot be empty');
+      return;
+    }
+    const newCat: Category = {
+      id: `c-${Date.now()}`,
+      name: trimmed,
+      icon: icon || '',
+      subCategories: []
+    };
+    handleUpdateData({
+      ...data,
+      categories: [...data.categories, newCat]
+    });
+    setActiveCategoryId(newCat.id);
+    setTimeout(() => {
+      const el = document.getElementById(`category-${newCat.id}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+    }, 150);
+    showToast('success', lang === 'zh' ? `主分类「${trimmed}」已创建` : `Category "${trimmed}" created`);
+  };
+
+  const handleUpdateCategory = (id: string, name: string, icon?: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      showToast('error', lang === 'zh' ? '分类名称不能为空' : 'Category name cannot be empty');
+      return;
+    }
+    const updatedCategories = data.categories.map(c => {
+      if (c.id === id) {
+        return {
+          ...c,
+          name: trimmed,
+          ...(icon !== undefined ? { icon } : {})
+        };
+      }
+      return c;
+    });
+    handleUpdateData({ ...data, categories: updatedCategories });
+    showToast('success', lang === 'zh' ? `主分类「${trimmed}」已更新` : `Category "${trimmed}" updated`);
+  };
+
+  const handleDeleteCategory = (id: string) => {
+    const target = data.categories.find(c => c.id === id);
+    if (!target) return;
+    const linkCount = data.links.filter(l => l.categoryId === id).length;
+    confirmAction(
+      t.admin.category.title || (lang === 'zh' ? '删除分类' : 'Delete Category'),
+      linkCount > 0 
+        ? (lang === 'zh' ? `确定删除主分类「${target.name}」吗？分类下的 ${linkCount} 个链接和所有子分类将一并移除。` : `Delete category "${target.name}"? ${linkCount} links and all subcategories will be removed.`)
+        : (lang === 'zh' ? `确定删除主分类「${target.name}」吗？` : `Delete category "${target.name}"?`),
+      () => {
+        const updatedCategories = data.categories.filter(c => c.id !== id);
+        const updatedLinks = data.links.filter(l => l.categoryId !== id);
+        handleUpdateData({
+          ...data,
+          categories: updatedCategories,
+          links: updatedLinks
+        });
+        if (activeCategoryId === id) {
+          setActiveCategoryId(updatedCategories[0]?.id || 'frequent');
+        }
+        showToast('success', lang === 'zh' ? `主分类「${target.name}」已删除` : `Category "${target.name}" removed`);
+      },
+      true
+    );
+  };
+
+  const handleAddSubCategory = (categoryId: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      showToast('error', lang === 'zh' ? '子分类名称不能为空' : 'Subcategory name cannot be empty');
+      return;
+    }
+    const cat = data.categories.find(c => c.id === categoryId);
+    if (!cat) return;
+    const newSubId = `sc-${Date.now()}`;
+    const updatedCategories = data.categories.map(c => {
+      if (c.id === categoryId) {
+        return {
+          ...c,
+          subCategories: [...c.subCategories, { id: newSubId, name: trimmed }]
+        };
+      }
+      return c;
+    });
+    handleUpdateData({ ...data, categories: updatedCategories });
+    showToast('success', lang === 'zh' ? `子分类「${trimmed}」已创建` : `Subcategory "${trimmed}" created`);
+  };
+
+  const handleUpdateSubCategory = (categoryId: string, subId: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      showToast('error', lang === 'zh' ? '子分类名称不能为空' : 'Subcategory name cannot be empty');
+      return;
+    }
+    const updatedCategories = data.categories.map(c => {
+      if (c.id === categoryId) {
+        return {
+          ...c,
+          subCategories: c.subCategories.map(s => s.id === subId ? { ...s, name: trimmed } : s)
+        };
+      }
+      return c;
+    });
+    handleUpdateData({ ...data, categories: updatedCategories });
+    showToast('success', lang === 'zh' ? `子分类「${trimmed}」已更新` : `Subcategory "${trimmed}" updated`);
+  };
+
+  const handleDeleteSubCategory = (categoryId: string, subId: string) => {
+    const cat = data.categories.find(c => c.id === categoryId);
+    const sub = cat?.subCategories.find(s => s.id === subId);
+    if (!cat || !sub) return;
+    const linkCount = data.links.filter(l => l.categoryId === categoryId && l.subCategoryId === subId).length;
+    confirmAction(
+      t.admin.category.editSub || (lang === 'zh' ? '删除子分类' : 'Delete Subcategory'),
+      linkCount > 0 
+        ? (lang === 'zh' ? `确定删除子分类「${sub.name}」吗？分类下的 ${linkCount} 个链接将移至通用分类。` : `Delete subcategory "${sub.name}"? ${linkCount} links will be moved to general.`)
+        : (lang === 'zh' ? `确定删除子分类「${sub.name}」吗？` : `Delete subcategory "${sub.name}"?`),
+      () => {
+        const updatedCategories = data.categories.map(c => {
+          if (c.id === categoryId) {
+            return {
+              ...c,
+              subCategories: c.subCategories.filter(s => s.id !== subId)
+            };
+          }
+          return c;
+        });
+        const updatedLinks = data.links.map(l => {
+          if (l.categoryId === categoryId && l.subCategoryId === subId) {
+            return { ...l, subCategoryId: '' };
+          }
+          return l;
+        });
+        handleUpdateData({
+          ...data,
+          categories: updatedCategories,
+          links: updatedLinks
+        });
+        showToast('success', lang === 'zh' ? `子分类「${sub.name}」已删除` : `Subcategory "${sub.name}" removed`);
+      },
+      true
+    );
+  };
+
   const columns = data.siteConfig?.linkColumns || 4;
   const filteredLinks = activeSearchQuery ? data.links.filter(l => l.title.toLowerCase().includes(activeSearchQuery.toLowerCase())) : data.links;
 
@@ -790,6 +969,12 @@ const Dashboard: React.FC = () => {
             isEditMode={isEditMode} 
             siteConfig={data.siteConfig} 
             theme={theme} 
+            onAddCategory={handleAddCategory}
+            onUpdateCategory={handleUpdateCategory}
+            onDeleteCategory={handleDeleteCategory}
+            onAddSubCategory={handleAddSubCategory}
+            onUpdateSubCategory={handleUpdateSubCategory}
+            onDeleteSubCategory={handleDeleteSubCategory}
           />
         </div>
         <main className={`flex-1 flex flex-col h-screen overflow-hidden relative z-10 transition-opacity duration-700 ${pageReady ? 'opacity-100' : 'opacity-0'}`}>
@@ -1303,23 +1488,50 @@ const Dashboard: React.FC = () => {
                   const isFrequentCollapsed = collapsedCategories.has('frequent');
                   return (
                     <section id="category-frequent" className="scroll-mt-24 animate-slide-up mb-12">
-                      <div className="flex items-center gap-4 mb-6 lg:mb-8 group/title cursor-pointer select-none" onDoubleClick={() => toggleCollapse('frequent')}>
-                        <div 
-                          className="p-1.5 lg:p-2 bg-amber-500/10 rounded-xl dark:bg-amber-500/20 text-amber-500 transition-all group-hover/title:bg-amber-500/20 group-hover/title:scale-105 active:scale-95"
+                      <div 
+                        className="flex items-center gap-3.5 mb-6 lg:mb-8 group/title cursor-pointer select-none" 
+                        onClick={() => toggleCollapse('frequent')}
+                      >
+                        <button 
+                          type="button"
+                          className={`relative w-9 h-9 lg:w-10 lg:h-10 rounded-2xl border flex items-center justify-center shrink-0 shadow-xs transition-all duration-300 cursor-pointer active:scale-95 group-hover/title:scale-105 ${
+                            isFrequentCollapsed
+                              ? 'bg-slate-100 hover:bg-slate-200/90 dark:bg-zinc-800 dark:hover:bg-zinc-700 border-slate-300/80 dark:border-zinc-700'
+                              : 'bg-amber-500/10 hover:bg-amber-500/20 dark:bg-amber-500/20 dark:hover:bg-amber-500/30 border-amber-200/60 hover:border-amber-300 dark:border-amber-700/40'
+                          }`}
                           onClick={(e) => { e.stopPropagation(); toggleCollapse('frequent'); }}
-                          title={isFrequentCollapsed ? '展开常用' : '折叠常用'}
+                          title={isFrequentCollapsed ? '点击展开常用' : '点击折叠常用'}
+                          aria-label={isFrequentCollapsed ? '展开常用' : '折叠常用'}
                         >
-                          <Flame className={`w-5 h-5 lg:w-6 lg:h-6 fill-amber-500/20 transition-all duration-300 ${isFrequentCollapsed ? 'opacity-50 scale-90 rotate-[-15deg]' : 'opacity-100 scale-100'}`} />
-                        </div>
+                          <Flame className={`w-5 h-5 lg:w-6 lg:h-6 transition-all duration-300 ${
+                            isFrequentCollapsed 
+                              ? 'opacity-50 scale-90 rotate-[-15deg] text-slate-400 dark:text-zinc-500 fill-transparent' 
+                              : 'text-amber-500 fill-amber-500/30'
+                          }`} />
+                          <div 
+                            className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-white dark:bg-zinc-900 border flex items-center justify-center shadow-2xs transition-all duration-300 ${
+                              isFrequentCollapsed
+                                ? '-rotate-90 border-amber-300 dark:border-amber-700 text-amber-600 dark:text-amber-400 scale-100'
+                                : 'border-slate-200 dark:border-zinc-700 text-slate-400 dark:text-zinc-400 opacity-0 group-hover/title:opacity-100 scale-90 group-hover/title:scale-100'
+                            }`}
+                          >
+                            <ChevronDown className="w-2.5 h-2.5" />
+                          </div>
+                        </button>
                         <div>
                           <div className="flex items-center gap-3">
-                            <h2 className="text-2xl lg:text-3xl font-black text-slate-800 drop-shadow-sm dark:text-white uppercase tracking-tight lg:tracking-[0.05em]">
+                            <h2 className="text-2xl lg:text-3xl font-black text-slate-800 drop-shadow-sm dark:text-white uppercase tracking-tight lg:tracking-[0.05em] group-hover/title:text-amber-600 dark:group-hover/title:text-amber-400 transition-colors">
                               {t.app.frequent || '常用'}
                             </h2>
                             <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/40">
                               Top {frequentLinks.length}
                             </span>
-                            {frequentLinks.filter(l => l.isPinned).length > 0 && (
+                            {isFrequentCollapsed && (
+                              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 dark:bg-zinc-800 dark:text-zinc-400 border border-slate-200/60 dark:border-zinc-700/60 animate-in fade-in duration-200">
+                                已折叠 · 点击展开
+                              </span>
+                            )}
+                            {!isFrequentCollapsed && frequentLinks.filter(l => l.isPinned).length > 0 && (
                               <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 text-white flex items-center gap-1 shadow-2xs border border-amber-400">
                                 <Pin className="w-2.5 h-2.5 fill-current rotate-12" />
                                 <span>
@@ -1381,25 +1593,197 @@ const Dashboard: React.FC = () => {
                   const isCollapsed = collapsedCategories.has(category.id);
                   const hasSubCats = category.subCategories.length > 0;
                   const rawGeneralLinks = data.links.filter(l => l.categoryId === category.id && (!l.subCategoryId || !hasSubCats));
-                  const generalLinks = isEditMode ? rawGeneralLinks : sortLinksByFrequency(rawGeneralLinks);
+                  const generalLinks = isEditMode
+                    ? rawGeneralLinks
+                    : (data.siteConfig?.autoSortByFrequency ? sortLinksByFrequency(rawGeneralLinks) : rawGeneralLinks);
+                  const totalCategoryLinks = data.links.filter(l => l.categoryId === category.id).length;
 
                   return (
                     <section key={category.id} id={`category-${category.id}`} className={`scroll-mt-24 mb-12 ${isEditMode ? '' : 'animate-slide-up'}`} style={{ animationDelay: `${catIdx * 100}ms` }}>
-                      <div className="flex items-center gap-4 mb-6 lg:mb-8 group/title cursor-pointer select-none" onDoubleClick={() => toggleCollapse(category.id)}>
-                        <div 
-                          className="p-1.5 lg:p-2 bg-brand-500/5 rounded-xl dark:bg-brand-500/10 transition-colors group-hover/title:bg-brand-500/10"
-                          onClick={(e) => { e.stopPropagation(); toggleCollapse(category.id); }}
+                      <div 
+                        className="flex items-center gap-3.5 mb-6 lg:mb-8 group/title cursor-pointer select-none" 
+                        onClick={() => toggleCollapse(category.id)}
+                      >
+                        <button
+                          type="button"
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            toggleCollapse(category.id); 
+                          }}
+                          className={`relative w-9 h-9 lg:w-10 lg:h-10 rounded-2xl border flex items-center justify-center shrink-0 shadow-xs transition-all duration-300 cursor-pointer active:scale-95 group-hover/title:scale-105 ${
+                            isCollapsed
+                              ? 'bg-slate-100 hover:bg-slate-200/90 dark:bg-zinc-800 dark:hover:bg-zinc-700 border-slate-300/80 dark:border-zinc-700'
+                              : 'bg-brand-50 hover:bg-brand-100 dark:bg-zinc-800/80 dark:hover:bg-zinc-700/80 border-brand-200/60 hover:border-brand-300 dark:border-white/10 dark:hover:border-white/20'
+                          }`}
+                          title={isCollapsed ? `点击展开「${category.name}」` : `点击折叠「${category.name}」`}
+                          aria-label={isCollapsed ? `展开 ${category.name}` : `折叠 ${category.name}`}
                         >
-                          <ChevronDown className={`w-5 h-5 lg:w-6 lg:h-6 text-slate-800 transition-transform duration-500 dark:text-white ${isCollapsed ? '-rotate-90' : ''}`} />
+                          <CategoryIconDisplay 
+                            category={category} 
+                            className={`w-5 h-5 lg:w-6 lg:h-6 transition-transform duration-300 ${
+                              isCollapsed ? 'opacity-50 scale-90 text-slate-400 dark:text-zinc-500' : 'text-brand-600 dark:text-brand-400'
+                            }`} 
+                          />
+                          {/* 微型折叠/展开指示器角标 */}
+                          <div 
+                            className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-white dark:bg-zinc-900 border flex items-center justify-center shadow-2xs transition-all duration-300 ${
+                              isCollapsed
+                                ? '-rotate-90 border-amber-300 dark:border-amber-700 text-amber-600 dark:text-amber-400 scale-100'
+                                : 'border-slate-200 dark:border-zinc-700 text-slate-400 dark:text-zinc-400 opacity-0 group-hover/title:opacity-100 scale-90 group-hover/title:scale-100'
+                            }`}
+                          >
+                            <ChevronDown className="w-2.5 h-2.5" />
+                          </div>
+                        </button>
+                        <div className="flex items-center gap-3">
+                          {editingCatIdInMain === category.id ? (
+                            <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                              <input
+                                type="text"
+                                value={editCatNameInMain}
+                                onChange={e => setEditCatNameInMain(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') {
+                                    handleUpdateCategory(category.id, editCatNameInMain);
+                                    setEditingCatIdInMain(null);
+                                  } else if (e.key === 'Escape') {
+                                    setEditingCatIdInMain(null);
+                                  }
+                                }}
+                                autoFocus
+                                className="px-3 py-1 text-lg font-black rounded-xl border-2 border-brand-500 bg-white dark:bg-zinc-800 text-slate-800 dark:text-white outline-none shadow-sm"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleUpdateCategory(category.id, editCatNameInMain);
+                                  setEditingCatIdInMain(null);
+                                }}
+                                className="p-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white shadow-xs"
+                                title="保存"
+                              >
+                                <Check className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingCatIdInMain(null)}
+                                className="p-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-zinc-700 text-slate-700 dark:text-zinc-200"
+                                title="取消"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <h2 className="text-2xl lg:text-3xl font-black text-slate-800 drop-shadow-sm dark:text-white uppercase tracking-tight lg:tracking-[0.05em] group-hover/title:text-brand-600 dark:group-hover/title:text-brand-400 transition-colors">
+                              {category.name}
+                            </h2>
+                          )}
+                          {isCollapsed && (
+                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 dark:bg-zinc-800 dark:text-zinc-400 border border-slate-200/60 dark:border-zinc-700/60 animate-in fade-in duration-200">
+                              已折叠 · {totalCategoryLinks} 个链接 (点击展开)
+                            </span>
+                          )}
+
+                          {isEditMode && !editingCatIdInMain && (
+                            <div className="flex items-center gap-1.5 ml-2" onClick={e => e.stopPropagation()}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingCatIdInMain(category.id);
+                                  setEditCatNameInMain(category.name);
+                                }}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-zinc-800 transition-colors"
+                                title={t.admin?.category?.edit || "重命名主分类"}
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setMainCatIconPickerTarget({
+                                  id: category.id,
+                                  name: category.name,
+                                  icon: category.icon,
+                                  subCategoryNames: category.subCategories.map(s => s.name)
+                                })}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-zinc-800 transition-colors"
+                                title="更换分类图标"
+                              >
+                                <Sliders className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAddingSubInMainCatId(category.id);
+                                  setNewSubNameInMain('');
+                                }}
+                                className="px-2.5 py-1 rounded-lg text-xs font-bold text-brand-600 bg-brand-50 hover:bg-brand-100 dark:bg-brand-950/50 dark:text-brand-400 flex items-center gap-1 transition-colors border border-brand-200/60 dark:border-brand-800/40"
+                                title={t.admin?.category?.newSub || "在此分类下新增子分类"}
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>{t.admin?.category?.newSub || '新增子分类'}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCategory(category.id)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-zinc-800 transition-colors"
+                                title="删除主分类"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
                         </div>
-                        <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-2xl bg-brand-50 dark:bg-zinc-800/80 border border-brand-200/60 dark:border-white/10 flex items-center justify-center shrink-0 shadow-xs">
-                          <CategoryIconDisplay category={category} className="w-5 h-5 lg:w-6 lg:h-6 text-brand-600 dark:text-brand-400" />
-                        </div>
-                        <h2 className="text-2xl lg:text-3xl font-black text-slate-800 drop-shadow-sm dark:text-white uppercase tracking-tight lg:tracking-[0.05em]">{category.name}</h2>
-                        <div className="flex-1 h-[2px] bg-gradient-to-r from-slate-200 to-transparent dark:from-zinc-700/50 ml-4 opacity-40"></div>
+                        <div className="flex-1 h-[2px] bg-gradient-to-r from-slate-200 to-transparent dark:from-zinc-700/50 ml-2 opacity-40"></div>
                       </div>
                       {!isCollapsed && (
                         <div className="space-y-10 lg:space-y-12">
+                          {/* Inline Subcategory Add Input in Main Area */}
+                          {isEditMode && addingSubInMainCatId === category.id && (
+                            <div className="p-4 rounded-2xl bg-brand-50/50 dark:bg-brand-950/20 border-2 border-dashed border-brand-300 dark:border-brand-700/60 flex items-center gap-3 animate-in fade-in duration-200">
+                              <span className="text-xs font-black text-brand-700 dark:text-brand-300 shrink-0">
+                                新增子分类：
+                              </span>
+                              <input
+                                type="text"
+                                value={newSubNameInMain}
+                                onChange={e => setNewSubNameInMain(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') {
+                                    handleAddSubCategory(category.id, newSubNameInMain);
+                                    setAddingSubInMainCatId(null);
+                                    setNewSubNameInMain('');
+                                  } else if (e.key === 'Escape') {
+                                    setAddingSubInMainCatId(null);
+                                  }
+                                }}
+                                autoFocus
+                                placeholder="输入新子分类名称 (如：热门影视)..."
+                                className="flex-1 min-w-0 px-3 py-1.5 bg-white dark:bg-zinc-800 text-xs font-bold rounded-xl border border-brand-300 dark:border-brand-700 outline-none text-slate-800 dark:text-white shadow-2xs"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleAddSubCategory(category.id, newSubNameInMain);
+                                  setAddingSubInMainCatId(null);
+                                  setNewSubNameInMain('');
+                                }}
+                                disabled={!newSubNameInMain.trim()}
+                                className="px-3.5 py-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs transition-colors flex items-center gap-1 cursor-pointer"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>创建</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setAddingSubInMainCatId(null)}
+                                className="p-1.5 rounded-xl hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-500 dark:text-zinc-400"
+                                title="取消"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
+
                           {(!hasSubCats || generalLinks.length > 0 || isEditMode) && (
                             <Droppable droppableId={`links__${category.id}__GENERAL`} type="LINK" direction="horizontal">
                               {(provided) => (
@@ -1438,10 +1822,80 @@ const Dashboard: React.FC = () => {
                           )}
                           {hasSubCats && category.subCategories.map((sub) => {
                             const rawSubLinks = data.links.filter(l => l.categoryId === category.id && l.subCategoryId === sub.id);
-                            const subLinks = isEditMode ? rawSubLinks : sortLinksByFrequency(rawSubLinks);
+                            const subLinks = isEditMode
+                              ? rawSubLinks
+                              : (data.siteConfig?.autoSortByFrequency ? sortLinksByFrequency(rawSubLinks) : rawSubLinks);
+                            const isEditingThisSubInMain = editingSubCatIdInMain === sub.id;
+
                             return (
                               <div key={sub.id} id={`subcat-${sub.id}`} className="animate-fade-in">
-                                <div className="flex items-center gap-3 mb-5 lg:mb-6 group/sub"><span className="text-xs lg:text-sm font-black text-slate-400 dark:text-zinc-500 uppercase tracking-[0.12em]"># {sub.name}</span></div>
+                                <div className="flex items-center gap-3 mb-5 lg:mb-6 group/sub">
+                                  {isEditingThisSubInMain ? (
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="text"
+                                        value={editSubCatNameInMain}
+                                        onChange={e => setEditSubCatNameInMain(e.target.value)}
+                                        onKeyDown={e => {
+                                          if (e.key === 'Enter') {
+                                            handleUpdateSubCategory(category.id, sub.id, editSubCatNameInMain);
+                                            setEditingSubCatIdInMain(null);
+                                          } else if (e.key === 'Escape') {
+                                            setEditingSubCatIdInMain(null);
+                                          }
+                                        }}
+                                        autoFocus
+                                        className="px-2.5 py-1 text-xs font-black rounded-lg border-2 border-brand-500 bg-white dark:bg-zinc-800 text-slate-800 dark:text-white outline-none shadow-xs"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          handleUpdateSubCategory(category.id, sub.id, editSubCatNameInMain);
+                                          setEditingSubCatIdInMain(null);
+                                        }}
+                                        className="p-1 rounded-lg bg-emerald-500 text-white"
+                                        title="保存"
+                                      >
+                                        <Check className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingSubCatIdInMain(null)}
+                                        className="p-1 rounded-lg bg-slate-200 text-slate-700 dark:bg-zinc-700 dark:text-zinc-200"
+                                        title="取消"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <span className="text-xs lg:text-sm font-black text-slate-400 dark:text-zinc-500 uppercase tracking-[0.12em]"># {sub.name}</span>
+                                      {isEditMode && (
+                                        <div className="flex items-center gap-1 opacity-70 group-hover/sub:opacity-100 transition-opacity">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setEditingSubCatIdInMain(sub.id);
+                                              setEditSubCatNameInMain(sub.name);
+                                            }}
+                                            className="p-1 rounded text-slate-400 hover:text-brand-600 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors"
+                                            title={t.admin?.category?.editSub || "重命名子分类"}
+                                          >
+                                            <Edit className="w-3.5 h-3.5" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteSubCategory(category.id, sub.id)}
+                                            className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors"
+                                            title="删除子分类"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
                                 <Droppable droppableId={`links__${category.id}__${sub.id}`} type="LINK" direction="horizontal">
                                   {(provided) => (
                                     <div ref={provided.innerRef} {...provided.droppableProps} style={gridStyle} className="min-h-[50px]">
@@ -1485,6 +1939,80 @@ const Dashboard: React.FC = () => {
                     </section>
                   );
                 })}
+
+                {/* Quick Add Main Category Section in Main Area in Edit Mode */}
+                {isEditMode && (
+                  <div className="mb-12">
+                    {isAddingMainCatInMain ? (
+                      <div className="p-6 rounded-2xl bg-white dark:bg-zinc-800 border-2 border-brand-500 shadow-lg space-y-4 max-w-lg">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-black text-slate-800 dark:text-zinc-100 flex items-center gap-2">
+                            <FolderPlus className="w-4 h-4 text-brand-600 dark:text-brand-400" />
+                            {t.admin?.category?.new || '新建主分类'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setIsAddingMainCatInMain(false)}
+                            className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          value={newMainCatNameInMain}
+                          onChange={e => setNewMainCatNameInMain(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              handleAddCategory(newMainCatNameInMain);
+                              setNewMainCatNameInMain('');
+                              setIsAddingMainCatInMain(false);
+                            } else if (e.key === 'Escape') {
+                              setIsAddingMainCatInMain(false);
+                            }
+                          }}
+                          autoFocus
+                          placeholder="输入主分类名称 (例如：影音娱乐、设计资源)..."
+                          className="w-full px-4 py-2.5 bg-slate-50 dark:bg-zinc-700/80 border border-slate-200 dark:border-white/10 rounded-xl font-bold text-sm outline-none focus:border-brand-500 dark:text-white"
+                        />
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setIsAddingMainCatInMain(false)}
+                            className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-700 transition-colors"
+                          >
+                            取消
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleAddCategory(newMainCatNameInMain);
+                              setNewMainCatNameInMain('');
+                              setIsAddingMainCatInMain(false);
+                            }}
+                            disabled={!newMainCatNameInMain.trim()}
+                            className="px-5 py-2 rounded-xl bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs font-black shadow-md transition-colors flex items-center gap-1.5"
+                          >
+                            <Check className="w-4 h-4" />
+                            <span>创建分类</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAddingMainCatInMain(true);
+                          setNewMainCatNameInMain('');
+                        }}
+                        className="w-full py-5 rounded-2xl border-2 border-dashed border-slate-300 dark:border-zinc-700 hover:border-brand-400 dark:hover:border-brand-500 bg-white/50 dark:bg-zinc-800/40 hover:bg-brand-50/30 dark:hover:bg-brand-950/20 text-slate-500 dark:text-zinc-400 hover:text-brand-600 dark:hover:text-brand-400 font-black text-sm flex items-center justify-center gap-2.5 transition-all shadow-2xs group cursor-pointer"
+                      >
+                        <PlusCircle className="w-5 h-5 text-slate-400 group-hover:text-brand-500 transition-colors" />
+                        <span>+ {t.admin?.category?.new || '新建主分类'}</span>
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {/* Main Content Tag Pool Section */}
                 {tagStats.length > 0 && (
@@ -1599,6 +2127,23 @@ const Dashboard: React.FC = () => {
               handleUpdateData(newData);
               showToast('success', `已将「${hdEnhanceLink.title}」的图标成功升级为高清版本！`);
               setHdEnhanceLink(null);
+            }}
+          />
+        )}
+
+        {/* Category Icon Picker Modal in Main Interface */}
+        {mainCatIconPickerTarget && (
+          <CategoryIconPickerModal
+            isOpen={true}
+            onClose={() => setMainCatIconPickerTarget(null)}
+            categoryName={mainCatIconPickerTarget.name}
+            subCategoryNames={mainCatIconPickerTarget.subCategoryNames}
+            currentIcon={mainCatIconPickerTarget.icon}
+            onApplyIcon={(newIcon) => {
+              if (mainCatIconPickerTarget.id) {
+                handleUpdateCategory(mainCatIconPickerTarget.id, mainCatIconPickerTarget.name, newIcon);
+              }
+              setMainCatIconPickerTarget(null);
             }}
           />
         )}

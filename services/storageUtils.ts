@@ -108,6 +108,104 @@ export const loadData = (): AppData => {
   }
 };
 
+/**
+ * 针对某一分类/子分类内的一组链接按照常用置顶优先、访问频次 (clickCount) 降序排序
+ */
+export const sortCategoryLinksByFrequency = (linkList: LinkItem[]): LinkItem[] => {
+  return [...linkList].sort((a, b) => {
+    // 1. 置顶链接永远保持在前排
+    const isPinnedA = Boolean(a.isPinned);
+    const isPinnedB = Boolean(b.isPinned);
+    if (isPinnedA !== isPinnedB) {
+      return isPinnedA ? -1 : 1;
+    }
+    if (isPinnedA && isPinnedB) {
+      const pinTimeA = a.pinnedAt || 0;
+      const pinTimeB = b.pinnedAt || 0;
+      if (pinTimeB !== pinTimeA) return pinTimeB - pinTimeA;
+    }
+    // 2. 非置顶链接根据 clickCount 累计点击频次降序
+    const clicksA = a.clickCount || 0;
+    const clicksB = b.clickCount || 0;
+    if (clicksB !== clicksA) return clicksB - clicksA;
+    // 3. 频次相同时按最近点击时间排序
+    const timeA = a.lastClickedAt || 0;
+    const timeB = b.lastClickedAt || 0;
+    if (timeB !== timeA) return timeB - timeA;
+    // 4. 最后按标题字母顺序排序
+    return (a.title || '').localeCompare(b.title || '');
+  });
+};
+
+/**
+ * 遍历并重新排列所有分类和子分类下的所有链接，实现全局按频次排布
+ */
+export const reorderAllLinksByFrequency = (
+  links: LinkItem[],
+  categories: Category[]
+): LinkItem[] => {
+  const newLinks: LinkItem[] = [];
+  const handledIds = new Set<string>();
+
+  categories.forEach(cat => {
+    const hasSubCats = (cat.subCategories || []).length > 0;
+    // 分类直属常规链接
+    const general = links.filter(l => l.categoryId === cat.id && (!l.subCategoryId || !hasSubCats));
+    const sortedGeneral = sortCategoryLinksByFrequency(general);
+    sortedGeneral.forEach(l => {
+      newLinks.push(l);
+      handledIds.add(l.id);
+    });
+
+    // 子分类下的链接
+    (cat.subCategories || []).forEach(sub => {
+      const subLinks = links.filter(l => l.categoryId === cat.id && l.subCategoryId === sub.id && !handledIds.has(l.id));
+      const sortedSub = sortCategoryLinksByFrequency(subLinks);
+      sortedSub.forEach(l => {
+        newLinks.push(l);
+        handledIds.add(l.id);
+      });
+    });
+  });
+
+  // 处理可能存在分类变动的孤立链接
+  const remaining = links.filter(l => !handledIds.has(l.id));
+  if (remaining.length > 0) {
+    newLinks.push(...sortCategoryLinksByFrequency(remaining));
+  }
+
+  return newLinks;
+};
+
+/**
+ * 检查并执行每日一次的自动频次重排
+ */
+export const checkAndApplyDailyAutoSort = (appData: AppData): { data: AppData; didSort: boolean } => {
+  if (!appData.siteConfig?.autoSortByFrequency) {
+    return { data: appData, didSort: false };
+  }
+
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  
+  if (appData.siteConfig.lastAutoSortedDate === todayStr) {
+    return { data: appData, didSort: false };
+  }
+
+  const reorderedLinks = reorderAllLinksByFrequency(appData.links, appData.categories);
+  const updatedData: AppData = {
+    ...appData,
+    links: reorderedLinks,
+    siteConfig: {
+      ...appData.siteConfig,
+      lastAutoSortedDate: todayStr
+    }
+  };
+
+  saveData(updatedData);
+  return { data: updatedData, didSort: true };
+};
+
 export const saveData = (data: AppData) => {
   if (data && Array.isArray(data.links)) {
     const stats = loadClickStats();
