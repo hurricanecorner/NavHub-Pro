@@ -14,9 +14,20 @@ interface ConfirmDialogProps {
 }
 
 export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({ 
-  isOpen, title, message, onConfirm, onCancel, confirmText = "Confirm", cancelText = "Cancel", isDangerous = false 
+  isOpen, 
+  title, 
+  message, 
+  onConfirm, 
+  onCancel, 
+  confirmText, 
+  cancelText, 
+  isDangerous = false 
 }) => {
   if (!isOpen) return null;
+
+  const resolvedConfirmText = confirmText || (isDangerous ? "确认删除" : "确定");
+  const resolvedCancelText = cancelText || "取消";
+
   return (
     <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity animate-in fade-in duration-200" onClick={onCancel} />
@@ -29,8 +40,20 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           <p className="text-sm text-slate-500 dark:text-zinc-400 leading-relaxed font-black">{message}</p>
         </div>
         <div className="flex gap-3">
-          <button onClick={onCancel} className="flex-1 px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-sm font-black hover:bg-slate-200 transition-colors dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600">{cancelText}</button>
-          <button onClick={onConfirm} className={`flex-1 px-4 py-2.5 text-white rounded-xl text-sm font-black shadow-lg shadow-brand-200 dark:shadow-none transition-all active:scale-95 ${isDangerous ? 'bg-red-500 hover:bg-red-600' : 'bg-brand-600 hover:bg-brand-700'}`}>{confirmText}</button>
+          <button 
+            type="button"
+            onClick={onCancel} 
+            className="flex-1 px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-sm font-black hover:bg-slate-200 transition-colors dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600 cursor-pointer"
+          >
+            {resolvedCancelText}
+          </button>
+          <button 
+            type="button"
+            onClick={onConfirm} 
+            className={`flex-1 px-4 py-2.5 text-white rounded-xl text-sm font-black shadow-lg shadow-brand-200 dark:shadow-none transition-all active:scale-95 cursor-pointer ${isDangerous ? 'bg-red-500 hover:bg-red-600' : 'bg-brand-600 hover:bg-brand-700'}`}
+          >
+            {resolvedConfirmText}
+          </button>
         </div>
       </div>
     </div>

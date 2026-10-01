@@ -12,6 +12,7 @@ export interface LetterIconOptions {
   backgroundTo?: string;
   textColor?: string;
   gradient?: boolean;
+  transparent?: boolean;
   customLetters?: string;
   fontScale?: number;
   verticalOffset?: number; // 垂直偏移量校准 (-30 ~ +30 px，负数向上抬升)
@@ -138,7 +139,8 @@ export function generateLetterIcon(
   const size = options.size || 256;
   const fromColor = options.background || palette.from;
   const toColor = options.backgroundTo || options.background || palette.to;
-  const textColor = options.textColor || palette.text;
+  const isTransparent = Boolean(options.transparent || options.background === 'transparent');
+  const textColor = options.textColor || (isTransparent ? '#4f46e5' : palette.text);
   const fontScale = options.fontScale || 1.0;
 
   // 根据字数与语言自适应大幅放大字体尺寸（紧贴主流 App 图标设计规范，填充率由 ~38% 跃升至 ~65%）
@@ -176,7 +178,24 @@ export function generateLetterIcon(
   const rxAttr = rx > 0 ? `rx="${rx}"` : '';
   const innerRxAttr = rx > 0 ? `rx="${Math.max(0, rx - 1)}"` : '';
 
-  const svg = `
+  const svg = isTransparent ? `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="${size}" height="${size}">
+  <!-- Letter Text: 绝对正中心对齐，透明无底色 -->
+  <g transform="translate(0, ${totalYShift})">
+    <text 
+      x="128" 
+      y="128" 
+      dominant-baseline="central" 
+      text-anchor="middle" 
+      fill="${textColor}" 
+      font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" 
+      font-size="${finalFontSize}" 
+      font-weight="800" 
+      letter-spacing="${letters.length > 1 ? '-0.04em' : '0'}"
+    >${letters}</text>
+  </g>
+</svg>
+`.trim() : `
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="${size}" height="${size}">
   <defs>
     <linearGradient id="${gradientId}" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -220,7 +239,8 @@ export function generateLetterIcon(
 }
 
 /**
- * 规范化图标显示，解决历史生成的 SVG 中写死的 rx 导致的八边形切角或边角冲突问题
+ * 规范化图标显示，解决历史生成的 SVG 中写死的 rx 导致的八边形切角或边角冲突问题，
+ * 并深度自愈历史备份导入中可能出现的双层嵌套 data:image/svg+xml 异常
  */
 export function normalizeIconForDisplay(url?: string): string {
   if (!url) return '';
@@ -230,30 +250,72 @@ export function normalizeIconForDisplay(url?: string): string {
       // 1. 处理 Base64 编码的 SVG
       if (trimmed.includes(';base64,')) {
         const parts = trimmed.split(';base64,');
-        if (typeof atob === 'function' && typeof btoa === 'function') {
-          const decoded = atob(parts[1]);
+        if (typeof atob === 'function') {
+          let decoded = atob(parts[1]);
+          // 深度解包历史或导入中可能双层嵌套的 data:image/svg+xml 字符串
+          while (decoded.startsWith('data:image/svg+xml')) {
+            const commaIdx = decoded.indexOf(',');
+            if (commaIdx !== -1) {
+              const meta = decoded.substring(0, commaIdx);
+              const payload = decoded.substring(commaIdx + 1);
+              if (meta.includes(';base64')) {
+                try { decoded = atob(payload); } catch { break; }
+              } else {
+                try { decoded = decodeURIComponent(payload); } catch { decoded = payload; break; }
+              }
+            } else {
+              break;
+            }
+          }
           if (/\b(?:rx|ry)=["']\d+["']/.test(decoded)) {
-            const cleaned = decoded
+            decoded = decoded
               .replace(/\brx=["']\d+["']/g, 'rx="0"')
               .replace(/\bry=["']\d+["']/g, 'ry="0"');
-            return `${parts[0]};base64,${btoa(cleaned)}`;
           }
+          // 升级历史版本中偏小的单字符字号 (如历史 140 升级至 175，保持与当前生成的字标视觉一致饱满)
+          if (/>\s*[A-Za-z0-9]\s*<\/text>/.test(decoded) && /\bfont-size=["'](?:140|130|120|110|100|90)["']/.test(decoded)) {
+            decoded = decoded.replace(/\bfont-size=["'](?:140|130|120|110|100|90)["']/, 'font-size="175"');
+          }
+          return `data:image/svg+xml;utf8,${encodeURIComponent(decoded)}`;
         }
         return trimmed;
       }
 
       // 2. 处理 UTF-8 / URL 编码的 SVG
       const raw = trimmed.replace(/^data:image\/svg\+xml(?:;utf8)?,/, '');
-      const decoded = decodeURIComponent(raw);
+      let decoded: string;
+      try {
+        decoded = decodeURIComponent(raw);
+      } catch {
+        decoded = raw;
+      }
+      while (decoded.startsWith('data:image/svg+xml')) {
+        const commaIdx = decoded.indexOf(',');
+        if (commaIdx !== -1) {
+          const meta = decoded.substring(0, commaIdx);
+          const payload = decoded.substring(commaIdx + 1);
+          if (meta.includes(';base64')) {
+            try { decoded = atob(payload); } catch { break; }
+          } else {
+            try { decoded = decodeURIComponent(payload); } catch { decoded = payload; break; }
+          }
+        } else {
+          break;
+        }
+      }
       // 清除写死的 rx/ry 属性，使其全画幅铺满，完美响应外层 CSS 容器边框而不产生边缘切割
       if (/\b(?:rx|ry)=["']\d+["']/.test(decoded) || /(?:rx|ry)%3D%22\d+%22/.test(decoded)) {
-        const cleaned = decoded
+        decoded = decoded
           .replace(/\brx=["']\d+["']/g, 'rx="0"')
           .replace(/\bry=["']\d+["']/g, 'ry="0"')
           .replace(/rx%3D%22\d+%22/g, 'rx%3D%220%22')
           .replace(/ry%3D%22\d+%22/g, 'ry%3D%220%22');
-        return 'data:image/svg+xml;utf8,' + encodeURIComponent(cleaned);
       }
+      // 升级历史版本中偏小的单字符字号 (如历史 140 升级至 175，保持与当前生成的字标视觉一致饱满)
+      if (/>\s*[A-Za-z0-9]\s*<\/text>/.test(decoded) && /\bfont-size=["'](?:140|130|120|110|100|90)["']/.test(decoded)) {
+        decoded = decoded.replace(/\bfont-size=["'](?:140|130|120|110|100|90)["']/, 'font-size="175"');
+      }
+      return 'data:image/svg+xml;utf8,' + encodeURIComponent(decoded);
     } catch {
       return trimmed;
     }

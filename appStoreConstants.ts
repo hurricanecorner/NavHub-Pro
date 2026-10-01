@@ -157,10 +157,13 @@ export interface YouTubeChannelResult {
 
 export type PortalPlatformId =
   | 'all'
-  | 'youtube'
   | 'appstore'
   | 'googleplay'
   | 'chromestore'
+  | 'youtube'
+  | 'bilibili'
+  | 'twitter'
+  | 'xiaohongshu'
   | 'facebook'
   | 'instagram'
   | 'discord';
@@ -177,13 +180,12 @@ export interface PortalTabOption {
 
 export const PORTAL_PLATFORM_TABS: PortalTabOption[] = [
   { id: 'all', label: '智能聚合', shortLabel: '聚合', resolutionBadge: '多源极清', tip: '⚡ 全网官方多源极清聚合检索', badgeBg: 'bg-brand-600', placeholder: '输入应用名称、品牌或域名进行多源智能检索...' },
-  { id: 'youtube', label: 'YouTube 官方头像', shortLabel: 'YouTube', resolutionBadge: '800px', tip: '🔴 YouTube 官方认证频道原画头像', badgeBg: 'bg-red-600', placeholder: '搜索 YouTube 官方频道或 @账号 (如 @GooglePlay)...' },
   { id: 'appstore', label: 'App Store 苹果应用', shortLabel: 'App Store', resolutionBadge: '1024px', tip: '🍏 Apple 官方正版规范图标 (1024×1024)', badgeBg: 'bg-blue-600', placeholder: '搜索 App Store 应用、软件或粘贴应用链接...' },
   { id: 'googleplay', label: 'Google Play 商店', shortLabel: 'Google Play', resolutionBadge: '512px', tip: '▶️ Google Play 官方安卓原画图标 (512×512)', badgeBg: 'bg-emerald-600', placeholder: '搜索 Google Play 安卓应用或输入应用包名 (如 com.spotify.music)...' },
   { id: 'chromestore', label: 'Chrome Web Store', shortLabel: 'Chrome 插件', resolutionBadge: '256px', tip: '🌐 Chrome 应用商店扩展与插件原图 (256×256)', badgeBg: 'bg-amber-600', placeholder: '搜索 Chrome 扩展插件名称或 32 位扩展 ID (如 AdBlock)...' },
-  { id: 'facebook', label: 'Facebook 公共主页', shortLabel: 'Facebook', resolutionBadge: '500px', tip: '🔷 Facebook 品牌官方公共主页高清头像 (500×500)', badgeBg: 'bg-blue-700', placeholder: '搜索 Facebook 公共主页名称或主页网址 (如 Spotify)...' },
-  { id: 'instagram', label: 'Instagram 官方主页', shortLabel: 'Instagram', resolutionBadge: '高清原画', tip: '📸 Instagram 官方主页原画头像', badgeBg: 'bg-pink-600', placeholder: '搜索 Instagram 用户名或主页网址 (如 @spotify)...' },
-  { id: 'discord', label: 'Discord 社区服务器', shortLabel: 'Discord', resolutionBadge: '512px', tip: '💬 Discord 官方社区与服务器图标 (512×512)', badgeBg: 'bg-indigo-600', placeholder: '搜索 Discord 服务器名称或粘贴邀请码 (如 midjourney 或 discord.gg/code)...' },
+  { id: 'youtube', label: 'YouTube 官方头像', shortLabel: 'YouTube', resolutionBadge: '800px', tip: '🔴 YouTube 官方认证频道原画头像', badgeBg: 'bg-red-600', placeholder: '搜索 YouTube 官方频道或 @账号 (如 @GooglePlay)...' },
+  { id: 'bilibili', label: 'Bilibili 官方头像', shortLabel: 'B站', resolutionBadge: 'HD 原画', tip: '📺 哔哩哔哩官方与 UP 主高清原画头像 (https://www.bilibili.com/)', badgeBg: 'bg-[#00AEEC] text-white', placeholder: '搜索 B站 UP主名称、UID 或输入空间网址 (如 影视飓风、946974)...' },
+  { id: 'twitter', label: 'X (Twitter) 官方头像', shortLabel: 'X / Twitter', resolutionBadge: '400px 原画', tip: '𝕏 X (原 Twitter) 官方认证账号与用户 400×400 高清原画头像', badgeBg: 'bg-zinc-900 text-white dark:bg-black', placeholder: '搜索 X (Twitter) 用户名、handle 或输入主页网址 (如 @elonmusk、x.com/openai)...' },
 ];
 
 /**
@@ -233,12 +235,23 @@ export function cleanPortalSearchTerm(input?: string): string {
         const parts = u.pathname.split('/').filter(Boolean);
         if (parts.length > 0) return parts[0];
       }
-      if (host.includes('bilibili.com')) return '哔哩哔哩';
+      if (host.includes('bilibili.com')) {
+        const midMatch = u.pathname.match(/\/(\d+)/);
+        if (midMatch) return midMatch[1];
+        return '哔哩哔哩';
+      }
+      if (host.includes('xiaohongshu.com') || host.includes('xhslink.com')) return '小红书';
       if (host.includes('notion.so') || host.includes('notion.site')) return 'Notion';
       if (host.includes('figma.com')) return 'Figma';
       if (host.includes('spotify.com')) return 'Spotify';
       if (host.includes('netflix.com')) return 'Netflix';
-      if (host.includes('twitter.com') || host.includes('x.com')) return 'X';
+      if (host.includes('twitter.com') || host.includes('x.com')) {
+        const parts = u.pathname.split('/').filter(Boolean);
+        if (parts.length > 0 && !['home', 'explore', 'notifications', 'messages', 'search', 'settings', 'i'].includes(parts[0].toLowerCase())) {
+          return parts[0].replace(/^@/, '');
+        }
+        return 'X';
+      }
 
       const parts = host.split('.');
       if (parts.length > 2) {

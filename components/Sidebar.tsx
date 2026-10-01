@@ -391,10 +391,18 @@ const Sidebar: React.FC<SidebarProps> = ({
                                 </button>
                               </div>
                             ) : (
-                              <button
+                              <div
+                                role="button"
+                                tabIndex={0}
                                 onClick={() => scrollToSection(category.id)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    scrollToSection(category.id);
+                                  }
+                                }}
                                 className={`
-                                  flex-1 flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-black tracking-[0.04em] transition-all group border
+                                  flex-1 flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-black tracking-[0.04em] transition-all group border cursor-pointer select-none
                                   ${isCustom 
                                     ? (isActive ? 'bg-white/20 text-white shadow-sm border-white/10 backdrop-blur-sm' : 'text-slate-100 hover:bg-white/10 hover:text-white border-transparent')
                                     : (isActive ? 'bg-brand-50 text-brand-600 border-transparent dark:bg-zinc-700 dark:text-zinc-100' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 border-transparent dark:text-zinc-400 dark:hover:bg-zinc-700/50 dark:hover:text-zinc-100')
@@ -491,7 +499,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                                     </span>
                                   )}
                                 </div>
-                              </button>
+                              </div>
                             )}
                           </div>
 
@@ -550,9 +558,17 @@ const Sidebar: React.FC<SidebarProps> = ({
                                                 </button>
                                               </div>
                                             ) : (
-                                              <button 
+                                              <div 
+                                                role="button"
+                                                tabIndex={0}
                                                 onClick={(e) => scrollToSubSection(e, category.id, subCat.id)} 
-                                                className={`flex-1 flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-bold tracking-wider transition-colors group/sub ${isCustom ? 'text-slate-200 hover:text-white hover:bg-white/10' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-700/50'}`}
+                                                onKeyDown={(e) => {
+                                                  if (e.key === 'Enter' || e.key === ' ') {
+                                                    e.preventDefault();
+                                                    scrollToSubSection(e as any, category.id, subCat.id);
+                                                  }
+                                                }}
+                                                className={`flex-1 flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-bold tracking-wider transition-colors group/sub cursor-pointer select-none ${isCustom ? 'text-slate-200 hover:text-white hover:bg-white/10' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-700/50'}`}
                                               >
                                                 <div className="flex items-center gap-1.5 truncate min-w-0">
                                                   <ChevronRight className={`w-3 h-3 shrink-0 ${isCustom ? 'text-slate-300 group-hover/sub:text-slate-100' : 'text-slate-300 group-hover/sub:text-zinc-400 dark:text-zinc-500 dark:group-hover/sub:text-zinc-300'}`} />
@@ -586,7 +602,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                                                     <span className={`text-[10px] font-bold ${isCustom ? 'text-slate-300 group-hover/sub:text-slate-100' : 'text-slate-400 group-hover/sub:text-slate-600 dark:group-hover/sub:text-zinc-500'}`}>{subCount}</span>
                                                   )}
                                                 </div>
-                                              </button>
+                                              </div>
                                             )}
                                           </div>
                                         )}

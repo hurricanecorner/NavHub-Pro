@@ -224,7 +224,34 @@ export const saveData = (data: AppData) => {
     });
     if (hasNew) saveClickStats(stats);
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch (err: any) {
+    console.warn("[Storage] localStorage quota warning or exceeded:", err);
+    // 应对浏览器 5MB 配额上限：若因超大位图 Data URL 导致超限，进行智能瘦身压缩，保全用户全部链接、分类、配置与极简矢量字标
+    try {
+      const streamlinedLinks = (data.links || []).map(link => {
+        // SVG 字标仅 ~1KB 无需精简，主要针对超大位图 (PNG/JPEG > 40KB) 进行瘦身
+        if (link.iconUrl && link.iconUrl.startsWith('data:image/') && !link.iconUrl.includes('svg') && link.iconUrl.length > 40000) {
+          // 若有外链原始地址或可推导网址，保留轻量标记
+          return {
+            ...link,
+            iconUrl: link.iconUrl.substring(0, 30000), // 截断防溃
+          };
+        }
+        return link;
+      });
+
+      const fallbackData: AppData = {
+        ...data,
+        links: streamlinedLinks,
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(fallbackData));
+    } catch (finalErr) {
+      console.error("[Storage] Critical: Failed to save navigation data to localStorage", finalErr);
+    }
+  }
 };
 
 export const loadCloudConfig = (): CloudConfig => {

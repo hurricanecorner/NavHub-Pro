@@ -1083,8 +1083,8 @@ const LinkCard: React.FC<LinkCardProps> = ({
               <Pin className={`w-3.5 h-3.5 ${item.isPinned ? 'fill-current rotate-12' : ''}`} />
             </button>
           )}
-          <button onClick={(e) => { e.stopPropagation(); onEdit(item); }} className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-all active:scale-90"><Edit2 className="w-3.5 h-3.5" /></button>
-          <button onClick={(e) => { e.stopPropagation(); onDelete(item.id); }} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all active:scale-90"><Trash2 className="w-3.5 h-3.5" /></button>
+          <button onClick={(e) => { e.stopPropagation(); onEdit(item); }} className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-all active:scale-90 cursor-pointer" title={t.app?.edit || "编辑"} aria-label={t.app?.edit || "编辑"}><Edit2 className="w-3.5 h-3.5" /></button>
+          <button onClick={(e) => { e.stopPropagation(); onDelete(item.id); }} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all active:scale-90 cursor-pointer" title={t.app?.delete || "删除链接"} aria-label={t.app?.delete || "删除链接"}><Trash2 className="w-3.5 h-3.5" /></button>
         </div>
       ) : !isEditMode && !isDragging && (
         <a 
@@ -1097,7 +1097,7 @@ const LinkCard: React.FC<LinkCardProps> = ({
           onTouchEnd={handleTouchEnd}
           onTouchCancel={handleTouchEnd}
           className="absolute inset-0 z-10 touch-manipulation select-none" 
-          aria-label={`Visit ${item.title}`}
+          aria-label={t.app?.visitSite ? `${t.app.visitSite}: ${item.title}` : `访问 ${item.title}`}
         >
           <div className={`absolute top-4 right-4 transform transition-all duration-300 ${
             isPressed 

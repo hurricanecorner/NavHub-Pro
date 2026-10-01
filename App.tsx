@@ -85,8 +85,8 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
         <div className="min-h-screen flex items-center justify-center bg-zinc-800 text-white p-6">
           <div className="text-center">
             <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-            <h2 className="text-2xl font-bold mb-4">System Initialization Error</h2>
-            <button onClick={() => window.location.reload()} className="bg-brand-600 px-6 py-2 rounded-lg">Retry</button>
+            <h2 className="text-2xl font-bold mb-4">系统加载异常 / System Initialization Error</h2>
+            <button onClick={() => window.location.reload()} className="bg-brand-600 hover:bg-brand-700 text-white font-bold px-6 py-2 rounded-xl cursor-pointer transition-colors shadow-lg">刷新重试 / Reload</button>
           </div>
         </div>
       );
@@ -114,7 +114,7 @@ const Dashboard: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
-  const [confirmState, setConfirmState] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void; isDangerous: boolean; }>({ isOpen: false, title: '', message: '', onConfirm: () => {}, isDangerous: false });
+  const [confirmState, setConfirmState] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void; isDangerous: boolean; confirmText?: string; cancelText?: string; }>({ isOpen: false, title: '', message: '', onConfirm: () => {}, isDangerous: false });
   const [pageReady, setPageReady] = useState(false);
   const [hdEnhanceLink, setHdEnhanceLink] = useState<LinkItem | null>(null);
   const themeMenuRef = useRef<HTMLDivElement>(null);
@@ -302,7 +302,7 @@ const Dashboard: React.FC = () => {
         setHealthMap(prev => ({ ...prev, ...results }));
         saveHealthCache(currentMap);
       } catch (err) {
-        console.error('Batch health check error:', err);
+        console.warn('Batch health check warning:', err);
       }
     }
     setLastHealthCheckTime(now);
@@ -472,8 +472,19 @@ const Dashboard: React.FC = () => {
   const showToast = (type: ToastType, message: string) => { const id = Date.now().toString(); setToasts(p => [...p, { id, type, message }]); };
   const removeToast = (id: string) => setToasts(p => p.filter(t => t.id !== id));
   
-  const confirmAction = (title: string, message: string, onConfirm: () => void, isDangerous = false) => { 
-    setConfirmState({ isOpen: true, title, message, onConfirm: () => { onConfirm(); setConfirmState(p => ({ ...p, isOpen: false })); }, isDangerous }); 
+  const confirmAction = (title: string, message: string, onConfirm: () => void, isDangerous = false, confirmText?: string, cancelText?: string) => { 
+    setConfirmState({ 
+      isOpen: true, 
+      title, 
+      message, 
+      onConfirm: () => { 
+        onConfirm(); 
+        setConfirmState(p => ({ ...p, isOpen: false })); 
+      }, 
+      isDangerous, 
+      confirmText: confirmText || (isDangerous ? (lang === 'zh' ? '确认删除' : 'Delete') : (lang === 'zh' ? '确定' : 'Confirm')), 
+      cancelText: cancelText || (lang === 'zh' ? '取消' : 'Cancel') 
+    }); 
   };
 
   const toggleCollapse = (id: string) => {
@@ -800,7 +811,7 @@ const Dashboard: React.FC = () => {
     if (!target) return;
     const linkCount = data.links.filter(l => l.categoryId === id).length;
     confirmAction(
-      t.admin.category.title || (lang === 'zh' ? '删除分类' : 'Delete Category'),
+      t.app.deleteCategoryTitle || (lang === 'zh' ? '删除主分类' : 'Delete Category'),
       linkCount > 0 
         ? (lang === 'zh' ? `确定删除主分类「${target.name}」吗？分类下的 ${linkCount} 个链接和所有子分类将一并移除。` : `Delete category "${target.name}"? ${linkCount} links and all subcategories will be removed.`)
         : (lang === 'zh' ? `确定删除主分类「${target.name}」吗？` : `Delete category "${target.name}"?`),
@@ -817,7 +828,9 @@ const Dashboard: React.FC = () => {
         }
         showToast('success', lang === 'zh' ? `主分类「${target.name}」已删除` : `Category "${target.name}" removed`);
       },
-      true
+      true,
+      lang === 'zh' ? '确认删除' : 'Delete',
+      lang === 'zh' ? '取消' : 'Cancel'
     );
   };
 
@@ -868,7 +881,7 @@ const Dashboard: React.FC = () => {
     if (!cat || !sub) return;
     const linkCount = data.links.filter(l => l.categoryId === categoryId && l.subCategoryId === subId).length;
     confirmAction(
-      t.admin.category.editSub || (lang === 'zh' ? '删除子分类' : 'Delete Subcategory'),
+      t.app.deleteSubCategoryTitle || (lang === 'zh' ? '删除子分类' : 'Delete Subcategory'),
       linkCount > 0 
         ? (lang === 'zh' ? `确定删除子分类「${sub.name}」吗？分类下的 ${linkCount} 个链接将移至通用分类。` : `Delete subcategory "${sub.name}"? ${linkCount} links will be moved to general.`)
         : (lang === 'zh' ? `确定删除子分类「${sub.name}」吗？` : `Delete subcategory "${sub.name}"?`),
@@ -895,12 +908,81 @@ const Dashboard: React.FC = () => {
         });
         showToast('success', lang === 'zh' ? `子分类「${sub.name}」已删除` : `Subcategory "${sub.name}" removed`);
       },
-      true
+      true,
+      lang === 'zh' ? '确认删除' : 'Delete',
+      lang === 'zh' ? '取消' : 'Cancel'
     );
   };
 
   const columns = data.siteConfig?.linkColumns || 4;
-  const filteredLinks = activeSearchQuery ? data.links.filter(l => l.title.toLowerCase().includes(activeSearchQuery.toLowerCase())) : data.links;
+  const filteredLinks = useMemo(() => {
+    const rawQuery = activeSearchQuery.trim();
+    if (!rawQuery) return data.links;
+
+    const query = rawQuery.toLowerCase();
+    const terms = query.split(/\s+/).filter(Boolean);
+
+    const matches = data.links.filter(link => {
+      const title = (link.title || '').toLowerCase();
+      const desc = (link.description || '').toLowerCase();
+      const url = (link.url || '').toLowerCase();
+      const tags = (link.tags || []).map(t => t.toLowerCase());
+
+      // Every term in multi-term query must match title, description, tags, or url
+      return terms.every(term => {
+        if (title.includes(term)) return true;
+        if (desc.includes(term)) return true;
+        if (tags.some(t => t.includes(term))) return true;
+        if (url.includes(term)) return true;
+        return false;
+      });
+    });
+
+    // Intelligent relevance sorting:
+    // 1. Exact title match
+    // 2. Title starts with query
+    // 3. Title contains query
+    // 4. Pinned links
+    // 5. Tag match (exact or includes)
+    // 6. Description contains query
+    // 7. Click count
+    return matches.sort((a, b) => {
+      const aTitle = (a.title || '').toLowerCase();
+      const bTitle = (b.title || '').toLowerCase();
+
+      const aTitleExact = aTitle === query;
+      const bTitleExact = bTitle === query;
+      if (aTitleExact !== bTitleExact) return aTitleExact ? -1 : 1;
+
+      const aTitleStarts = aTitle.startsWith(query);
+      const bTitleStarts = bTitle.startsWith(query);
+      if (aTitleStarts !== bTitleStarts) return aTitleStarts ? -1 : 1;
+
+      const aTitleIncludes = aTitle.includes(query);
+      const bTitleIncludes = bTitle.includes(query);
+      if (aTitleIncludes !== bTitleIncludes) return aTitleIncludes ? -1 : 1;
+
+      if (!!a.isPinned !== !!b.isPinned) return a.isPinned ? -1 : 1;
+
+      const aTags = (a.tags || []).map(t => t.toLowerCase());
+      const bTags = (b.tags || []).map(t => t.toLowerCase());
+      const aTagExact = aTags.includes(query);
+      const bTagExact = bTags.includes(query);
+      if (aTagExact !== bTagExact) return aTagExact ? -1 : 1;
+
+      const aTagAny = aTags.some(t => t.includes(query));
+      const bTagAny = bTags.some(t => t.includes(query));
+      if (aTagAny !== bTagAny) return aTagAny ? -1 : 1;
+
+      const aDesc = (a.description || '').toLowerCase();
+      const bDesc = (b.description || '').toLowerCase();
+      const aDescAny = aDesc.includes(query);
+      const bDescAny = bDesc.includes(query);
+      if (aDescAny !== bDescAny) return aDescAny ? -1 : 1;
+
+      return (b.clickCount || 0) - (a.clickCount || 0);
+    });
+  }, [data.links, activeSearchQuery]);
 
   const allTags = useMemo(() => {
     const map = new Map<string, number>();
@@ -988,15 +1070,36 @@ const Dashboard: React.FC = () => {
                     type="text" 
                     placeholder={t.app.searchPlaceholder} 
                     value={searchInputValue} 
-                    onChange={(e) => setSearchInputValue(e.target.value)} 
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSearchInputValue(val);
+                      if (!val.trim()) {
+                        setActiveSearchQuery('');
+                      } else {
+                        setActiveSearchQuery(val);
+                      }
+                    }} 
                     onKeyDown={e => {
                       if (e.key === 'Enter') {
                         setActiveTagFilter('');
-                        setActiveSearchQuery(searchInputValue);
+                        setActiveSearchQuery(searchInputValue.trim());
                       }
                     }} 
-                    className={`w-full pl-9 pr-4 py-2 bg-slate-100/50 rounded-full text-xs lg:text-sm font-black outline-none border border-transparent focus:border-brand-500/30 focus:bg-white dark:bg-zinc-700/50 dark:text-white dark:placeholder:text-zinc-400 transition-all tracking-wider ${activeTagFilter ? 'ring-1 ring-brand-500/30' : ''}`} 
+                    className={`w-full pl-9 pr-9 py-2 bg-slate-100/50 rounded-full text-xs lg:text-sm font-black outline-none border border-transparent focus:border-brand-500/30 focus:bg-white dark:bg-zinc-700/50 dark:text-white dark:placeholder:text-zinc-400 transition-all tracking-wider ${activeTagFilter ? 'ring-1 ring-brand-500/30' : ''}`} 
                   />
+                  {searchInputValue && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchInputValue('');
+                        setActiveSearchQuery('');
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 transition-colors"
+                      title={lang === 'zh' ? '清除搜索' : 'Clear search'}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
                 {activeTagFilter && (
                   <button
@@ -1212,7 +1315,7 @@ const Dashboard: React.FC = () => {
                 )}
               </div>
 
-              <button onClick={() => { const nl = lang === 'en' ? 'zh' : 'en'; setLang(nl); saveLanguage(nl); }} className="p-2 text-slate-400 flex items-center gap-1 uppercase text-xs font-black hover:text-brand-500 transition-colors tracking-widest sm:flex hidden"><Languages className="w-4 h-4 lg:w-5 lg:h-5" /> {lang}</button>
+              <button onClick={() => { const nl = lang === 'en' ? 'zh' : 'en'; setLang(nl); saveLanguage(nl); }} className="p-2 text-slate-400 flex items-center gap-1 uppercase text-xs font-black hover:text-brand-500 transition-colors tracking-widest sm:flex hidden" title={lang === 'zh' ? '切换语言 / Switch Language' : 'Switch Language'}><Languages className="w-4 h-4 lg:w-5 lg:h-5" /> <span>{lang === 'zh' ? '中' : 'EN'}</span></button>
               
               {/* Quick View Mode Toggle */}
               <button
@@ -1241,39 +1344,87 @@ const Dashboard: React.FC = () => {
                 )}
               </button>
 
-              <button onClick={() => setIsEditMode(!isEditMode)} className={`p-2 rounded-lg transition-all duration-300 ${isEditMode ? 'bg-brand-600 text-white shadow-lg ring-4 ring-brand-500/20' : 'text-slate-400 hover:text-slate-600 dark:hover:text-zinc-100'}`} title={isEditMode ? "Lock" : "Edit"}>{isEditMode ? <Lock className="w-4 h-4 lg:w-5 lg:h-5" /> : <Edit className="w-4 h-4 lg:w-5 lg:h-5" />}</button>
+              <button onClick={() => setIsEditMode(!isEditMode)} className={`p-2 rounded-lg transition-all duration-300 cursor-pointer ${isEditMode ? 'bg-brand-600 text-white shadow-lg ring-4 ring-brand-500/20' : 'text-slate-400 hover:text-slate-600 dark:hover:text-zinc-100'}`} title={isEditMode ? (lang === 'zh' ? '锁定布局 / 退出编辑' : 'Lock Layout') : (lang === 'zh' ? '自定义布局 / 编辑' : 'Edit Layout')}>{isEditMode ? <Lock className="w-4 h-4 lg:w-5 lg:h-5" /> : <Edit className="w-4 h-4 lg:w-5 lg:h-5" />}</button>
               <button onClick={() => setIsAdminModalOpen(true)} className="bg-slate-900 text-white px-3 lg:px-4 py-2 rounded-xl text-xs lg:text-sm font-black flex items-center gap-2 dark:bg-brand-600 active:scale-95 transition-all tracking-wider shadow-md"><Settings className="w-4 h-4" /> <span className="hidden xs:inline">{t.app.admin}</span></button>
             </div>
           </header>
           <div className="flex-1 overflow-y-auto p-4 lg:p-8 space-y-10 lg:space-y-12 custom-scrollbar">
             {activeSearchQuery ? (
               <section className={isEditMode ? '' : 'animate-slide-up'}>
-                <div className="flex items-center justify-between mb-8">
-                   <h2 className="text-xl lg:text-2xl font-black dark:text-white flex items-center gap-3"><LayoutGrid className="text-brand-500" />{t.app.searchResults}: {activeSearchQuery}</h2>
-                   <button onClick={() => {setActiveSearchQuery(''); setSearchInputValue('');}} className="text-xs font-bold text-brand-600 hover:underline">Clear Search</button>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-brand-500/10 rounded-2xl text-brand-600 dark:text-brand-400 flex items-center justify-center">
+                      <LayoutGrid className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2.5">
+                        <h2 className="text-xl lg:text-2xl font-black text-slate-800 dark:text-white tracking-tight">
+                          {t.app.searchResults}: &ldquo;{activeSearchQuery}&rdquo;
+                        </h2>
+                        <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-brand-100 text-brand-700 dark:bg-brand-900/50 dark:text-brand-300">
+                          {filteredLinks.length}
+                        </span>
+                      </div>
+                      <p className="text-xs font-bold text-slate-400 dark:text-zinc-400 mt-1">
+                        {lang === 'zh' 
+                          ? `已在名称、标签、描述与网址中完成检索 · 共 ${filteredLinks.length} 个结果`
+                          : `Matching title, tags, description & URL · ${filteredLinks.length} results`}
+                      </p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => { setActiveSearchQuery(''); setSearchInputValue(''); }} 
+                    className="self-start sm:self-auto px-4 py-2 rounded-xl text-xs font-black bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-zinc-700 dark:hover:bg-zinc-600 dark:text-zinc-200 transition-colors flex items-center gap-1.5 shadow-xs"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>{lang === 'zh' ? '清除搜索' : 'Clear Search'}</span>
+                  </button>
                 </div>
-                <div style={gridStyle}>
-                  {filteredLinks.map((link) => (
-                    <LinkCard 
-                      key={link.id} 
-                      item={link} 
-                      healthStatus={healthMap[normalizeHealthUrl(link.url)]}
-                      isEditMode={false} 
-                      onEdit={() => {}} 
-                      onDelete={() => {}} 
-                      onTogglePin={handleTogglePinLink}
-                      onClickLink={handleClickLink}
-                      onSelectTag={(tag) => { setActiveSearchQuery(''); setActiveTagFilter(tag); }} 
-                      onRecheckHealth={handleRecheckSingleUrl}
-                      onToggleTrust={handleToggleTrustUrl}
-                      activeTag={activeTagFilter} 
-                      t={t} 
-                      shape={data.siteConfig?.logoShape} 
-                      theme={theme} 
-                      isQuickView={isQuickView}
-                    />
-                  ))}
-                </div>
+
+                {filteredLinks.length > 0 ? (
+                  <div style={gridStyle}>
+                    {filteredLinks.map((link) => (
+                      <LinkCard 
+                        key={link.id} 
+                        item={link} 
+                        healthStatus={healthMap[normalizeHealthUrl(link.url)]}
+                        isEditMode={false} 
+                        onEdit={() => {}} 
+                        onDelete={() => {}} 
+                        onTogglePin={handleTogglePinLink}
+                        onClickLink={handleClickLink}
+                        onSelectTag={(tag) => { setActiveSearchQuery(''); setActiveTagFilter(tag); }} 
+                        onRecheckHealth={handleRecheckSingleUrl}
+                        onToggleTrust={handleToggleTrustUrl}
+                        activeTag={activeTagFilter} 
+                        t={t} 
+                        shape={data.siteConfig?.logoShape} 
+                        theme={theme} 
+                        isQuickView={isQuickView}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-16 flex flex-col items-center justify-center text-center p-8 bg-white/40 dark:bg-zinc-800/40 rounded-3xl border border-dashed border-slate-200 dark:border-zinc-700/60 backdrop-blur-xs">
+                    <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-zinc-700/60 flex items-center justify-center text-slate-400 dark:text-zinc-400 mb-4">
+                      <Search className="w-7 h-7" />
+                    </div>
+                    <h3 className="text-base font-black text-slate-700 dark:text-zinc-200 mb-1">
+                      {t.app.noResults || '未找到匹配结果'}
+                    </h3>
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-400 max-w-sm mb-4">
+                      {lang === 'zh'
+                        ? `未找到与「${activeSearchQuery}」匹配的资源（已检索标题、标签与描述）。您可以尝试缩短搜索词或输入其他关键词。`
+                        : `No bookmarks matched "${activeSearchQuery}" in title, tags, or description.`}
+                    </p>
+                    <button
+                      onClick={() => { setActiveSearchQuery(''); setSearchInputValue(''); }}
+                      className="px-4 py-2 rounded-xl text-xs font-black bg-brand-600 text-white hover:bg-brand-700 transition-colors shadow-xs"
+                    >
+                      {lang === 'zh' ? '返回全部' : 'Back to All'}
+                    </button>
+                  </div>
+                )}
               </section>
             ) : activeTagFilter ? (
               <section className={isEditMode ? '' : 'animate-slide-up'}>
@@ -1389,7 +1540,14 @@ const Dashboard: React.FC = () => {
                         healthStatus={healthMap[normalizeHealthUrl(link.url)]}
                         isEditMode={isEditMode} 
                         onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} 
-                        onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} 
+                        onDelete={(id) => confirmAction(
+                          t.app.deleteLinkTitle || (lang === 'zh' ? '删除链接' : 'Delete Link'), 
+                          t.app.deleteLinkConfirm || (lang === 'zh' ? '确定要删除此链接吗？' : 'Are you sure you want to delete this link?'), 
+                          () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}), 
+                          true, 
+                          lang === 'zh' ? '确认删除' : 'Delete', 
+                          lang === 'zh' ? '取消' : 'Cancel'
+                        )} 
                         onTogglePin={handleTogglePinLink}
                         onClickLink={handleClickLink} 
                         onSelectTag={(tag) => { setActiveSearchQuery(''); setActiveTagFilter(tag); }} 
@@ -1464,7 +1622,14 @@ const Dashboard: React.FC = () => {
                         healthStatus={healthMap[normalizeHealthUrl(link.url)]}
                         isEditMode={isEditMode} 
                         onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} 
-                        onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} 
+                        onDelete={(id) => confirmAction(
+                          t.app.deleteLinkTitle || (lang === 'zh' ? '删除链接' : 'Delete Link'), 
+                          t.app.deleteLinkConfirm || (lang === 'zh' ? '确定要删除此链接吗？' : 'Are you sure you want to delete this link?'), 
+                          () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}), 
+                          true, 
+                          lang === 'zh' ? '确认删除' : 'Delete', 
+                          lang === 'zh' ? '取消' : 'Cancel'
+                        )} 
                         onTogglePin={handleTogglePinLink}
                         onClickLink={handleClickLink} 
                         onSelectTag={(tag) => { setFilterOfflineOnly(false); setActiveTagFilter(tag); }} 
@@ -1568,7 +1733,14 @@ const Dashboard: React.FC = () => {
                                 healthStatus={healthMap[normalizeHealthUrl(link.url)]}
                                 isEditMode={isEditMode} 
                                 onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} 
-                                onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} 
+                                onDelete={(id) => confirmAction(
+                                  t.app.deleteLinkTitle || (lang === 'zh' ? '删除链接' : 'Delete Link'), 
+                                  t.app.deleteLinkConfirm || (lang === 'zh' ? '确定要删除此链接吗？' : 'Are you sure you want to delete this link?'), 
+                                  () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}),
+                                  true,
+                                  lang === 'zh' ? '确认删除' : 'Delete',
+                                  lang === 'zh' ? '取消' : 'Cancel'
+                                )} 
                                 onTogglePin={handleTogglePinLink}
                                 onClickLink={handleClickLink} 
                                 onSelectTag={(tag) => { setActiveSearchQuery(''); setActiveTagFilter(tag); }} 
@@ -1798,7 +1970,14 @@ const Dashboard: React.FC = () => {
                                             isEditMode={isEditMode} 
                                             isDragging={snapshot.isDragging} 
                                             onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} 
-                                            onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} 
+                                            onDelete={(id) => confirmAction(
+                                              t.app.deleteLinkTitle || (lang === 'zh' ? '删除链接' : 'Delete Link'), 
+                                              t.app.deleteLinkConfirm || (lang === 'zh' ? '确定要删除此链接吗？' : 'Are you sure you want to delete this link?'), 
+                                              () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}),
+                                              true,
+                                              lang === 'zh' ? '确认删除' : 'Delete',
+                                              lang === 'zh' ? '取消' : 'Cancel'
+                                            )} 
                                             onTogglePin={handleTogglePinLink} 
                                             onClickLink={handleClickLink} 
                                             onSelectTag={(tag) => { setActiveSearchQuery(''); setActiveTagFilter(tag); }} 
@@ -1909,7 +2088,14 @@ const Dashboard: React.FC = () => {
                                                 isEditMode={isEditMode} 
                                                 isDragging={snapshot.isDragging} 
                                                 onEdit={(item) => { setEditingItem(item); setIsAdminModalOpen(true); }} 
-                                                onDelete={(id) => confirmAction(t.admin.tags.deleteTitle, t.app.deleteLinkConfirm, () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}))} 
+                                                onDelete={(id) => confirmAction(
+                                                  t.app.deleteLinkTitle || (lang === 'zh' ? '删除链接' : 'Delete Link'), 
+                                                  t.app.deleteLinkConfirm || (lang === 'zh' ? '确定要删除此链接吗？' : 'Are you sure you want to delete this link?'), 
+                                                  () => handleUpdateData({...data, links: data.links.filter(l => l.id !== id)}),
+                                                  true,
+                                                  lang === 'zh' ? '确认删除' : 'Delete',
+                                                  lang === 'zh' ? '取消' : 'Cancel'
+                                                )} 
                                                 onTogglePin={handleTogglePinLink} 
                                                 onClickLink={handleClickLink} 
                                                 onSelectTag={(tag) => { setActiveSearchQuery(''); setActiveTagFilter(tag); }} 
@@ -2112,7 +2298,16 @@ const Dashboard: React.FC = () => {
           theme={theme} 
         />
         <ToastContainer toasts={toasts} removeToast={removeToast} />
-        <ConfirmDialog isOpen={confirmState.isOpen} title={confirmState.title} message={confirmState.message} onConfirm={confirmState.onConfirm} onCancel={() => setConfirmState(p => ({...p, isOpen: false}))} isDangerous={confirmState.isDangerous} />
+        <ConfirmDialog 
+          isOpen={confirmState.isOpen} 
+          title={confirmState.title} 
+          message={confirmState.message} 
+          onConfirm={confirmState.onConfirm} 
+          onCancel={() => setConfirmState(p => ({...p, isOpen: false}))} 
+          isDangerous={confirmState.isDangerous}
+          confirmText={confirmState.confirmText || (confirmState.isDangerous ? (lang === 'zh' ? '确认删除' : 'Delete') : (lang === 'zh' ? '确定' : 'Confirm'))}
+          cancelText={confirmState.cancelText || (lang === 'zh' ? '取消' : 'Cancel')}
+        />
         
         {hdEnhanceLink && (
           <HdIconEnhanceModal

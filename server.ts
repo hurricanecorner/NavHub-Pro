@@ -41,6 +41,9 @@ import {
   searchFacebook,
   searchInstagram,
   searchDiscord,
+  searchBilibili,
+  searchXiaohongshu,
+  searchTwitter,
   PortalIconItem,
   PortalPlatformId,
 } from './services/portalMultiPlatformService';
@@ -119,12 +122,18 @@ async function startServer() {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 6000);
+      const reqHeaders: Record<string, string> = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+      };
+      if (imageUrl.includes('hdslb.com') || imageUrl.includes('bilibili.com')) {
+        reqHeaders['Referer'] = 'https://www.bilibili.com/';
+      } else if (imageUrl.includes('xiaohongshu.com') || imageUrl.includes('xhscdn.com')) {
+        reqHeaders['Referer'] = 'https://www.xiaohongshu.com/';
+      }
       const response = await fetch(imageUrl, {
         signal: controller.signal,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
-          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-        },
+        headers: reqHeaders,
       });
       clearTimeout(timeout);
       if (!response.ok) {
@@ -564,6 +573,21 @@ async function startServer() {
         return res.json({ success: true, query: rawQuery, cleanTerm, type, youtube: channels });
       }
 
+      if (type === 'bilibili') {
+        const results = await searchBilibili(cleanTerm, 12);
+        return res.json({ success: true, query: rawQuery, cleanTerm, type, bilibili: results });
+      }
+
+      if (type === 'twitter') {
+        const results = await searchTwitter(cleanTerm, 12);
+        return res.json({ success: true, query: rawQuery, cleanTerm, type, twitter: results });
+      }
+
+      if (type === 'xiaohongshu') {
+        const results = await searchXiaohongshu(cleanTerm, 12);
+        return res.json({ success: true, query: rawQuery, cleanTerm, type, xiaohongshu: results });
+      }
+
       if (type === 'appstore') {
         const appResults = await lookupOrSearchAppStore(cleanTerm, country, device);
         return res.json({ success: true, query: rawQuery, cleanTerm, type, appStore: appResults });
@@ -572,6 +596,9 @@ async function startServer() {
       // Unified Multi-Portal search ('all'): Run all portal searches concurrently with safe timeouts
       const [
         youtubeChannels,
+        bilibiliResults,
+        twitterResults,
+        xiaohongshuResults,
         appStoreResults,
         googlePlayResults,
         chromeStoreResults,
@@ -580,6 +607,9 @@ async function startServer() {
         discordResults,
       ] = await Promise.all([
         searchYouTubeChannels(cleanTerm, 6).catch(() => []),
+        searchBilibili(cleanTerm, 6).catch(() => []),
+        searchTwitter(cleanTerm, 6).catch(() => []),
+        searchXiaohongshu(cleanTerm, 6).catch(() => []),
         lookupOrSearchAppStore(cleanTerm, country, device).catch(() => []),
         searchGooglePlay(cleanTerm, 4).catch(() => []),
         searchChromeWebStore(cleanTerm, 3).catch(() => []),
@@ -594,6 +624,9 @@ async function startServer() {
         cleanTerm,
         type: 'all',
         youtube: youtubeChannels,
+        bilibili: bilibiliResults,
+        twitter: twitterResults,
+        xiaohongshu: xiaohongshuResults,
         appStore: appStoreResults,
         googlePlay: googlePlayResults,
         chromeStore: chromeStoreResults,
@@ -2620,29 +2653,66 @@ Return ONLY valid JSON matching this schema:
     return res.json(result);
   });
 
-  // API: Batch URL health check
-  app.post('/api/check-urls', async (req, res) => {
-    const urls: string[] = req.body?.urls || [];
-    const force = Boolean(req.body?.force);
-    if (!Array.isArray(urls) || urls.length === 0) {
-      return res.json({ results: {} });
+  // API: Batch URL health check (supports both POST and GET)
+  const handleBatchCheckUrls = async (req: express.Request, res: express.Response) => {
+    try {
+      let urls: string[] = [];
+      let force = false;
+
+      if (req.method === 'POST') {
+        urls = req.body?.urls || [];
+        force = Boolean(req.body?.force);
+      } else {
+        // Support GET /api/check-urls?urls=url1,url2 or repeated query param
+        const qUrls = req.query.urls;
+        if (typeof qUrls === 'string') {
+          urls = qUrls.split(',').map(s => s.trim()).filter(Boolean);
+        } else if (Array.isArray(qUrls)) {
+          urls = qUrls.map(String).filter(Boolean);
+        }
+        force = req.query.force === 'true';
+      }
+
+      if (!Array.isArray(urls) || urls.length === 0) {
+        return res.json({ results: {} });
+      }
+
+      // Limit to max 120 URLs per batch
+      const targetUrls = urls.slice(0, 120);
+      const results: Record<string, UrlHealthResult> = {};
+
+      // Parallel concurrency pool of 5 to prevent outbound socket congestion
+      const concurrency = 5;
+      for (let i = 0; i < targetUrls.length; i += concurrency) {
+        const chunk = targetUrls.slice(i, i + concurrency);
+        const chunkResults = await Promise.all(chunk.map(u => checkSingleUrl(u, force)));
+        chunkResults.forEach(r => {
+          results[r.url] = r;
+        });
+      }
+
+      return res.json({ results });
+    } catch (err: any) {
+      console.error('Error in /api/check-urls:', err);
+      return res.status(200).json({ results: {}, error: err?.message || 'Check failed' });
     }
+  };
 
-    // Limit to max 120 URLs per batch
-    const targetUrls = urls.slice(0, 120);
-    const results: Record<string, UrlHealthResult> = {};
+  app.post('/api/check-urls', handleBatchCheckUrls);
+  app.get('/api/check-urls', handleBatchCheckUrls);
 
-    // Parallel concurrency pool of 5 to prevent outbound socket congestion
-    const concurrency = 5;
-    for (let i = 0; i < targetUrls.length; i += concurrency) {
-      const chunk = targetUrls.slice(i, i + concurrency);
-      const chunkResults = await Promise.all(chunk.map(u => checkSingleUrl(u, force)));
-      chunkResults.forEach(r => {
-        results[r.url] = r;
-      });
+  // Catch-all for unhandled /api endpoints to ensure they ALWAYS return JSON and never fall through to Vite HTML
+  app.use('/api', (req, res) => {
+    res.status(404).json({ error: `API endpoint ${req.method} ${req.originalUrl || req.path} not found` });
+  });
+
+  // Global API error handling middleware
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (req.path.startsWith('/api/')) {
+      console.error(`API Exception on ${req.method} ${req.path}:`, err);
+      return res.status(500).json({ error: 'Internal API Server Error', message: err?.message || String(err) });
     }
-
-    return res.json({ results });
+    next(err);
   });
 
   // Vite middleware for development

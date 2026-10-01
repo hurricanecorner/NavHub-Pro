@@ -18,9 +18,7 @@ import {
   Youtube,
   Play,
   Chrome,
-  Facebook,
-  Instagram,
-  MessageSquare
+  Tv
 } from 'lucide-react';
 import { 
   APP_STORE_DEVICES, 
@@ -63,6 +61,9 @@ export const AppStoreSearchPanel: React.FC<AppStoreSearchPanelProps> = ({
   const inferInitialTab = (q: string): PortalPlatformId => {
     if (defaultSource) return defaultSource;
     const lower = q.toLowerCase();
+    if (lower.includes('bilibili.com')) return 'bilibili';
+    if (lower.includes('twitter.com') || lower.includes('x.com')) return 'twitter';
+    if (lower.includes('xiaohongshu.com') || lower.includes('xhslink.com')) return 'xiaohongshu';
     if (lower.includes('play.google.com')) return 'googleplay';
     if (lower.includes('chromewebstore.google.com')) return 'chromestore';
     if (lower.includes('facebook.com') || lower.includes('fb.me')) return 'facebook';
@@ -81,6 +82,9 @@ export const AppStoreSearchPanel: React.FC<AppStoreSearchPanelProps> = ({
   // Platform specific results
   const [results, setResults] = useState<AppStoreAppResult[]>([]);
   const [youtubeResults, setYoutubeResults] = useState<YouTubeChannelResult[]>([]);
+  const [bilibiliResults, setBilibiliResults] = useState<PortalIconItem[]>([]);
+  const [twitterResults, setTwitterResults] = useState<PortalIconItem[]>([]);
+  const [xiaohongshuResults, setXiaohongshuResults] = useState<PortalIconItem[]>([]);
   const [googlePlayResults, setGooglePlayResults] = useState<PortalIconItem[]>([]);
   const [chromeStoreResults, setChromeStoreResults] = useState<PortalIconItem[]>([]);
   const [facebookResults, setFacebookResults] = useState<PortalIconItem[]>([]);
@@ -97,6 +101,30 @@ export const AppStoreSearchPanel: React.FC<AppStoreSearchPanelProps> = ({
 
   const deviceMenuRef = useRef<HTMLDivElement>(null);
   const countryMenuRef = useRef<HTMLDivElement>(null);
+  const tabsContainerRef = useRef<HTMLDivElement>(null);
+
+  // Enable mouse wheel horizontal scrolling when mouse hovers over the platform tabs bar
+  useEffect(() => {
+    const el = tabsContainerRef.current;
+    if (!el) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      // Check if the tabs bar has horizontal overflow
+      if (el.scrollWidth > el.clientWidth) {
+        // If scrolling primarily vertically (common with standard mouse wheel up/down)
+        if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+          e.preventDefault();
+          // Scroll horizontally by deltaY
+          el.scrollLeft += e.deltaY;
+        }
+      }
+    };
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      el.removeEventListener('wheel', handleWheel);
+    };
+  }, []);
 
   // Close menus on outside click
   useEffect(() => {
@@ -163,6 +191,9 @@ export const AppStoreSearchPanel: React.FC<AppStoreSearchPanelProps> = ({
           const app = Array.isArray(json.appStore) ? json.appStore : [];
           const gp = Array.isArray(json.googlePlay) ? json.googlePlay : [];
           const cs = Array.isArray(json.chromeStore) ? json.chromeStore : [];
+          const bili = Array.isArray(json.bilibili) ? json.bilibili : [];
+          const tw = Array.isArray(json.twitter) ? json.twitter : [];
+          const xhs = Array.isArray(json.xiaohongshu) ? json.xiaohongshu : [];
           const fb = Array.isArray(json.facebook) ? json.facebook : [];
           const ig = Array.isArray(json.instagram) ? json.instagram : [];
           const dc = Array.isArray(json.discord) ? json.discord : [];
@@ -171,11 +202,14 @@ export const AppStoreSearchPanel: React.FC<AppStoreSearchPanelProps> = ({
           setResults(app);
           setGooglePlayResults(gp);
           setChromeStoreResults(cs);
+          setBilibiliResults(bili);
+          setTwitterResults(tw);
+          setXiaohongshuResults(xhs);
           setFacebookResults(fb);
           setInstagramResults(ig);
           setDiscordResults(dc);
 
-          const totalFound = yt.length + app.length + gp.length + cs.length + fb.length + ig.length + dc.length;
+          const totalFound = yt.length + app.length + gp.length + cs.length + bili.length + tw.length + xhs.length + fb.length + ig.length + dc.length;
           if (totalFound === 0) {
             setErrorMessage(`未找到与「${cleanTerm}」相关的官方图标或头像`);
           }
@@ -327,6 +361,7 @@ export const AppStoreSearchPanel: React.FC<AppStoreSearchPanelProps> = ({
                     alt={item.title}
                     className="w-full h-full object-cover"
                     loading="lazy"
+                    referrerPolicy="no-referrer"
                   />
                   <div className="absolute inset-0 ring-1 ring-black/5 rounded-xl pointer-events-none" />
                 </div>
@@ -397,27 +432,30 @@ export const AppStoreSearchPanel: React.FC<AppStoreSearchPanelProps> = ({
   };
 
   const hasAnyResults =
-    youtubeResults.length > 0 ||
     results.length > 0 ||
     googlePlayResults.length > 0 ||
     chromeStoreResults.length > 0 ||
-    facebookResults.length > 0 ||
-    instagramResults.length > 0 ||
-    discordResults.length > 0;
+    youtubeResults.length > 0 ||
+    bilibiliResults.length > 0 ||
+    twitterResults.length > 0;
 
   return (
     <div className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-white/10 rounded-2xl p-3 sm:p-4 shadow-sm space-y-3 ${className}`}>
       {/* Top Source Tabs: Multi-Platform Portal Selectors */}
       <div className="space-y-2 border-b border-slate-100 dark:border-white/5 pb-2.5">
-        <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-zinc-800/90 rounded-xl overflow-x-auto max-w-full custom-scrollbar">
+        <div 
+          ref={tabsContainerRef}
+          className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-zinc-800/90 rounded-xl overflow-x-auto max-w-full custom-scrollbar overscroll-x-contain"
+        >
           {PORTAL_PLATFORM_TABS.map(tab => {
             const isSelected = sourceTab === tab.id;
             return (
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => {
+                onClick={(e) => {
                   setSourceTab(tab.id);
+                  (e.currentTarget as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
                   if (query.trim()) handleSearch(query, device, country, tab.id);
                 }}
                 className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
@@ -427,13 +465,16 @@ export const AppStoreSearchPanel: React.FC<AppStoreSearchPanelProps> = ({
                 }`}
               >
                 {tab.id === 'all' && <Sparkles className="w-3.5 h-3.5 text-amber-300" />}
-                {tab.id === 'youtube' && <Youtube className="w-3.5 h-3.5" />}
                 {tab.id === 'appstore' && <Apple className="w-3.5 h-3.5" />}
                 {tab.id === 'googleplay' && <Play className="w-3.5 h-3.5" />}
                 {tab.id === 'chromestore' && <Chrome className="w-3.5 h-3.5" />}
-                {tab.id === 'facebook' && <Facebook className="w-3.5 h-3.5" />}
-                {tab.id === 'instagram' && <Instagram className="w-3.5 h-3.5" />}
-                {tab.id === 'discord' && <MessageSquare className="w-3.5 h-3.5" />}
+                {tab.id === 'youtube' && <Youtube className="w-3.5 h-3.5" />}
+                {tab.id === 'bilibili' && <Tv className="w-3.5 h-3.5" />}
+                {tab.id === 'twitter' && (
+                  <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                  </svg>
+                )}
                 <span>{tab.label}</span>
                 <span className={`text-[10px] px-1 py-0.2 rounded font-mono ${isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-zinc-700 text-slate-600 dark:text-zinc-300'}`}>
                   {tab.resolutionBadge}
@@ -596,6 +637,9 @@ export const AppStoreSearchPanel: React.FC<AppStoreSearchPanelProps> = ({
                 setYoutubeResults([]);
                 setGooglePlayResults([]);
                 setChromeStoreResults([]);
+                setBilibiliResults([]);
+                setTwitterResults([]);
+                setXiaohongshuResults([]);
                 setFacebookResults([]);
                 setInstagramResults([]);
                 setDiscordResults([]);
@@ -637,113 +681,7 @@ export const AppStoreSearchPanel: React.FC<AppStoreSearchPanelProps> = ({
       {/* Search Results Display */}
       {hasAnyResults && (
         <div className="space-y-4 pt-1">
-          {/* 1. Google Play Results */}
-          {renderPortalItemGrid(googlePlayResults, 'Google Play 安卓应用', <Play className="w-3.5 h-3.5 text-emerald-600" />, 'bg-emerald-600')}
-
-          {/* 2. Chrome Web Store Results */}
-          {renderPortalItemGrid(chromeStoreResults, 'Chrome 应用商店扩展', <Chrome className="w-3.5 h-3.5 text-amber-600" />, 'bg-amber-600')}
-
-          {/* 3. Facebook Results */}
-          {renderPortalItemGrid(facebookResults, 'Facebook 品牌公共主页', <Facebook className="w-3.5 h-3.5 text-blue-700" />, 'bg-blue-700')}
-
-          {/* 4. Instagram Results */}
-          {renderPortalItemGrid(instagramResults, 'Instagram 官方主页', <Instagram className="w-3.5 h-3.5 text-pink-600" />, 'bg-pink-600')}
-
-          {/* 5. Discord Results */}
-          {renderPortalItemGrid(discordResults, 'Discord 社区服务器', <MessageSquare className="w-3.5 h-3.5 text-indigo-600" />, 'bg-indigo-600')}
-
-          {/* 6. YouTube Channel Avatars Section */}
-          {youtubeResults.length > 0 && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 dark:text-zinc-400">
-                <span className="flex items-center gap-1.5 text-red-600 dark:text-red-400">
-                  <Youtube className="w-3.5 h-3.5" />
-                  YouTube 官方门户头像 ({youtubeResults.length} 个相关频道)：
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300 font-bold">
-                  800×800 官方原画
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto custom-scrollbar pr-1">
-                {youtubeResults.map(channel => (
-                  <div
-                    key={channel.channelId}
-                    className="p-3 bg-slate-50 dark:bg-zinc-800/80 hover:bg-red-50/50 dark:hover:bg-red-950/20 border border-slate-200/80 dark:border-white/5 hover:border-red-300 dark:hover:border-red-700/60 rounded-2xl flex flex-col justify-between gap-2.5 transition-all group"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="relative w-12 h-12 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 overflow-hidden shrink-0 shadow-sm group-hover:scale-105 transition-transform duration-200">
-                        <img
-                          src={channel.icon800}
-                          alt={channel.title}
-                          className="w-full h-full object-cover"
-                          loading="lazy"
-                        />
-                        <div className="absolute inset-0 ring-1 ring-black/5 rounded-2xl pointer-events-none" />
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-black text-slate-900 dark:text-white truncate group-hover:text-red-600 dark:group-hover:text-red-400">
-                            {channel.title}
-                          </span>
-                          {channel.isVerified && (
-                            <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-slate-400 dark:bg-zinc-600 text-white text-[8px] font-black shrink-0" title="官方认证频道">
-                              ✓
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[10px] text-slate-500 dark:text-zinc-400 truncate mt-0.5 font-mono">
-                          {channel.handle || `@${channel.title}`}
-                        </div>
-                        <div className="flex items-center gap-2 mt-1 text-[9px] text-slate-400 dark:text-zinc-400">
-                          {channel.subscribers && <span>{channel.subscribers}</span>}
-                          {channel.videoCount && <span>· {channel.videoCount}</span>}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-1.5 pt-2 border-t border-slate-200/60 dark:border-white/5">
-                      <button
-                        type="button"
-                        onClick={() => handleApplyYouTube(channel)}
-                        className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[11px] font-bold transition-all shadow-xs flex items-center gap-1 active:scale-95 cursor-pointer"
-                        title="选用 800×800 YouTube 官方高清头像"
-                      >
-                        <Sparkles className="w-3 h-3" />
-                        选用 800px 超清头像
-                      </button>
-
-                      <div className="flex items-center gap-2">
-                        {onFillInfo && (
-                          <button
-                            type="button"
-                            onClick={() => handleFillYouTubeInfo(channel)}
-                            className="text-[10px] font-bold text-slate-500 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 transition-colors cursor-pointer"
-                          >
-                            填入信息
-                          </button>
-                        )}
-                        {channel.channelUrl && (
-                          <a
-                            href={channel.channelUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
-                            title="在新窗口查看 YouTube 频道"
-                          >
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 7. App Store Results Section */}
+          {/* 1. App Store Results Section */}
           {results.length > 0 && (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 dark:text-zinc-400">
@@ -851,6 +789,113 @@ export const AppStoreSearchPanel: React.FC<AppStoreSearchPanelProps> = ({
               </div>
             </div>
           )}
+
+          {/* 2. Google Play Results */}
+          {renderPortalItemGrid(googlePlayResults, 'Google Play 安卓应用', <Play className="w-3.5 h-3.5 text-emerald-600" />, 'bg-emerald-600')}
+
+          {/* 3. Chrome Web Store Results */}
+          {renderPortalItemGrid(chromeStoreResults, 'Chrome 应用商店扩展', <Chrome className="w-3.5 h-3.5 text-amber-600" />, 'bg-amber-600')}
+
+          {/* 4. YouTube Channel Avatars Section */}
+          {youtubeResults.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 dark:text-zinc-400">
+                <span className="flex items-center gap-1.5 text-red-600 dark:text-red-400">
+                  <Youtube className="w-3.5 h-3.5" />
+                  YouTube 官方门户头像 ({youtubeResults.length} 个相关频道)：
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300 font-bold">
+                  800×800 官方原画
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+                {youtubeResults.map(channel => (
+                  <div
+                    key={channel.channelId}
+                    className="p-3 bg-slate-50 dark:bg-zinc-800/80 hover:bg-red-50/50 dark:hover:bg-red-950/20 border border-slate-200/80 dark:border-white/5 hover:border-red-300 dark:hover:border-red-700/60 rounded-2xl flex flex-col justify-between gap-2.5 transition-all group"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="relative w-12 h-12 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 overflow-hidden shrink-0 shadow-sm group-hover:scale-105 transition-transform duration-200">
+                        <img
+                          src={channel.icon800}
+                          alt={channel.title}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                        <div className="absolute inset-0 ring-1 ring-black/5 rounded-2xl pointer-events-none" />
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-black text-slate-900 dark:text-white truncate group-hover:text-red-600 dark:group-hover:text-red-400">
+                            {channel.title}
+                          </span>
+                          {channel.isVerified && (
+                            <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-slate-400 dark:bg-zinc-600 text-white text-[8px] font-black shrink-0" title="官方认证频道">
+                              ✓
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-slate-500 dark:text-zinc-400 truncate mt-0.5 font-mono">
+                          {channel.handle || `@${channel.title}`}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1 text-[9px] text-slate-400 dark:text-zinc-400">
+                          {channel.subscribers && <span>{channel.subscribers}</span>}
+                          {channel.videoCount && <span>· {channel.videoCount}</span>}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-1.5 pt-2 border-t border-slate-200/60 dark:border-white/5">
+                      <button
+                        type="button"
+                        onClick={() => handleApplyYouTube(channel)}
+                        className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[11px] font-bold transition-all shadow-xs flex items-center gap-1 active:scale-95 cursor-pointer"
+                        title="选用 800×800 YouTube 官方高清头像"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        选用 800px 超清头像
+                      </button>
+
+                      <div className="flex items-center gap-2">
+                        {onFillInfo && (
+                          <button
+                            type="button"
+                            onClick={() => handleFillYouTubeInfo(channel)}
+                            className="text-[10px] font-bold text-slate-500 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 transition-colors cursor-pointer"
+                          >
+                            填入信息
+                          </button>
+                        )}
+                        {channel.channelUrl && (
+                          <a
+                            href={channel.channelUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                            title="在新窗口查看 YouTube 频道"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 5. Bilibili Results Section */}
+          {renderPortalItemGrid(bilibiliResults, 'Bilibili 官方主站与 UP 主头像', <Tv className="w-3.5 h-3.5 text-[#00AEEC]" />, 'bg-[#00AEEC]')}
+
+          {/* 6. X (Twitter) Results Section */}
+          {renderPortalItemGrid(twitterResults, 'X (Twitter) 官方与用户头像', (
+            <svg className="w-3.5 h-3.5 fill-current text-zinc-900 dark:text-zinc-100" viewBox="0 0 24 24">
+              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+            </svg>
+          ), 'bg-zinc-900 text-white dark:bg-black')}
         </div>
       )}
     </div>

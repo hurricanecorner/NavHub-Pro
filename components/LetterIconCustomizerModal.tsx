@@ -47,8 +47,8 @@ export const LetterIconCustomizerModal: React.FC<LetterIconCustomizerModalProps>
   const [titleOrText, setTitleOrText] = useState(initialTitle || initialUrl || 'Nav');
   const [customLetters, setCustomLetters] = useState('');
   
-  // 背景模式：gradient(现代高级微渐变) 或 solid(纯色背景)
-  const [bgMode, setBgMode] = useState<'gradient' | 'solid'>('gradient');
+  // 背景模式：gradient(现代高级微渐变) 或 solid(纯色背景) 或 transparent(纯透明无底色)
+  const [bgMode, setBgMode] = useState<'gradient' | 'solid' | 'transparent'>('gradient');
   const [solidColor, setSolidColor] = useState(initialBgColor || '#4f46e5');
   const [gradientIndex, setGradientIndex] = useState(0);
   const [customGradientFrom, setCustomGradientFrom] = useState('#4f46e5');
@@ -96,7 +96,10 @@ export const LetterIconCustomizerModal: React.FC<LetterIconCustomizerModalProps>
       textColor,
     };
 
-    if (bgMode === 'solid') {
+    if (bgMode === 'transparent') {
+      opts.transparent = true;
+      opts.textColor = textColor === '#ffffff' ? '#4f46e5' : textColor;
+    } else if (bgMode === 'solid') {
       opts.background = solidColor;
       opts.backgroundTo = solidColor;
     } else {
@@ -121,7 +124,8 @@ export const LetterIconCustomizerModal: React.FC<LetterIconCustomizerModalProps>
   };
 
   const handleApplyIcon = () => {
-    const finalBgColor = bgMode === 'solid' ? solidColor : customGradientFrom;
+    // 只有在明确选择纯色模式时才把该颜色作为外层容器底色，其余模式（微渐变已内嵌于SVG、透明模式）外层容器一律保持透明
+    const finalBgColor = bgMode === 'solid' ? solidColor : '';
     onApply(generatedIconDataUrl, finalBgColor);
     onClose();
   };
@@ -379,6 +383,18 @@ export const LetterIconCustomizerModal: React.FC<LetterIconCustomizerModalProps>
               <div className="flex items-center gap-1 bg-white dark:bg-zinc-800 p-1 rounded-xl border border-slate-200 dark:border-zinc-700">
                 <button
                   type="button"
+                  onClick={() => {
+                    setBgMode('transparent');
+                    if (textColor === '#ffffff') setTextColor('#4f46e5');
+                  }}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
+                    bgMode === 'transparent' ? 'bg-violet-600 text-white shadow-xs' : 'text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-700'
+                  }`}
+                >
+                  透明无底色
+                </button>
+                <button
+                  type="button"
                   onClick={() => setBgMode('gradient')}
                   className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
                     bgMode === 'gradient' ? 'bg-violet-600 text-white shadow-xs' : 'text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-700'
@@ -398,8 +414,21 @@ export const LetterIconCustomizerModal: React.FC<LetterIconCustomizerModalProps>
               </div>
             </div>
 
+            {/* Mode 0: Transparent Mode */}
+            {bgMode === 'transparent' && (
+              <div className="p-4 rounded-xl bg-violet-50/50 dark:bg-violet-950/20 border border-violet-100 dark:border-violet-900/40 space-y-2.5">
+                <div className="flex items-center gap-2 text-violet-700 dark:text-violet-300 font-bold text-xs">
+                  <Sparkles className="w-4 h-4 text-violet-500" />
+                  <span>已启用全透明矢量字标模式</span>
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-zinc-400 leading-relaxed">
+                  图标外层与 SVG 内景均无任何底色填充，字母将以纯粹高清晰度矢量字符形式直接悬浮在网站卡片上。请在下方挑选与深浅色模式相协调的字母颜色。
+                </p>
+              </div>
+            )}
+
             {/* Mode 1: Preset Palettes */}
-            {bgMode === 'gradient' ? (
+            {bgMode === 'gradient' && (
               <div className="space-y-3">
                 <label className="text-[11px] font-bold text-slate-500 dark:text-zinc-400 block">
                   选择精选高质感渐变配色：
@@ -468,8 +497,10 @@ export const LetterIconCustomizerModal: React.FC<LetterIconCustomizerModalProps>
                   </div>
                 </div>
               </div>
-            ) : (
-              /* Mode 2: Solid Background */
+            )}
+
+            {/* Mode 2: Solid Background */}
+            {bgMode === 'solid' && (
               <div className="space-y-3">
                 <label className="text-[11px] font-bold text-slate-500 dark:text-zinc-400 block">
                   选择或自定义纯色底色：

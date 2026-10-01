@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Plus, PlusCircle, Upload, Edit2, Trash2, Folder, ListPlus, Download, Cloud, Settings, Wand2, Loader2, Image as ImageIcon, Globe, Tag, ExternalLink, ChevronDown, CheckCircle2, Cpu, Hash, Search, Save, Check, MousePointer2, Apple, Chrome, Play, Facebook, Instagram, MessageSquare, LayoutGrid, Palette, Send, Sparkles, Wand, Info, GripVertical, ChevronLeft, ChevronRight, Pin, BarChart3, ShieldCheck, Clock, Activity, Layers, Sliders, AlertTriangle, Youtube, Twitter, Flame, RefreshCw } from 'lucide-react';
+import { X, Plus, PlusCircle, Upload, Edit2, Trash2, Folder, ListPlus, Download, Cloud, Settings, Wand2, Loader2, Image as ImageIcon, Globe, Tag, ExternalLink, ChevronDown, CheckCircle2, Cpu, Hash, Search, Save, Check, MousePointer2, Apple, Chrome, Play, Facebook, Instagram, MessageSquare, LayoutGrid, Palette, Send, Sparkles, Wand, Info, GripVertical, ChevronLeft, ChevronRight, Pin, BarChart3, ShieldCheck, Clock, Activity, Layers, Sliders, AlertTriangle, Youtube, Twitter, Flame, RefreshCw, Tv, BookOpen, Package, Archive, FileArchive, FileJson, CheckCircle, Database } from 'lucide-react';
 import { AppData, Category, LinkItem, CloudConfig, SiteConfig, SubCategory, Theme, LogoShape, HealthCheckCycle } from '../types';
 import { ToastType } from './Toast';
 import { COLOR_COLLECTIONS, COLOR_PALETTES } from '../App';
@@ -16,6 +16,8 @@ import { isLikelyLowResIcon, extractCleanHostname, enhanceIconByAlgorithm } from
 import { fetchHighResolutionIcon, generateLetterIcon, normalizeIconForDisplay } from '../services/highResIconService';
 import { CategoryIconPickerModal } from './CategoryIconPickerModal';
 import { CategoryIconDisplay, resolveCategoryIcon } from '../services/categoryIconService';
+import { exportBackupPackage, importBackupPackage, BackupProgress } from '../services/backupPackageService';
+import { exportHtmlBookmarks, parseHtmlBookmarks } from '../services/bookmarkHtmlService';
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -31,7 +33,7 @@ interface AdminModalProps {
   initialValues?: { categoryId: string; subCategoryId: string } | null;
   t: any;
   showToast: (type: ToastType, message: string) => void;
-  confirmAction: (title: string, message: string, onConfirm: () => void, isDangerous?: boolean) => void;
+  confirmAction: (title: string, message: string, onConfirm: () => void, isDangerous?: boolean, confirmText?: string, cancelText?: string) => void;
   theme: Theme;
 }
 
@@ -231,6 +233,156 @@ const AdminModal: React.FC<AdminModalProps> = ({
   // 配色体系选择
   const [paletteCollection, setPaletteCollection] = useState<keyof typeof COLOR_COLLECTIONS>('macaron');
   const [newTagInput, setNewTagInput] = useState('');
+
+  // 已有链接选择器（当录入链接地址为空时展示）
+  const [existingLinksSearch, setExistingLinksSearch] = useState('');
+
+  const filteredExistingLinks = useMemo(() => {
+    const list = data.links || [];
+    const q = existingLinksSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(l => 
+      (l.title || '').toLowerCase().includes(q) ||
+      (l.url || '').toLowerCase().includes(q) ||
+      (l.description || '').toLowerCase().includes(q)
+    );
+  }, [data.links, existingLinksSearch]);
+
+  const getCategoryBadgeName = (categoryId: string, subCategoryId?: string) => {
+    const cat = (data.categories || []).find(c => c.id === categoryId);
+    if (!cat) return '未分类';
+    if (subCategoryId) {
+      const sub = (cat.subCategories || []).find(s => s.id === subCategoryId);
+      if (sub) return sub.name;
+    }
+    return cat.name;
+  };
+
+  // Data Backup Archive (.navbak.zip) State & Handlers
+  const [isExportingBackup, setIsExportingBackup] = useState(false);
+  const [backupExportProgress, setBackupExportProgress] = useState<BackupProgress | null>(null);
+  const [isImportingBackup, setIsImportingBackup] = useState(false);
+  const [backupImportProgress, setBackupImportProgress] = useState<{ stage: string; percent: number } | null>(null);
+  const [backupDragOver, setBackupDragOver] = useState(false);
+  const [showHtmlBackupOptions, setShowHtmlBackupOptions] = useState(false);
+
+  const handleExportHtmlBookmarks = () => {
+    try {
+      const { content, filename } = exportHtmlBookmarks(data);
+      const blob = new Blob([content], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('success', '标准 HTML 格式书签已导出，可随时在各大浏览器中直接导入备份！');
+    } catch (err: any) {
+      console.error('Failed to export HTML bookmarks:', err);
+      showToast('error', `导出书签失败: ${err?.message || '未知错误'}`);
+    }
+  };
+
+  const handleImportHtmlBookmarks = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const result = parseHtmlBookmarks(text);
+      if (result.categories.length === 0 && result.links.length === 0) {
+        showToast('error', '未在文件中检测到有效的书签链接');
+        return;
+      }
+      confirmAction(
+        t.admin.data.importTitle || '导入浏览器书签 (HTML)',
+        `检测到书签文件有效：包含 ${result.summary.categoryCount} 个书签文件夹/分类，共 ${result.summary.linkCount} 个网址链接。\n\n确定要导入并更新当前导航数据吗？`,
+        () => {
+          const newAppData: AppData = {
+            ...data,
+            categories: result.categories,
+            links: result.links,
+          };
+          onUpdateData(newAppData);
+          showToast('success', `成功导入 ${result.summary.categoryCount} 个分类及 ${result.summary.linkCount} 个链接！`);
+        }
+      );
+    } catch (err: any) {
+      console.error('Failed to parse HTML bookmarks:', err);
+      showToast('error', `解析书签文件失败: ${err?.message || '文件格式不正确'}`);
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const handleExportBackupZip = async () => {
+    if (isExportingBackup) return;
+    setIsExportingBackup(true);
+    setBackupExportProgress({
+      stage: 'preparing',
+      current: 0,
+      total: data.links?.length || 0,
+      percent: 0,
+    });
+    try {
+      const result = await exportBackupPackage(data, (p) => {
+        setBackupExportProgress(p);
+      });
+      const url = URL.createObjectURL(result.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = result.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast(
+        'success',
+        `备份压缩包导出完成！共打包 ${result.summary.categoryCount} 个分类、${result.summary.linkCount} 个链接及 ${result.summary.iconCount} 个独立高清图标 (${result.summary.formattedSize})`
+      );
+    } catch (err: any) {
+      console.error('Failed to export backup package:', err);
+      showToast('error', `导出压缩包失败: ${err?.message || '未知错误'}`);
+    } finally {
+      setIsExportingBackup(false);
+      setBackupExportProgress(null);
+    }
+  };
+
+  const handleProcessBackupFile = async (file: File) => {
+    if (!file) return;
+    setIsImportingBackup(true);
+    setBackupImportProgress({ stage: '读取并解析备份文件...', percent: 15 });
+    try {
+      const result = await importBackupPackage(file, (p) => {
+        setBackupImportProgress(p);
+      });
+      if (result.success && result.data) {
+        confirmAction(
+          t.admin.data.importTitle || '导入全量备份',
+          `检测到备份文件有效：包含 ${result.summary.categoryCount} 个分类、${result.summary.linkCount} 个链接${
+            result.summary.restoredIconsCount > 0 ? `及 ${result.summary.restoredIconsCount} 个独立高清图标资产` : ''
+          }。\n\n确定要导入并还原为与导出前完全一致的导航状态吗？（将覆盖当前本地配置）`,
+          () => {
+            onUpdateData(result.data);
+            showToast(
+              'success',
+              `🎉 成功恢复导航！已还原 ${result.summary.categoryCount} 个分类、${result.summary.linkCount} 个链接与全部图标，与导出前完全一致！`
+            );
+          }
+        );
+      } else {
+        throw new Error(result.message || '文件格式不正确');
+      }
+    } catch (err: any) {
+      console.error('Failed to import backup package:', err);
+      showToast('error', `导入失败: ${err?.message || '文件无法识别'}`);
+    } finally {
+      setIsImportingBackup(false);
+      setBackupImportProgress(null);
+    }
+  };
 
   const globalTags = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -1249,7 +1401,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
             <button 
               onClick={(e) => { e.stopPropagation(); onClose(); }} 
               className="p-3 text-slate-400 hover:text-brand-600 hover:bg-slate-100 dark:hover:bg-zinc-700 rounded-2xl transition-all active:scale-90 relative z-[200]"
-              title="Close"
+              title={t.app?.close || "关闭"}
             >
               <X className="w-7 h-7" />
             </button>
@@ -1266,6 +1418,122 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
                 {linkMode === 'single' && (
                   <div className="space-y-8 lg:space-y-10 max-w-3xl">
+                    {/* 已有链接选择面板：当链接地址栏为空时展示，方便点击快速载入修改 */}
+                    {(!linkForm.url || !linkForm.url.trim()) && (
+                      <div className="space-y-4 animate-in fade-in duration-200 pb-2">
+                        <div className="flex items-center justify-between ml-1">
+                          <div className="flex items-center gap-1.5">
+                            <Database className="w-3.5 h-3.5 text-slate-400 dark:text-zinc-400" />
+                            <span className="text-[11px] font-bold text-slate-400 dark:text-zinc-400 uppercase tracking-widest">
+                              已有链接 · 点击载入表单编辑
+                            </span>
+                          </div>
+                          <span className="text-[11px] font-bold text-slate-400 dark:text-zinc-500 tracking-wider">
+                            {filteredExistingLinks.length} 条
+                          </span>
+                        </div>
+
+                        {/* 搜索框 */}
+                        <div className="relative">
+                          <Search className="w-4 h-4 text-slate-400 dark:text-zinc-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <input
+                            type="text"
+                            value={existingLinksSearch}
+                            onChange={(e) => setExistingLinksSearch(e.target.value)}
+                            placeholder="搜索标题 / URL / 描述..."
+                            className="w-full pl-11 pr-10 py-3 bg-white dark:bg-zinc-800/80 border border-slate-200 dark:border-white/10 rounded-2xl outline-none text-sm font-medium focus:border-brand-500 transition-colors dark:text-white shadow-xs"
+                          />
+                          {existingLinksSearch && (
+                            <button
+                              type="button"
+                              onClick={() => setExistingLinksSearch('')}
+                              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 p-1"
+                              title="清空搜索"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* 已有链接列表 */}
+                        <div className="border border-slate-200/80 dark:border-white/10 rounded-2xl bg-white dark:bg-zinc-800/90 overflow-hidden shadow-xs">
+                          <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-white/5 custom-scrollbar">
+                            {filteredExistingLinks.length > 0 ? (
+                              filteredExistingLinks.map((item) => (
+                                <div
+                                  key={item.id}
+                                  onClick={() => {
+                                    setLinkForm({
+                                      ...item,
+                                      tags: item.tags || [],
+                                      isPinned: Boolean(item.isPinned),
+                                      isTrusted: Boolean(item.isTrusted),
+                                      smartStats: item.smartStats || ''
+                                    });
+                                    showToast('info', `已载入「${item.title}」，可直接修改下方表单`);
+                                  }}
+                                  className="flex items-center justify-between px-5 py-3.5 hover:bg-slate-50 dark:hover:bg-zinc-700/50 transition-colors cursor-pointer group gap-4"
+                                  title="点击将此链接载入表单进行编辑"
+                                >
+                                  <div className="flex items-center gap-4 min-w-0 flex-1">
+                                    <span className="font-bold text-sm text-slate-800 dark:text-zinc-200 group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors truncate shrink-0 max-w-[140px] sm:max-w-[200px]">
+                                      {item.title}
+                                    </span>
+                                    <span className="text-xs text-slate-400 dark:text-zinc-400 truncate font-mono flex-1">
+                                      {item.url}
+                                    </span>
+                                  </div>
+                                  <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-zinc-700 text-slate-600 dark:text-zinc-300 group-hover:bg-brand-100 dark:group-hover:bg-brand-900/50 group-hover:text-brand-700 dark:group-hover:text-brand-300 transition-colors shrink-0">
+                                    {getCategoryBadgeName(item.categoryId, item.subCategoryId)}
+                                  </span>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="py-8 text-center text-xs text-slate-400 dark:text-zinc-500 font-medium">
+                                {existingLinksSearch ? '未搜索到匹配的已有链接' : '暂无已有链接'}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 已填入链接时显示的状态条与重新选择按钮 */}
+                    {Boolean(linkForm.url && linkForm.url.trim()) && (
+                      <div className="flex items-center justify-between p-3.5 bg-slate-50/80 dark:bg-zinc-800/50 border border-slate-200/70 dark:border-white/10 rounded-2xl animate-in fade-in duration-200">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                          <span className="text-xs font-bold text-slate-700 dark:text-zinc-300 truncate">
+                            {linkForm.id ? `正在修改已有链接: ${linkForm.title || linkForm.url}` : '正在录入新链接'}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLinkForm({
+                              id: undefined,
+                              title: '',
+                              url: '',
+                              description: '',
+                              smartStats: '',
+                              categoryId: data.categories[0]?.id || '',
+                              subCategoryId: '',
+                              iconUrl: '',
+                              iconBgColor: '',
+                              tags: [],
+                              isPinned: false,
+                              isTrusted: false
+                            });
+                          }}
+                          className="text-xs font-bold text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300 flex items-center gap-1 shrink-0 ml-3 cursor-pointer hover:underline"
+                          title="清空链接地址以重新挑选已有链接"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>清空重选已有链接</span>
+                        </button>
+                      </div>
+                    )}
+
                     <div className="space-y-3">
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.link.url} <span className="text-red-500">*</span></label>
                       <div className="flex gap-3">
@@ -1309,31 +1577,42 @@ const AdminModal: React.FC<AdminModalProps> = ({
 
                     <div className="space-y-3">
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1">{t.admin.link.icon}</label>
-                      <div className="flex items-center gap-6 p-6 bg-slate-50/30 dark:bg-zinc-900/10 border border-slate-100 dark:border-white/5 rounded-[2rem]">
+                      <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 p-6 bg-slate-50/30 dark:bg-zinc-900/10 border border-slate-100 dark:border-white/5 rounded-[2rem]">
                         <div 
-                          className="w-20 h-20 lg:w-24 lg:h-24 rounded-2xl border border-slate-100 dark:border-white/10 flex items-center justify-center shrink-0 shadow-inner overflow-hidden"
+                          className="w-20 h-20 lg:w-24 lg:h-24 rounded-2xl border border-slate-100 dark:border-white/10 flex items-center justify-center shrink-0 shadow-inner overflow-hidden sm:mt-1"
                           style={linkForm.iconBgColor ? { backgroundColor: linkForm.iconBgColor } : {}}
                         >
                           {linkForm.iconUrl ? <img src={normalizeIconForDisplay(linkForm.iconUrl)} className="w-full h-full object-contain select-none" /> : <Globe className="w-10 h-10 text-slate-200" />}
                         </div>
-                        <div className="flex-1 space-y-4">
+                        <div className="flex-1 w-full space-y-3">
                           {/* Icon URL Input */}
-                          <div className="space-y-2">
+                          <div className="space-y-2.5">
                              <input type="text" value={linkForm.iconUrl} onChange={e => setLinkForm({ ...linkForm, iconUrl: e.target.value })} className="w-full px-5 py-3 bg-white dark:bg-zinc-700 border border-slate-200 dark:border-white/10 rounded-xl text-sm font-bold outline-none focus:border-brand-500 dark:text-white shadow-sm" placeholder="https://..." />
-                             <div className="flex flex-wrap items-center gap-2">
+                             
+                             {/* 图标操作按钮网格：整齐对称 3 列 × 2 行，高度与风格统一 */}
+                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-0.5">
+                               {/* 1. 自动获取 Favicon */}
                                <button
                                   type="button"
                                   onClick={() => handleAutoFetchFavicon()}
-                                  className="inline-flex items-center justify-center px-4 py-2 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs font-black text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-700 cursor-pointer shadow-sm active:scale-95 transition-all group"
+                                  className="h-9 w-full flex items-center justify-center gap-1.5 px-2 bg-white dark:bg-zinc-800 border border-slate-200/90 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20 rounded-xl text-xs font-bold text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-700/60 shadow-2xs active:scale-[0.98] transition-all cursor-pointer group"
                                   title="使用 Google 的 Favicon API (https://www.google.com/s2/favicons?domain=...) 自动根据输入的 URL 补全或更新链接图标"
                                >
-                                  <Globe className="w-3.5 h-3.5 mr-1.5 text-emerald-500 group-hover:rotate-45 transition-transform" />
-                                  {t.admin.link.autoFavicon || '自动获取 Favicon'}
+                                  <Globe className="w-3.5 h-3.5 text-sky-500 group-hover:rotate-45 transition-transform shrink-0" />
+                                  <span className="truncate">{t.admin.link.autoFavicon || '自动获取 Favicon'}</span>
                                </button>
-                               <label className="inline-flex items-center justify-center px-4 py-2 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 rounded-xl text-xs font-black text-slate-600 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-700 cursor-pointer shadow-sm active:scale-95 transition-all">
-                                  <Upload className="w-3.5 h-3.5 mr-1.5" />
-                                  {t.admin.link.uploadOrPaste} <input type="file" className="hidden" accept="image/*" onChange={e => handleImageUpload(e, true, (res) => setLinkForm({ ...linkForm, iconUrl: res }))} />
-                               </label>
+
+                               {/* 2. 上传或粘贴 */}
+                               <label
+                                  className="h-9 w-full flex items-center justify-center gap-1.5 px-2 bg-white dark:bg-zinc-800 border border-slate-200/90 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20 rounded-xl text-xs font-bold text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-700/60 shadow-2xs active:scale-[0.98] transition-all cursor-pointer group"
+                                  title="上传本地图片或粘贴图片文件"
+                               >
+                                  <Upload className="w-3.5 h-3.5 text-amber-500 shrink-0 group-hover:-translate-y-0.5 transition-transform" />
+                                  <span className="truncate">{t.admin.link.uploadOrPaste || '上传或粘贴'}</span>
+                                  <input type="file" className="hidden" accept="image/*" onChange={e => handleImageUpload(e, true, (res) => setLinkForm({ ...linkForm, iconUrl: res }))} />
+                                </label>
+
+                               {/* 3. 多平台官方高清图标检索 */}
                                <button
                                   type="button"
                                   onClick={() => {
@@ -1342,38 +1621,52 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                       setAppStoreQuery(linkForm.title || linkForm.url || '');
                                     }
                                   }}
-                                  className={`inline-flex items-center justify-center px-4 py-2 rounded-xl text-xs font-black shadow-sm active:scale-95 transition-all border cursor-pointer ${
+                                  className={`h-9 w-full flex items-center justify-center gap-1.5 px-2 rounded-xl text-xs font-bold shadow-2xs active:scale-[0.98] transition-all border cursor-pointer ${
                                     showAppStoreSearchBox 
-                                      ? 'bg-gradient-to-r from-emerald-600 via-blue-600 to-indigo-600 text-white border-transparent ring-2 ring-blue-400/30' 
-                                      : 'bg-white dark:bg-zinc-800 border-slate-200 dark:border-white/10 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-700'
+                                      ? 'bg-indigo-50/90 dark:bg-indigo-950/50 border-indigo-400 dark:border-indigo-500 text-indigo-700 dark:text-indigo-300 ring-2 ring-indigo-400/20' 
+                                      : 'bg-white dark:bg-zinc-800 border-slate-200/90 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20 text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-700/60'
                                   }`}
-                                  title="多平台官方超清图标及头像检索：支持 Google Play (512px)、Chrome Web Store (256px)、Facebook (500px)、Instagram (原画)、Discord (512px)、YouTube (800px) 与 App Store (1024px)"
-                               >
-                                  <div className="flex items-center gap-1 mr-1.5">
+                                  title="多平台官方超清图标及头像检索：支持 App Store (1024px)、Google Play (512px)、Chrome Web Store (256px)、YouTube (800px)、Bilibili (原画) 与 X / Twitter (400px)"
+                                >
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <Apple className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
                                     <Play className="w-3.5 h-3.5 text-emerald-500" />
                                     <Chrome className="w-3.5 h-3.5 text-amber-500" />
-                                    <Facebook className="w-3.5 h-3.5 text-blue-600" />
-                                    <Instagram className="w-3.5 h-3.5 text-pink-500" />
-                                    <MessageSquare className="w-3.5 h-3.5 text-indigo-500" />
-                                    <Youtube className="w-3.5 h-3.5 text-red-500" />
-                                    <Apple className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
                                   </div>
-                                  多平台官方高清图标检索
+                                  <span className="truncate">多平台高清检索</span>
                                </button>
-                               <div className="inline-flex items-stretch rounded-xl shadow-sm">
+
+                               {/* 4. 超清原图/字标 */}
+                               <button
+                                  type="button"
+                                  onClick={handleFetchHighResIcon}
+                                  disabled={isFetchingHighRes}
+                                  className="h-9 w-full flex items-center justify-center gap-1.5 px-2 bg-white dark:bg-zinc-800 border border-slate-200/90 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20 rounded-xl text-xs font-bold text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-700/60 shadow-2xs active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 group"
+                                  title="深度探测 Web App Manifest 与 Apple Touch 超清原画图标，若无则自动生成高保真字标"
+                               >
+                                  {isFetchingHighRes ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500 shrink-0" />
+                                  ) : (
+                                    <Layers className="w-3.5 h-3.5 text-emerald-500 shrink-0 group-hover:scale-110 transition-transform" />
+                                  )}
+                                  <span className="truncate">{isFetchingHighRes ? '探测中...' : '超清原图/字标'}</span>
+                               </button>
+
+                               {/* 5. 算法高清化 */}
+                               <div className="h-9 w-full flex items-stretch bg-white dark:bg-zinc-800 border border-slate-200/90 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20 rounded-xl shadow-2xs overflow-hidden transition-all group">
                                  <button
                                     type="button"
                                     onClick={handleQuickAlgorithmEnhance}
                                     disabled={isEnhancingByAlgo}
-                                    className="inline-flex items-center justify-center px-3.5 py-2 bg-gradient-to-r from-indigo-600 via-purple-600 to-brand-600 text-white rounded-l-xl text-xs font-black shadow-sm active:scale-95 transition-all hover:opacity-95 cursor-pointer disabled:opacity-50"
+                                    className="flex-1 min-w-0 flex items-center justify-center gap-1.5 px-2 hover:bg-slate-50 dark:hover:bg-zinc-700/60 text-slate-700 dark:text-zinc-200 text-xs font-bold transition-colors cursor-pointer select-none truncate disabled:opacity-50"
                                     title="一键算法高清化：自动执行 4× 阶梯超采样与卷积边缘锐化，并将结果实时应用到表单"
                                  >
                                     {isEnhancingByAlgo ? (
-                                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin text-amber-300" />
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-500 shrink-0" />
                                     ) : (
-                                      <Sparkles className="w-3.5 h-3.5 mr-1.5 text-amber-300 animate-pulse" />
+                                      <Sparkles className="w-3.5 h-3.5 text-purple-500 shrink-0 group-hover:rotate-12 transition-transform" />
                                     )}
-                                    {isEnhancingByAlgo ? '重构中...' : (t.admin.link?.hdEnhance?.quickEnhance || '算法高清化')}
+                                    <span className="truncate">{isEnhancingByAlgo ? '重构中...' : (t.admin.link?.hdEnhance?.quickEnhance || '算法高清化')}</span>
                                  </button>
                                  <button
                                     type="button"
@@ -1403,43 +1696,31 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                         initialTab: 'algorithm',
                                       });
                                     }}
-                                    className="inline-flex items-center justify-center px-2 py-2 bg-indigo-700 hover:bg-indigo-800 text-indigo-100 rounded-r-xl text-xs font-bold border-l border-indigo-500/30 transition-colors cursor-pointer"
+                                    className="px-2.5 flex items-center justify-center border-l border-slate-100 dark:border-white/10 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-700/60 transition-colors cursor-pointer shrink-0"
                                     title="打开高清工作室手动微调锐化卷积与对比度参数"
                                  >
                                     <Sliders className="w-3.5 h-3.5" />
                                  </button>
                                </div>
-                               <button
-                                  type="button"
-                                  onClick={handleFetchHighResIcon}
-                                  disabled={isFetchingHighRes}
-                                  className="inline-flex items-center justify-center px-4 py-2 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 rounded-xl text-xs font-black shadow-sm active:scale-95 transition-all hover:bg-emerald-100 dark:hover:bg-emerald-900/50 cursor-pointer disabled:opacity-50"
-                                  title="深度探测 Web App Manifest 与 Apple Touch 超清原画图标，若无则自动生成高保真字标"
-                               >
-                                  {isFetchingHighRes ? (
-                                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin text-emerald-600 dark:text-emerald-400" />
-                                  ) : (
-                                    <Layers className="w-3.5 h-3.5 mr-1.5 text-emerald-600 dark:text-emerald-400" />
-                                  )}
-                                  超清原图/字标
-                               </button>
-                               <div className="inline-flex rounded-xl shadow-sm">
+
+                               {/* 6. 极简字标 */}
+                               <div className="h-9 w-full flex items-stretch bg-white dark:bg-zinc-800 border border-slate-200/90 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20 rounded-xl shadow-2xs overflow-hidden transition-all group">
                                  <button
                                     type="button"
                                     onClick={handleGenerateLetterIcon}
-                                    className="inline-flex items-center justify-center px-3.5 py-2 bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 border border-slate-200 dark:border-white/10 rounded-l-xl text-xs font-black active:scale-95 transition-all hover:bg-slate-200 dark:hover:bg-zinc-700 cursor-pointer"
+                                    className="flex-1 min-w-0 flex items-center justify-center gap-1.5 px-2 hover:bg-slate-50 dark:hover:bg-zinc-700/60 text-slate-700 dark:text-zinc-200 text-xs font-bold transition-colors cursor-pointer select-none truncate"
                                     title="根据网站名称快速生成正中高质感字标 SVG"
                                  >
-                                    <Palette className="w-3.5 h-3.5 mr-1.5 text-violet-500" />
-                                    极简字标
+                                    <Palette className="w-3.5 h-3.5 text-violet-500 shrink-0 group-hover:scale-110 transition-transform" />
+                                    <span className="truncate">极简字标</span>
                                  </button>
                                  <button
                                     type="button"
                                     onClick={() => setIsLetterCustomizerOpen(true)}
-                                    className="inline-flex items-center justify-center px-2 py-2 bg-slate-200 dark:bg-zinc-700 text-slate-700 dark:text-zinc-200 border-y border-r border-slate-200 dark:border-white/10 rounded-r-xl text-xs font-bold hover:bg-slate-300 dark:hover:bg-zinc-600 transition-colors cursor-pointer"
+                                    className="px-2.5 flex items-center justify-center border-l border-slate-100 dark:border-white/10 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-700/60 transition-colors cursor-pointer shrink-0"
                                     title="定制字标字母、自由调整背景底色与字号"
                                  >
-                                    <Sliders className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400" />
+                                    <Sliders className="w-3.5 h-3.5 text-violet-500/80" />
                                  </button>
                                </div>
                              </div>
@@ -1468,41 +1749,107 @@ const AdminModal: React.FC<AdminModalProps> = ({
                             />
                           )}
                           
-                          {/* NEW: Link Icon BG Color Picker */}
-                          <div className="flex items-center gap-3 pt-2 border-t border-slate-200 dark:border-white/10">
-                             <div className="relative w-8 h-8 rounded-lg overflow-hidden border border-slate-200 dark:border-white/10 shadow-sm shrink-0">
-                                <input 
-                                   type="color" 
-                                   value={
-                                     // Ensure valid hex for color input, otherwise fallback to white to avoid warnings
-                                     /^#[0-9A-F]{6}$/i.test(linkForm.iconBgColor || '') 
-                                       ? linkForm.iconBgColor 
-                                       : '#ffffff'
-                                   } 
-                                   onChange={e => setLinkForm({...linkForm, iconBgColor: e.target.value})}
-                                   className="absolute -top-1/2 -left-1/2 w-[200%] h-[200%] p-0 m-0 cursor-pointer border-0"
-                                />
+                          {/* 图标底色设置（默认透明） */}
+                          <div className="pt-2.5 border-t border-slate-100 dark:border-white/5 space-y-2">
+                             <div className="flex items-center justify-between">
+                               <div className="flex items-center gap-1.5">
+                                 <Palette className="w-3.5 h-3.5 text-slate-400 dark:text-zinc-400" />
+                                 <span className="text-[11px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
+                                   图标外层底色
+                                 </span>
+                               </div>
+                               <div className="flex items-center gap-2">
+                                 {linkForm.iconBgColor ? (
+                                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 dark:bg-violet-950/40 dark:text-violet-400 border border-violet-200/60 dark:border-violet-800/40">
+                                     自定义底色: {linkForm.iconBgColor}
+                                   </span>
+                                 ) : (
+                                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/40">
+                                     ✓ 默认透明无底色
+                                   </span>
+                                 )}
+                               </div>
                              </div>
-                             <div className="flex-1 relative">
-                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-mono text-xs font-bold">#</span>
+
+                             <div className="flex items-center gap-2">
+                               {/* 设为透明（推荐默认）按钮 */}
+                               <button
+                                 type="button"
+                                 onClick={() => setLinkForm({ ...linkForm, iconBgColor: '' })}
+                                 className={`h-9 px-3 rounded-xl text-xs font-bold transition-all border flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                                   !linkForm.iconBgColor
+                                     ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 ring-2 ring-emerald-400/20'
+                                     : 'bg-white dark:bg-zinc-800 border-slate-200 dark:border-white/10 text-slate-600 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-700'
+                                 }`}
+                                 title="清除色值，使图标外层保持 100% 透明无额外底色"
+                               >
+                                 <span className={`w-2 h-2 rounded-full shrink-0 ${!linkForm.iconBgColor ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                                 <span>设为透明（默认）</span>
+                               </button>
+
+                               {/* 自定义色板取色器 */}
+                               <div className="flex-1 flex items-center gap-2 bg-white dark:bg-zinc-800/90 border border-slate-200 dark:border-white/10 rounded-xl px-2.5 py-1 shadow-2xs h-9">
+                                 <div className="relative w-6 h-6 rounded-lg overflow-hidden border border-slate-200 dark:border-white/10 shadow-2xs shrink-0 cursor-pointer">
+                                   <input 
+                                     type="color" 
+                                     value={
+                                       /^#[0-9A-F]{6}$/i.test(linkForm.iconBgColor || '') 
+                                         ? linkForm.iconBgColor 
+                                         : '#4f46e5'
+                                     } 
+                                     onChange={e => setLinkForm({ ...linkForm, iconBgColor: e.target.value })}
+                                     className="absolute -top-1/2 -left-1/2 w-[200%] h-[200%] p-0 m-0 cursor-pointer border-0"
+                                     title="点击自定义底色色值"
+                                   />
+                                 </div>
+                                 <span className="text-slate-400 font-mono text-xs font-bold">#</span>
                                  <input 
-                                    type="text" 
-                                    value={linkForm.iconBgColor?.replace(/^#/, '') || ''}
-                                    onChange={e => {
-                                        const clean = e.target.value.replace(/#/g, '');
-                                        setLinkForm({...linkForm, iconBgColor: clean ? `#${clean}` : ''});
-                                    }}
-                                    placeholder="FFFFFF"
-                                    className="w-full pl-7 pr-4 py-2 bg-white dark:bg-zinc-700 border border-slate-200 dark:border-white/10 rounded-lg text-xs font-mono font-bold dark:text-white uppercase"
+                                   type="text" 
+                                   value={linkForm.iconBgColor?.replace(/^#/, '') || ''}
+                                   onChange={e => {
+                                     const clean = e.target.value.replace(/#/g, '');
+                                     setLinkForm({ ...linkForm, iconBgColor: clean ? `#${clean}` : '' });
+                                   }}
+                                   placeholder="留空即透明"
+                                   className="w-full bg-transparent text-xs font-mono font-bold dark:text-white uppercase outline-none"
                                  />
+                                 {linkForm.iconBgColor && (
+                                   <button 
+                                     type="button"
+                                     onClick={() => setLinkForm({ ...linkForm, iconBgColor: '' })}
+                                     className="p-1 text-slate-400 hover:text-red-500 dark:hover:text-red-400 transition-colors shrink-0 cursor-pointer"
+                                     title="清空色值，设为透明"
+                                   >
+                                     <Trash2 className="w-3.5 h-3.5" />
+                                   </button>
+                                 )}
+                               </div>
                              </div>
-                             <button 
-                                onClick={() => setLinkForm({...linkForm, iconBgColor: ''})}
-                                className="p-2 bg-slate-100 dark:bg-zinc-700 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 dark:hover:text-red-400 transition-colors"
-                                title="Clear Color"
-                             >
-                                <Trash2 className="w-4 h-4" />
-                             </button>
+
+                             {/* 全局底色清理提示（当有其他旧链接残留底色时展示快捷重置） */}
+                             {data.links.some(l => l.iconBgColor) && (
+                               <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-zinc-800/40 border border-slate-200/60 dark:border-white/5 text-[11px] text-slate-500 dark:text-zinc-400 mt-1">
+                                 <span>检测到现有链接中存在自定义底色，可一键全部恢复为默认透明：</span>
+                                 <button
+                                   type="button"
+                                   onClick={() => {
+                                     confirmAction(
+                                       '恢复所有图标为透明底色',
+                                       '确定要将所有已录入链接的图标底色清除，全部恢复为默认透明吗？',
+                                       () => {
+                                         const updatedLinks = data.links.map(l => ({ ...l, iconBgColor: '' }));
+                                         onUpdateData({ ...data, links: updatedLinks });
+                                         setLinkForm(prev => ({ ...prev, iconBgColor: '' }));
+                                         showToast('success', '已将全部图标底色重置为默认透明！');
+                                       }
+                                     );
+                                   }}
+                                   className="px-2.5 py-1 bg-white dark:bg-zinc-700 border border-slate-200 dark:border-white/10 rounded-lg font-bold text-slate-700 dark:text-zinc-200 hover:text-brand-600 transition-colors cursor-pointer shrink-0 ml-2 shadow-2xs"
+                                 >
+                                   一键全部恢复透明
+                                 </button>
+                               </div>
+                             )}
                           </div>
                         </div>
                       </div>
@@ -2230,7 +2577,7 @@ const AdminModal: React.FC<AdminModalProps> = ({
                               <span>设置图标</span>
                             </button>
                             <button onClick={() => { setCatForm({ id: cat.id, name: cat.name, icon: cat.icon || '' }); setCatEditingId(cat.id); }} className="p-2 text-brand-600 hover:bg-white dark:hover:bg-zinc-600 rounded-lg transition-colors cursor-pointer"><Edit2 className="w-4 h-4" /></button>
-                            <button onClick={() => confirmAction(t.admin.category.edit, t.admin.category.deleteConfirm, () => onUpdateData({ ...data, categories: data.categories.filter(c => c.id !== cat.id) }), true)} className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors cursor-pointer"><Trash2 className="w-4 h-4" /></button>
+                            <button onClick={() => confirmAction(t.admin.category.deleteCategoryTitle || (t.app?.deleteCategoryTitle || '删除主分类'), t.admin.category.deleteConfirm, () => onUpdateData({ ...data, categories: data.categories.filter(c => c.id !== cat.id) }), true, t.app?.confirmDelete || '确认删除', t.app?.cancel || '取消')} className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors cursor-pointer" title={t.admin.category.deleteCategoryTitle || "删除主分类"}><Trash2 className="w-4 h-4" /></button>
                           </div>
                         </div>
                       <div className="p-6">
@@ -2239,8 +2586,8 @@ const AdminModal: React.FC<AdminModalProps> = ({
                             <div key={sub.id} className="flex items-center justify-between px-5 py-3 bg-white dark:bg-zinc-800 rounded-2xl border border-slate-100 dark:border-white/5 group shadow-sm hover:border-brand-200 transition-colors">
                               <span className="font-bold text-sm text-slate-600 dark:text-zinc-200 truncate">{sub.name}</span>
                               <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button onClick={() => { setSubCatForm({ parentId: cat.id, id: sub.id, name: sub.name }); setSubCatEditingId(sub.id); }} className="p-1 hover:text-brand-600"><Edit2 className="w-3.5 h-3.5" /></button>
-                                <button onClick={() => confirmAction(t.admin.tags.deleteTitle, t.admin.category.deleteSubConfirm, () => onUpdateData({ ...data, categories: data.categories.map(c => c.id === cat.id ? { ...c, subCategories: c.subCategories.filter(s => s.id !== sub.id) } : c) }), true)} className="p-1 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                                <button onClick={() => { setSubCatForm({ parentId: cat.id, id: sub.id, name: sub.name }); setSubCatEditingId(sub.id); }} className="p-1 hover:text-brand-600" title={t.admin.category.editSub || "编辑子分类"}><Edit2 className="w-3.5 h-3.5" /></button>
+                                <button onClick={() => confirmAction(t.admin.category.deleteSubCategoryTitle || (t.app?.deleteSubCategoryTitle || '删除子分类'), t.admin.category.deleteSubConfirm, () => onUpdateData({ ...data, categories: data.categories.map(c => c.id === cat.id ? { ...c, subCategories: c.subCategories.filter(s => s.id !== sub.id) } : c) }), true, t.app?.confirmDelete || '确认删除', t.app?.cancel || '取消')} className="p-1 hover:text-red-600" title={t.admin.category.deleteSubCategoryTitle || "删除子分类"}><Trash2 className="w-3.5 h-3.5" /></button>
                               </div>
                             </div>
                           ))}
@@ -2346,7 +2693,9 @@ const AdminModal: React.FC<AdminModalProps> = ({
                                       });
                                       showToast('success', '标签已成功删除');
                                     }, 
-                                    true
+                                    true,
+                                    t.app?.confirmDelete || '确认删除',
+                                    t.app?.cancel || '取消'
                                   )} 
                                   className="p-2.5 hover:bg-red-50 dark:hover:bg-red-950/40 text-red-600 rounded-xl transition-all cursor-pointer hover:scale-105 active:scale-95" 
                                   title={t.admin.tags.deleteTitle || "删除标签"}
@@ -2469,39 +2818,277 @@ const AdminModal: React.FC<AdminModalProps> = ({
             )}
 
             {activeTab === 'data' && (
-              <div className="max-w-4xl grid grid-cols-1 lg:grid-cols-2 gap-8 pt-4 animate-in fade-in duration-300">
-                <div className="p-8 lg:p-10 bg-white dark:bg-zinc-700 border border-slate-200 dark:border-white/5 rounded-[2rem] text-center flex flex-col items-center shadow-sm">
-                  <div className="w-16 h-16 bg-brand-50 dark:bg-brand-900/20 rounded-2xl flex items-center justify-center mb-6"><Download className="w-8 h-8 text-brand-600" /></div>
-                  <h4 className="font-bold text-xl mb-3 dark:text-zinc-100">{t.admin.data.exportTitle}</h4>
-                  <p className="text-xs text-slate-400 mb-8 font-medium">{t.admin.data.exportDesc}</p>
-                  <button onClick={() => {
-                      const dataStr = JSON.stringify(data, null, 2);
-                      const blob = new Blob([dataStr], { type: 'application/json' });
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a'); a.href = url; a.download = 'navhub-backup.json'; a.click();
-                      URL.revokeObjectURL(url); showToast('success', 'Backup downloaded');
-                  }} className="w-full py-4 bg-brand-600 text-white rounded-[1.5rem] font-bold text-base hover:opacity-90 transition-all shadow-lg active:scale-95">{t.admin.data.exportBtn}</button>
+              <div className="max-w-4xl space-y-8 pt-4 animate-in fade-in duration-300 pb-8">
+                {/* Header Banner & Snapshot Summary */}
+                <div className="p-6 md:p-8 bg-gradient-to-r from-brand-500/10 via-indigo-500/10 to-purple-500/10 dark:from-brand-900/30 dark:via-indigo-900/20 dark:to-purple-900/20 border border-brand-500/20 dark:border-brand-500/30 rounded-[2.5rem] relative overflow-hidden">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-5 relative z-10">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-brand-600 text-white flex items-center justify-center shadow-md shadow-brand-500/30">
+                          <Package className="w-4 h-4" />
+                        </div>
+                        <h3 className="font-extrabold text-xl text-slate-800 dark:text-zinc-100">
+                          数据备份与全量迁移中心
+                        </h3>
+                        <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-brand-500/15 text-brand-600 dark:text-brand-400 border border-brand-500/30">
+                          含独立图标资产
+                        </span>
+                      </div>
+                      <p className="text-xs md:text-sm text-slate-500 dark:text-zinc-400 max-w-2xl leading-relaxed">
+                        将所有导航分类、自定义链接、独立底色、点击频次以及<b>所有网站的高清图标资产</b>打包为专属压缩包（<code className="text-brand-600 dark:text-brand-400 font-mono">.navbak.zip</code>）。更换浏览器或在新设备中导入，即可 <b>100% 完整无损还原</b>，彻底脱机可用，状态与原站完全一致！
+                      </p>
+                    </div>
+
+                    {/* Snapshot Chips */}
+                    <div className="flex flex-wrap md:flex-col gap-2 shrink-0">
+                      <div className="px-3.5 py-1.5 rounded-xl bg-white/80 dark:bg-zinc-800/80 border border-slate-200/80 dark:border-white/10 text-xs font-semibold text-slate-700 dark:text-zinc-300 flex items-center gap-2 shadow-xs">
+                        <Folder className="w-3.5 h-3.5 text-brand-500" />
+                        <span>{data.categories?.length || 0} 个主分类</span>
+                      </div>
+                      <div className="px-3.5 py-1.5 rounded-xl bg-white/80 dark:bg-zinc-800/80 border border-slate-200/80 dark:border-white/10 text-xs font-semibold text-slate-700 dark:text-zinc-300 flex items-center gap-2 shadow-xs">
+                        <Globe className="w-3.5 h-3.5 text-emerald-500" />
+                        <span>{data.links?.length || 0} 个网址链接</span>
+                      </div>
+                      <div className="px-3.5 py-1.5 rounded-xl bg-white/80 dark:bg-zinc-800/80 border border-slate-200/80 dark:border-white/10 text-xs font-semibold text-slate-700 dark:text-zinc-300 flex items-center gap-2 shadow-xs">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                        <span>{data.links?.filter(l => Boolean(l.iconUrl))?.length || 0} 个独立图标</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="p-8 lg:p-10 border-2 border-dashed border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-zinc-700/50 rounded-[2rem] text-center flex flex-col items-center">
-                  <div className="w-16 h-16 bg-brand-50 dark:bg-brand-900/20 rounded-2xl flex items-center justify-center mb-6"><Upload className="w-8 h-8 text-brand-600" /></div>
-                  <h4 className="font-bold text-xl mb-3 dark:text-zinc-100">{t.admin.data.importTitle}</h4>
-                  <p className="text-xs text-slate-400 mb-8 font-medium">{t.admin.data.importDesc}</p>
-                  <label className="w-full py-4 bg-white dark:bg-zinc-700 border border-slate-200 text-slate-800 dark:text-zinc-200 rounded-[1.5rem] font-bold cursor-pointer text-base hover:bg-slate-100 transition-colors flex items-center justify-center shadow-sm active:scale-95">
-                    {t.admin.data.importBtn}
-                    <input type="file" className="hidden" accept=".json" onChange={e => {
-                        const file = e.target.files?.[0]; if (!file) return;
-                        const reader = new FileReader();
-                        reader.onload = (ev) => {
-                            try {
-                                const imported = JSON.parse(ev.target?.result as string);
-                                if (imported.categories && imported.links) {
-                                    confirmAction(t.admin.data.importTitle, t.admin.data.confirm, () => { onUpdateData(imported); showToast('success', t.admin.data.success); });
-                                } else { throw new Error(); }
-                            } catch { showToast('error', t.admin.data.error); }
-                        };
-                        reader.readAsText(file);
-                    }} />
-                  </label>
+
+                {/* Primary Dual Cards: Export & Import Package */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  {/* Card 1: 导出全量备份压缩包 */}
+                  <div className="p-8 lg:p-10 bg-white dark:bg-zinc-800/90 border border-slate-200 dark:border-white/10 rounded-[2.5rem] flex flex-col justify-between shadow-sm relative overflow-hidden group hover:border-brand-500/40 transition-all">
+                    <div className="space-y-5">
+                      <div className="flex items-center justify-between">
+                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-brand-600 to-indigo-600 text-white flex items-center justify-center shadow-lg shadow-brand-500/25">
+                          <Download className="w-8 h-8 text-white" />
+                        </div>
+                        <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                          推荐全量备份
+                        </span>
+                      </div>
+
+                      <div>
+                        <h4 className="font-bold text-xl mb-2 text-slate-900 dark:text-zinc-100">
+                          {t.admin.data.packageExportTitle || "导出全量配置与图标压缩包 (.zip)"}
+                        </h4>
+                        <p className="text-xs text-slate-500 dark:text-zinc-400 font-medium leading-relaxed">
+                          {t.admin.data.packageExportDesc || "将全部分类、链接、独立底色、点击频次以及所有图标打包为专属压缩包 (.navbak.zip)。更换浏览器或设备后一键导入，完全一致，彻底脱机可用。"}
+                        </p>
+                      </div>
+
+                      {/* Highlights */}
+                      <div className="p-4 rounded-2xl bg-slate-50 dark:bg-zinc-700/40 border border-slate-200/60 dark:border-white/5 space-y-2">
+                        <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                          <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
+                          <span>抓取并内嵌所有链接的高清图标到压缩包</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                          <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
+                          <span>保留自定义图标底色、置顶常用及打开热度</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                          <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
+                          <span>脱机完全自包含，在其他浏览器秒级完美还原</span>
+                        </div>
+                      </div>
+
+                      {/* Export Progress UI */}
+                      {isExportingBackup && backupExportProgress && (
+                        <div className="space-y-2.5 p-4 rounded-2xl bg-brand-50/70 dark:bg-brand-900/20 border border-brand-500/20 animate-in fade-in">
+                          <div className="flex items-center justify-between text-xs font-bold text-brand-700 dark:text-brand-300">
+                            <span className="flex items-center gap-2">
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              {backupExportProgress.stage === 'compressing'
+                                ? '正在压缩打包中...'
+                                : `正在抓取并打包图标 (${backupExportProgress.current}/${backupExportProgress.total})...`}
+                            </span>
+                            <span>{backupExportProgress.percent}%</span>
+                          </div>
+                          <div className="w-full h-2.5 bg-slate-200 dark:bg-zinc-600 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-brand-500 to-indigo-600 rounded-full transition-all duration-300"
+                              style={{ width: `${backupExportProgress.percent}%` }}
+                            />
+                          </div>
+                          {backupExportProgress.currentTitle && (
+                            <p className="text-[11px] text-slate-500 dark:text-zinc-400 truncate">
+                              正在处理: {backupExportProgress.currentTitle}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-6">
+                      <button
+                        onClick={handleExportBackupZip}
+                        disabled={isExportingBackup}
+                        className="w-full py-3.5 px-6 bg-gradient-to-r from-brand-600 to-indigo-600 text-white rounded-2xl font-bold text-sm sm:text-base hover:opacity-95 transition-all shadow-lg shadow-brand-500/20 active:scale-95 disabled:opacity-60 flex items-center justify-center gap-2.5 cursor-pointer"
+                      >
+                        {isExportingBackup ? (
+                          <>
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                            <span>正在打包导出中...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Download className="w-5 h-5" />
+                            <span>{t.admin.data.packageExportBtn || "打包并导出压缩包 (.zip)"}</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Card 2: 导入全量备份包 / 恢复配置 */}
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setBackupDragOver(true);
+                    }}
+                    onDragLeave={() => setBackupDragOver(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setBackupDragOver(false);
+                      const file = e.dataTransfer.files?.[0];
+                      if (file) handleProcessBackupFile(file);
+                    }}
+                    className={`p-8 lg:p-10 border-2 ${
+                      backupDragOver
+                        ? 'border-brand-500 bg-brand-500/10'
+                        : 'border-dashed border-slate-300 dark:border-white/15 bg-slate-50/70 dark:bg-zinc-800/50'
+                    } rounded-[2.5rem] flex flex-col justify-between shadow-xs transition-all relative overflow-hidden group`}
+                  >
+                    <div className="space-y-5">
+                      <div className="flex items-center justify-between">
+                        <div className="w-16 h-16 rounded-2xl bg-slate-900 dark:bg-zinc-700 text-white flex items-center justify-center shadow-lg">
+                          <Upload className="w-8 h-8 text-white" />
+                        </div>
+                        <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-slate-200 dark:bg-zinc-700 text-slate-700 dark:text-zinc-200">
+                          支持 .navbak.zip / .zip / .json
+                        </span>
+                      </div>
+
+                      <div>
+                        <h4 className="font-bold text-xl mb-2 text-slate-900 dark:text-zinc-100">
+                          {t.admin.data.packageImportTitle || "导入全量备份包 / 恢复配置"}
+                        </h4>
+                        <p className="text-xs text-slate-500 dark:text-zinc-400 font-medium leading-relaxed">
+                          {t.admin.data.packageImportDesc || "支持导入 .navbak.zip、.zip 或 .json 备份。将完整还原所有分类、链接以及所有独立图标资产。"}
+                        </p>
+                      </div>
+
+                      {/* Dropzone Hint */}
+                      <div className="p-4 rounded-2xl bg-white/80 dark:bg-zinc-700/60 border border-slate-200/80 dark:border-white/5 text-center py-6">
+                        <Archive className="w-8 h-8 mx-auto text-brand-500/70 mb-2" />
+                        <p className="text-xs font-semibold text-slate-700 dark:text-zinc-200">
+                          {t.admin.data.dragDropHint || "支持直接将备份压缩包拖拽至此处"}
+                        </p>
+                        <p className="text-[11px] text-slate-400 dark:text-zinc-400 mt-1">
+                          还原后链接、分类、图标及统计与导出前完全一致
+                        </p>
+                      </div>
+
+                      {/* Import Progress UI */}
+                      {isImportingBackup && backupImportProgress && (
+                        <div className="space-y-2.5 p-4 rounded-2xl bg-brand-50/70 dark:bg-brand-900/20 border border-brand-500/20 animate-in fade-in">
+                          <div className="flex items-center justify-between text-xs font-bold text-brand-700 dark:text-brand-300">
+                            <span className="flex items-center gap-2">
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              {backupImportProgress.stage}
+                            </span>
+                            <span>{backupImportProgress.percent}%</span>
+                          </div>
+                          <div className="w-full h-2.5 bg-slate-200 dark:bg-zinc-600 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-brand-500 to-indigo-600 rounded-full transition-all duration-300"
+                              style={{ width: `${backupImportProgress.percent}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-6">
+                      <label className="w-full py-3.5 px-6 bg-slate-900 dark:bg-white text-white dark:text-zinc-900 rounded-2xl font-bold text-sm sm:text-base hover:opacity-90 transition-all flex items-center justify-center gap-2.5 shadow-lg active:scale-95 cursor-pointer">
+                        {isImportingBackup ? (
+                          <>
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                            <span>正在解析还原中...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-5 h-5 text-white dark:text-zinc-900" />
+                            <span>{t.admin.data.packageImportBtn || "选择备份文件导入"}</span>
+                          </>
+                        )}
+                        <input
+                          type="file"
+                          className="hidden"
+                          accept=".zip,.navbak,.navpack,.json"
+                          disabled={isImportingBackup}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleProcessBackupFile(file);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Secondary Collapsible: Standard Browser Bookmarks (HTML Format) */}
+                <div className="p-6 bg-slate-50/80 dark:bg-zinc-800/40 border border-slate-200/80 dark:border-white/5 rounded-[2rem]">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-slate-200 dark:bg-zinc-700 flex items-center justify-center text-slate-600 dark:text-zinc-300">
+                        <Globe className="w-4 h-4 text-brand-500" />
+                      </div>
+                      <div>
+                        <h5 className="font-bold text-sm text-slate-800 dark:text-zinc-200">
+                          {t.admin.data.htmlSectionTitle || "标准浏览器书签 (HTML 格式) 选项"}
+                        </h5>
+                        <p className="text-xs text-slate-400 dark:text-zinc-400">
+                          {t.admin.data.htmlSectionDesc || "导出与导入标准的 HTML 格式书签文件，可随时在 Chrome、Edge、Safari、Firefox 等各大浏览器中导入备份与迁移。"}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowHtmlBackupOptions(!showHtmlBackupOptions)}
+                      className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-zinc-700 text-xs font-semibold text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-700/60 transition-colors cursor-pointer"
+                    >
+                      {showHtmlBackupOptions ? '收起' : '展开选项'}
+                    </button>
+                  </div>
+
+                  {showHtmlBackupOptions && (
+                    <div className="mt-5 pt-5 border-t border-slate-200/60 dark:border-white/5 grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in fade-in">
+                      <button
+                        onClick={handleExportHtmlBookmarks}
+                        className="py-3 px-4 bg-white dark:bg-zinc-700 border border-slate-200 dark:border-white/10 rounded-2xl text-xs font-bold text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-600 transition-colors flex items-center justify-center gap-2 shadow-xs cursor-pointer active:scale-95"
+                      >
+                        <Download className="w-4 h-4 text-brand-500" />
+                        <span>{t.admin.data.htmlExportBtn || "导出标准书签 (.html)"}</span>
+                      </button>
+
+                      <label className="py-3 px-4 bg-white dark:bg-zinc-700 border border-slate-200 dark:border-white/10 rounded-2xl text-xs font-bold text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-600 transition-colors flex items-center justify-center gap-2 shadow-xs cursor-pointer active:scale-95">
+                        <Upload className="w-4 h-4 text-brand-500" />
+                        <span>{t.admin.data.htmlImportBtn || "上传并导入书签 (.html)"}</span>
+                        <input
+                          type="file"
+                          className="hidden"
+                          accept=".html,.htm"
+                          onChange={handleImportHtmlBookmarks}
+                        />
+                      </label>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -2982,18 +3569,18 @@ const AdminModal: React.FC<AdminModalProps> = ({
                     {t.admin.link.meta.iconStrategy}
                   </span>
                   <span className="text-[10px] text-slate-400 dark:text-zinc-400 font-normal">
-                    支持 Google Play、Chrome Web Store、Facebook、Instagram、Discord、YouTube 800px、App Store 1024px 与原生 Favicon
+                    支持 App Store 1024px、Google Play、Chrome Web Store、YouTube 800px、Bilibili、X (Twitter) 400px 与原生 Favicon
                   </span>
                 </div>
 
                 {/* Smart Fetch & Multi-Platform Indicator Banner */}
-                {fetchedCandidates.icons.some(i => i.source.includes('Smart Fetch') || i.source.includes('Google Play') || i.source.includes('Chrome') || i.source.includes('Facebook') || i.source.includes('Instagram') || i.source.includes('Discord')) && (
+                {fetchedCandidates.icons.some(i => i.source.includes('Smart Fetch') || i.source.includes('Google Play') || i.source.includes('Chrome') || i.source.includes('Bilibili') || i.source.includes('Twitter') || i.source.includes('YouTube') || i.source.includes('App Store')) && (
                   <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-emerald-500/10 via-blue-500/10 to-purple-500/10 border border-blue-500/30 text-slate-800 dark:text-zinc-200 text-xs font-medium shadow-xs">
                     <Sparkles className="w-4 h-4 text-brand-500 shrink-0 animate-pulse" />
                     <div className="flex-1 min-w-0">
                       <span className="font-bold text-brand-600 dark:text-brand-400">⚡ 多平台官方超清图标适配已激活：</span>
                       <span className="opacity-90">
-                        已融合 Google Play、Chrome 应用商店、Facebook、Instagram、Discord、YouTube 与 App Store 官方原画图标及头像。
+                        已融合 App Store、Google Play、Chrome 应用商店、YouTube、Bilibili 与 X (Twitter) 官方原画图标及头像。
                       </span>
                     </div>
                   </div>
@@ -3602,9 +4189,9 @@ const AdminModal: React.FC<AdminModalProps> = ({
             setLinkForm(prev => ({
               ...prev,
               iconUrl: newIconDataUrl,
-              iconBgColor: bgColor || prev.iconBgColor,
+              iconBgColor: bgColor || '',
             }));
-            showToast('success', '已应用定制极简字母图标与底色！');
+            showToast('success', '已应用定制极简字标！');
           }}
         />
       )}

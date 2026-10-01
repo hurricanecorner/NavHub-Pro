@@ -6,17 +6,20 @@
 
 export type PortalPlatformId =
   | 'all'
-  | 'youtube'
   | 'appstore'
   | 'googleplay'
   | 'chromestore'
+  | 'youtube'
+  | 'bilibili'
+  | 'twitter'
+  | 'xiaohongshu'
   | 'facebook'
   | 'instagram'
   | 'discord';
 
 export interface PortalIconItem {
   id: string;
-  platform: 'youtube' | 'appstore' | 'googleplay' | 'chromestore' | 'facebook' | 'instagram' | 'discord';
+  platform: 'youtube' | 'appstore' | 'googleplay' | 'chromestore' | 'bilibili' | 'twitter' | 'xiaohongshu' | 'facebook' | 'instagram' | 'discord';
   title: string;
   subtitle?: string;
   badge: string;
@@ -414,6 +417,347 @@ export async function searchDiscord(query: string): Promise<PortalIconItem[]> {
         }
       }
     } catch {}
+  }
+
+  return results;
+}
+
+/**
+ * 6. Bilibili 官方主站与 UP 主原画头像检索 (https://www.bilibili.com/)
+ */
+export async function searchBilibili(query: string, limit = 8): Promise<PortalIconItem[]> {
+  const clean = query.trim();
+  const results: PortalIconItem[] = [];
+  const seenMids = new Set<string>();
+
+  const formatFans = (fans?: number) => {
+    if (!fans) return '';
+    if (fans >= 100000000) return `${(fans / 100000000).toFixed(1)}亿粉丝`;
+    if (fans >= 10000) return `${(fans / 10000).toFixed(1)}万粉丝`;
+    return `${fans} 粉丝`;
+  };
+
+  // 1. Direct Space URL or Numeric MID match (e.g. space.bilibili.com/946974 or 946974)
+  let directMid: string | null = null;
+  const midMatch = clean.match(/space\.bilibili\.com\/(\d+)/i) || (clean.match(/^\d{3,14}$/) ? [null, clean] : null);
+  if (midMatch && midMatch[1]) {
+    directMid = midMatch[1];
+  }
+
+  if (directMid) {
+    try {
+      const cardRes = await fetch(`https://api.bilibili.com/x/web-interface/card?mid=${encodeURIComponent(directMid)}`, {
+        headers: {
+          'User-Agent': COMMON_USER_AGENT,
+          'Referer': 'https://www.bilibili.com/',
+        },
+        signal: AbortSignal.timeout(3500)
+      });
+      if (cardRes.ok) {
+        const json = await cardRes.json();
+        const card = json?.data?.card;
+        if (card && card.face) {
+          const faceUrl = (card.face || '').replace(/^http:/, 'https:');
+          const fansText = formatFans(card.fans);
+          results.push({
+            id: card.mid,
+            platform: 'bilibili',
+            title: card.name,
+            subtitle: fansText ? `${fansText} · UID: ${card.mid}` : `UID: ${card.mid}`,
+            badge: 'Bilibili 原画',
+            icon512: faceUrl,
+            iconUrl: faceUrl,
+            profileUrl: `https://space.bilibili.com/${card.mid}`,
+            description: card.sign || `${card.name} 哔哩哔哩 UP 主`,
+            sizeLabel: 'HD 原画',
+            extraMeta: { fans: card.fans, mid: card.mid, sign: card.sign }
+          });
+          seenMids.add(card.mid);
+        }
+      }
+    } catch {}
+  }
+
+  // 2. Keyword Search on Bilibili via search/all/v2
+  const searchTerm = clean || 'bilibili';
+  try {
+    const searchRes = await fetch(`https://api.bilibili.com/x/web-interface/search/all/v2?keyword=${encodeURIComponent(searchTerm)}`, {
+      headers: {
+        'User-Agent': COMMON_USER_AGENT,
+        'Referer': 'https://www.bilibili.com/',
+      },
+      signal: AbortSignal.timeout(4000)
+    });
+
+    if (searchRes.ok) {
+      const json = await searchRes.json();
+      const videoResult = json?.data?.result?.find((r: any) => r.result_type === 'video');
+      const authorList: Array<{ name: string; mid: string; upic: string }> = [];
+
+      for (const item of (videoResult?.data || [])) {
+        const midStr = String(item.mid || '');
+        if (midStr && !seenMids.has(midStr)) {
+          seenMids.add(midStr);
+          authorList.push({
+            name: item.author || '',
+            mid: midStr,
+            upic: item.upic || ''
+          });
+          if (authorList.length >= limit) break;
+        }
+      }
+
+      // Fetch cards for authors in parallel
+      const cardTasks = authorList.map(async author => {
+        try {
+          const cRes = await fetch(`https://api.bilibili.com/x/web-interface/card?mid=${author.mid}`, {
+            headers: {
+              'User-Agent': COMMON_USER_AGENT,
+              'Referer': 'https://www.bilibili.com/',
+            },
+            signal: AbortSignal.timeout(2500)
+          });
+          if (cRes.ok) {
+            const cData = await cRes.json();
+            const card = cData?.data?.card;
+            if (card) {
+              const face = (card.face || author.upic || '').replace(/^http:/, 'https:');
+              return {
+                id: card.mid,
+                platform: 'bilibili' as const,
+                title: card.name || author.name,
+                subtitle: formatFans(card.fans) ? `${formatFans(card.fans)} · UID: ${card.mid}` : `UID: ${card.mid}`,
+                badge: 'Bilibili 原画',
+                icon512: face,
+                iconUrl: face,
+                profileUrl: `https://space.bilibili.com/${card.mid}`,
+                description: card.sign || `${card.name || author.name} 哔哩哔哩 UP 主`,
+                sizeLabel: 'HD 原画',
+                extraMeta: { fans: card.fans, mid: card.mid, sign: card.sign }
+              };
+            }
+          }
+        } catch {}
+
+        const fallbackFace = (author.upic || '').replace(/^http:/, 'https:');
+        return {
+          id: author.mid,
+          platform: 'bilibili' as const,
+          title: author.name,
+          subtitle: `UID: ${author.mid}`,
+          badge: 'Bilibili UP主',
+          icon512: fallbackFace,
+          iconUrl: fallbackFace,
+          profileUrl: `https://space.bilibili.com/${author.mid}`,
+          description: `${author.name} 哔哩哔哩 UP 主`,
+          sizeLabel: '原画'
+        };
+      });
+
+      const resolved = await Promise.allSettled(cardTasks);
+      for (const r of resolved) {
+        if (r.status === 'fulfilled' && r.value) {
+          results.push(r.value);
+        }
+      }
+    }
+  } catch {}
+
+  // 3. Official Bilibili Portal Master Assets
+  if (results.length === 0 || searchTerm.toLowerCase().includes('bili') || searchTerm.includes('哔哩') || searchTerm.includes('b站') || clean.includes('bilibili.com')) {
+    results.unshift({
+      id: 'bilibili-official',
+      platform: 'bilibili',
+      title: '哔哩哔哩 (Bilibili 官方主站)',
+      subtitle: 'https://www.bilibili.com/',
+      badge: '1024×1024 官方图标',
+      icon1024: 'https://i0.hdslb.com/bfs/static/jinkela/international-home/asserts/bilibili_logo.png',
+      icon512: 'https://i0.hdslb.com/bfs/static/jinkela/international-home/asserts/bilibili_logo.png',
+      iconUrl: 'https://i0.hdslb.com/bfs/static/jinkela/international-home/asserts/bilibili_logo.png',
+      profileUrl: 'https://www.bilibili.com/',
+      description: '中国年轻一代标志性弹幕视频网站，海量优质 UP 主原创内容',
+      sizeLabel: '官方 1024px'
+    });
+  }
+
+  return results;
+}
+
+/**
+ * 7. 小红书 官方品牌与创作者原画头像检索 (https://www.xiaohongshu.com/explore)
+ */
+export async function searchXiaohongshu(query: string, limit = 6): Promise<PortalIconItem[]> {
+  const clean = query.trim();
+  const results: PortalIconItem[] = [];
+
+  // 1. Scrape note or profile metadata if direct URL provided
+  if (clean.includes('xiaohongshu.com') || clean.includes('xhslink.com')) {
+    try {
+      const res = await fetch(clean, {
+        headers: {
+          'User-Agent': COMMON_USER_AGENT,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+        signal: AbortSignal.timeout(3500)
+      });
+      if (res.ok) {
+        const html = await res.text();
+        const ogTitle = html.match(/<meta property=["']og:title["'] content=["']([^"']+)["']/i)?.[1];
+        let ogImage = html.match(/<meta property=["']og:image["'] content=["']([^"']+)["']/i)?.[1];
+        const ogDesc = html.match(/<meta property=["']og:description["'] content=["']([^"']+)["']/i)?.[1];
+
+        if (ogImage) {
+          if (ogImage.startsWith('//')) ogImage = `https:${ogImage}`;
+          results.push({
+            id: 'xhs-scraped-link',
+            platform: 'xiaohongshu',
+            title: ogTitle || '小红书精选笔记与创作者',
+            subtitle: '小红书官方链接',
+            badge: '官方原图',
+            icon512: ogImage,
+            iconUrl: ogImage,
+            profileUrl: clean,
+            description: ogDesc || '小红书生活分享与创作者原图',
+            sizeLabel: '原画'
+          });
+        }
+      }
+    } catch {}
+  }
+
+  // 2. Fetch live Xiaohongshu apps from Apple iTunes Search (1024×1024 Official Master Icons)
+  try {
+    const itunesRes = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(clean || '小红书')}&country=cn&entity=software&limit=4`, {
+      headers: { 'User-Agent': COMMON_USER_AGENT },
+      signal: AbortSignal.timeout(3500)
+    });
+    if (itunesRes.ok) {
+      const itunesData = await itunesRes.json();
+      for (const item of (itunesData.results || [])) {
+        if (item.artworkUrl512) {
+          const hd1024 = item.artworkUrl512.replace('512x512bb', '1024x1024bb');
+          const isCoreXhs = item.trackName.includes('小红书');
+          results.push({
+            id: `xhs-itunes-${item.trackId}`,
+            platform: 'xiaohongshu',
+            title: item.trackName,
+            subtitle: item.artistName || '小红书官方',
+            badge: isCoreXhs ? '1024×1024 官方母版' : '官方 App 图标',
+            icon1024: hd1024,
+            icon512: item.artworkUrl512,
+            iconUrl: hd1024,
+            profileUrl: item.trackViewUrl || 'https://www.xiaohongshu.com/explore',
+            description: item.description?.slice(0, 100) || `${item.trackName} 官方客户端`,
+            sizeLabel: '1024×1024'
+          });
+        }
+      }
+    }
+  } catch {}
+
+  // 3. Official Xiaohongshu Web Explore Banner Icon (https://www.xiaohongshu.com/explore)
+  results.push({
+    id: 'xhs-explore-web',
+    platform: 'xiaohongshu',
+    title: '小红书 Explore 发现频道 (官方标)',
+    subtitle: 'https://www.xiaohongshu.com/explore',
+    badge: '官方 Explore',
+    icon512: 'https://picasso-static.xiaohongshu.com/fe-platform/e6214e4fbfae2cf14d634d4296916e8a5eaefdf4.png',
+    iconUrl: 'https://picasso-static.xiaohongshu.com/fe-platform/e6214e4fbfae2cf14d634d4296916e8a5eaefdf4.png',
+    profileUrl: 'https://www.xiaohongshu.com/explore',
+    description: '小红书 PC/网页端官方 Explore 发现精彩频道标识',
+    sizeLabel: '高清原画'
+  });
+
+  return results.slice(0, limit);
+}
+
+/**
+ * 8. X (原 Twitter) 官方与用户 400×400 高清原画头像检索
+ */
+export async function searchTwitter(query: string, limit = 8): Promise<PortalIconItem[]> {
+  const clean = query.trim();
+  if (!clean) return [];
+
+  const results: PortalIconItem[] = [];
+  const seenHandles = new Set<string>();
+
+  // If query is specifically "x", "twitter", "推特", provide standard official branding accounts
+  const lower = clean.toLowerCase();
+  if (['x', 'twitter', '推特', 'xcorp', 'x.com'].includes(lower)) {
+    results.push({
+      id: 'x-official',
+      platform: 'twitter',
+      title: 'X (官方认证账号)',
+      subtitle: '@X',
+      badge: '400×400 官方原画',
+      icon512: 'https://unavatar.io/x/x?fallback=false',
+      iconUrl: 'https://unavatar.io/x/x?fallback=false',
+      profileUrl: 'https://x.com/x',
+      description: 'X 平台官方认证主页超清头像',
+      sizeLabel: '400×400',
+    });
+    results.push({
+      id: 'twitter-official',
+      platform: 'twitter',
+      title: 'Twitter 经典标识',
+      subtitle: '@Twitter',
+      badge: '400×400 经典小蓝鸟',
+      icon512: 'https://unavatar.io/x/twitter?fallback=false',
+      iconUrl: 'https://unavatar.io/x/twitter?fallback=false',
+      profileUrl: 'https://x.com/twitter',
+      description: 'Twitter 经典小蓝鸟官方原画头像',
+      sizeLabel: '400×400',
+    });
+    seenHandles.add('x');
+    seenHandles.add('twitter');
+  }
+
+  // Extract possible username/handle candidates
+  const handles: string[] = [];
+
+  // Match URL: x.com/username or twitter.com/username
+  const urlMatch = clean.match(/(?:x\.com|twitter\.com)\/@?([a-zA-Z0-9_]{1,30})/i);
+  if (urlMatch && urlMatch[1] && !['home', 'explore', 'notifications', 'messages', 'search', 'settings', 'i'].includes(urlMatch[1].toLowerCase())) {
+    handles.push(urlMatch[1]);
+  }
+
+  // Match @username
+  const atMatch = clean.match(/^@([a-zA-Z0-9_]{1,30})$/);
+  if (atMatch && atMatch[1]) {
+    handles.push(atMatch[1]);
+  }
+
+  // Handle plain text (clean handle candidate)
+  const cleanHandle = clean.replace(/[@\s]/g, '');
+  if (cleanHandle && /^[a-zA-Z0-9_]{1,30}$/.test(cleanHandle)) {
+    handles.push(cleanHandle);
+  }
+
+  const compact = clean.replace(/[@\s\-_\.]/g, '');
+  if (compact && /^[a-zA-Z0-9_]{1,30}$/.test(compact)) {
+    handles.push(compact);
+  }
+
+  for (const h of handles) {
+    const normH = h.toLowerCase();
+    if (seenHandles.has(normH)) continue;
+    seenHandles.add(normH);
+
+    const avatarUrl = `https://unavatar.io/x/${encodeURIComponent(h)}?fallback=false`;
+    results.push({
+      id: `x-${normH}`,
+      platform: 'twitter',
+      title: `@${h}`,
+      subtitle: `X (原 Twitter) 用户`,
+      badge: '400×400 原画',
+      icon512: avatarUrl,
+      iconUrl: avatarUrl,
+      profileUrl: `https://x.com/${h}`,
+      description: `@${h} 的 X (原 Twitter) 官方个人/认证主页头像`,
+      sizeLabel: '400×400',
+    });
+    if (results.length >= limit) break;
   }
 
   return results;
